@@ -1,0 +1,16 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1",
+  "FriendlyName": "Catalyst Inventory",
+  "Description": "Unreal companion for Catalyst Inventory.",
+  "Category": "Catalyst",
+  "CanContainContent": false,
+  "Modules": [
+    {
+      "Name": "CatalystInventory",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}
