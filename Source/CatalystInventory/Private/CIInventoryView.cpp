@@ -1,6 +1,8 @@
 #include "CIInventoryView.h"
 
 #include "Engine/LocalPlayer.h"
+#include "Blueprint/WidgetTree.h"
+#include "CIInventoryTile.h"
 
 void UCIInventoryView::BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> InSource,
     std::string InProfileFieldId, std::string InInventoryFieldId)
@@ -13,6 +15,16 @@ void UCIInventoryView::BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> InSource
     {
         AttachSource();
     }
+}
+
+TSharedRef<SWidget> UCIInventoryView::RebuildWidget()
+{
+    if (WidgetTree && !WidgetTree->RootWidget)
+    {
+        InventoryTile = WidgetTree->ConstructWidget<UCIInventoryTile>();
+        WidgetTree->RootWidget = InventoryTile;
+    }
+    return Super::RebuildWidget();
 }
 
 void UCIInventoryView::NativeConstruct()
@@ -62,6 +74,28 @@ void UCIInventoryView::RefreshInventory()
             {
                 Inventory = Profile->Follow(InventoryFieldId);
             }
+        }
+    }
+    if (InventoryTile)
+    {
+        const auto Item = Inventory ? Inventory->FirstRelated("items") : TOptional<FCFMagritteBinding>();
+        InventoryTile->SetVisibility(Item ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        if (Item)
+        {
+            InventoryTile->Icon = nullptr;
+            for (const auto& Field : Item->Describe().orderedChildren())
+            {
+                if (Field->id == "definitionIdentifier")
+                {
+                    const auto Value = Item->Read(*Field);
+                    if (const auto* Definition = std::get_if<std::string>(&Value.data))
+                    {
+                        InventoryTile->Icon = ItemIcons.FindRef(UTF8_TO_TCHAR(Definition->c_str()));
+                    }
+                    break;
+                }
+            }
+            InventoryTile->BindItem(*Item);
         }
     }
     OnInventoryBindingChanged();

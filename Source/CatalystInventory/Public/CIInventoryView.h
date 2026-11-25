@@ -5,6 +5,9 @@
 
 #include "CIInventoryView.generated.h"
 
+class UCIInventoryTile;
+class UTexture2D;
+
 /** Widget Blueprint base for a signed-in player's game profile Inventory. */
 UCLASS(Abstract, Blueprintable, BlueprintType)
 class CATALYSTINVENTORY_API UCIInventoryView : public UUserWidget
@@ -22,9 +25,13 @@ public:
     bool HasInventory() const { return Inventory.IsSet(); }
 
 protected:
+    UPROPERTY(EditDefaultsOnly, Category = "Catalyst|Inventory")
+    TMap<FString, TObjectPtr<UTexture2D>> ItemIcons;
+
     UFUNCTION(BlueprintImplementableEvent, Category = "Catalyst|Inventory")
     void OnInventoryBindingChanged();
 
+    virtual TSharedRef<SWidget> RebuildWidget() override;
     virtual void NativeConstruct() override;
     virtual void NativeDestruct() override;
 
@@ -32,6 +39,9 @@ private:
     void AttachSource();
     void DetachSource();
     void RefreshInventory();
+
+    UPROPERTY(meta = (BindWidgetOptional))
+    TObjectPtr<UCIInventoryTile> InventoryTile;
 
     TSharedPtr<ICFPlayerMagritteSource> Source;
     FDelegateHandle SourceChanged;
