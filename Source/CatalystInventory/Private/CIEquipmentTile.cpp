@@ -135,7 +135,11 @@ void UCIEquipmentTile::RefreshMarkers()
         Markers->AddSlot().AutoWidth().Padding(0, 0, GetEquipmentTheme().MarkerGap, 0)
         [
             SNew(SBox)
-            .WidthOverride_Lambda([this] { return FOptionalSize(GetEquipmentTheme().MarkerSize); })
+            .WidthOverride_Lambda([this, Id, bAttribute] {
+                const auto& Style = GetEquipmentTheme();
+                return FOptionalSize(bAttribute && Style.AttributeIcons.FindRef(Id)
+                    ? Style.MarkerSize : Style.GlyphMarkerWidth);
+            })
             .HeightOverride_Lambda([this] { return FOptionalSize(GetEquipmentTheme().MarkerSize); })
             .ToolTipText(FText::FromString(Id))
             [
@@ -148,7 +152,7 @@ void UCIEquipmentTile::RefreshMarkers()
                 ]
                 + SOverlay::Slot()
                 [
-                    SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
+                    SNew(SScaleBox).Stretch(EStretch::ScaleToFitY).StretchDirection(EStretchDirection::DownOnly)
                     .HAlign(HAlign_Center).VAlign(VAlign_Center)
                     .Visibility_Lambda([this, Id, bAttribute] {
                         return bAttribute && GetEquipmentTheme().AttributeIcons.FindRef(Id)
