@@ -53,7 +53,7 @@ const FSlateBrush* ImageBrush(FSlateBrush& Brush, UTexture* Texture)
 
 const UCIEquipmentTileTheme& UCIEquipmentTile::GetEquipmentTheme() const
 {
-    const auto* EquipmentTheme = Cast<UCIEquipmentTileTheme>(Theme);
+    const auto* EquipmentTheme = Cast<UCIEquipmentTileTheme>(&GetTileTheme());
     return EquipmentTheme ? *EquipmentTheme : *GetDefault<UCIEquipmentTileTheme>();
 }
 
@@ -169,8 +169,18 @@ void UCIEquipmentTile::AddMarker(SHorizontalBox& Box, const FString& Id, const T
         SNew(SBox)
         .WidthOverride_Lambda([this, Id, bAttribute] {
             const auto& Style = GetEquipmentTheme();
-            return FOptionalSize(bAttribute && Style.AttributeIcons.FindRef(Id)
-                ? Style.MarkerSize : Style.GlyphMarkerWidth);
+            if (bAttribute)
+            {
+                if (Style.AttributeIcons.FindRef(Id))
+                {
+                    return FOptionalSize(Style.MarkerSize);
+                }
+                if (Style.AttributeGlyphMarkerWidth > 0.f)
+                {
+                    return FOptionalSize(Style.AttributeGlyphMarkerWidth);
+                }
+            }
+            return FOptionalSize(Style.GlyphMarkerWidth);
         })
         .HeightOverride_Lambda([this] { return FOptionalSize(GetEquipmentTheme().MarkerSize); })
         .ToolTipText(FText::FromString(Id))

@@ -10,14 +10,46 @@ class CATALYSTINVENTORY_API UCIWeaponToolRowTheme : public UCIEquipmentTileTheme
     GENERATED_BODY()
 
 public:
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
-    float ThumbnailWidth = 164.f;
+    UCIWeaponToolRowTheme();
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
-    float RowHeight = 90.f;
+    float ThumbnailWidth = 224.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
-    float ColumnSpacing = 12.f;
+    float RowHeight = 126.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
+    float HeaderHeight = 54.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
+    FMargin ThumbnailInset = FMargin(20.f, 8.f, 20.f, 26.f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
+    float ContentInset = 12.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
+    float ConsumableSize = 32.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
+    float StatWidth = 112.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
+    float TalentAreaWidth = 68.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
+    float DividerThickness = 1.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
+    FLinearColor DividerTint = FLinearColor(1.f, 1.f, 1.f, .12f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
+    FSlateFontInfo StatLabelFont;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
+    FSlateFontInfo LevelFont;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
+    FSlateFontInfo BadgeFont;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
     FLinearColor HigherValue = FLinearColor(.4f, .85f, .25f);
@@ -41,9 +73,11 @@ class CATALYSTINVENTORY_API UCIWeaponToolRow : public UCIEquipmentTile
 public:
     virtual void BindItem(const FCFMagritteBinding& Item) override;
     void SetComparisonItem(const TOptional<FCFMagritteBinding>& Item);
+    virtual const UCFTileTheme& GetTileTheme() const override;
 
 protected:
     virtual bool IsRowPresentation() const override { return true; }
+    virtual FMargin GetIconPadding() const override;
     virtual TSharedRef<SWidget> BuildExpertise() override;
     virtual TSharedRef<SWidget> BuildTileContent() override;
     virtual void ReleaseSlateResources(bool bReleaseChildren) override;
@@ -60,7 +94,8 @@ private:
     const UCIWeaponToolRowTheme& GetRowTheme() const;
     void RefreshDetails();
     void RefreshStats();
-    TSharedRef<SWidget> MakeIcon(UTexture* Texture, const FText& Fallback, const FText& Tooltip);
+    TSharedRef<SWidget> MakeIcon(UTexture* Texture, const FText& Fallback, const FText& Tooltip, float Size);
+    TSharedRef<SWidget> BuildRequiredLevel();
 
     TSharedPtr<class SHorizontalBox> Title, StatWidgets, Indicators;
     TArray<FStat> Stats, ComparisonStats;

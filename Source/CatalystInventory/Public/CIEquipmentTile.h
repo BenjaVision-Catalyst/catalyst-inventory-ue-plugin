@@ -22,6 +22,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile")
     float GlyphMarkerWidth = 10.f;
 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile", meta = (ClampMin = "0.0"))
+    float AttributeGlyphMarkerWidth = 0.f;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile")
     float MaximumMarkerInset = 8.f;
 

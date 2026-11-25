@@ -75,13 +75,13 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
 
 const UCIInventoryTileTheme& UCIInventoryTile::GetInventoryTheme() const
 {
-    const auto* InventoryTheme = Cast<UCIInventoryTileTheme>(Theme);
+    const auto* InventoryTheme = Cast<UCIInventoryTileTheme>(&GetTileTheme());
     return InventoryTheme ? *InventoryTheme : *GetDefault<UCIInventoryTileTheme>();
 }
 
 const UCFTileTheme& UCIInventoryTile::GetTileTheme() const
 {
-    return Theme ? static_cast<const UCFTileTheme&>(*Theme) : GetInventoryTheme();
+    return Theme ? static_cast<const UCFTileTheme&>(*Theme) : *GetDefault<UCIInventoryTileTheme>();
 }
 
 TSharedRef<SWidget> UCIInventoryTile::BuildTileContent()
@@ -121,7 +121,7 @@ TSharedRef<SWidget> UCIInventoryTile::BuildTileContent()
                         .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
                     ]
                 ]
-                + SVerticalBox::Slot().FillHeight(1.f)
+                + SVerticalBox::Slot().FillHeight(1.f).Padding(TAttribute<FMargin>::CreateLambda([this] { return GetIconPadding(); }))
                 [
                     SNew(SScaleBox).Stretch(EStretch::ScaleToFit).HAlign(HAlign_Center).VAlign(VAlign_Center)
                     [

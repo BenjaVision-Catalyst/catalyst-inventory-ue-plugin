@@ -76,6 +76,7 @@ protected:
     virtual TSharedRef<SWidget> BuildTileContent() override;
 
     const UCIInventoryTileTheme& GetInventoryTheme() const;
+    virtual FMargin GetIconPadding() const { return FMargin(0.f); }
     virtual FText TileLabel() const { return Label; }
 
 private:
