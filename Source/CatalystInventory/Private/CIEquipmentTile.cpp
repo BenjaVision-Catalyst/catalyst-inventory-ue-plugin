@@ -263,7 +263,10 @@ TSharedRef<SWidget> UCIEquipmentTile::BuildTileContent()
                 + SOverlay::Slot().VAlign(VAlign_Bottom)
                 [
                     SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
-                    .Padding_Lambda([this] { return FMargin(0, 0, GetEquipmentTheme().BadgeSize, 0); })
+                    .Padding_Lambda([this] {
+                        const float Left = GetMarkerLeftInset() - GetInventoryTheme().Spacing;
+                        return FMargin(Left, 0.f, GetEquipmentTheme().BadgeSize, 0.f);
+                    })
                     [
                         SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
                         .HAlign(HAlign_Left)[Markers.ToSharedRef()]

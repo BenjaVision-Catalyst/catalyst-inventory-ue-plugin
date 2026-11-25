@@ -32,6 +32,7 @@ UCIWeaponToolRowTheme::UCIWeaponToolRowTheme()
     StatLabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 16);
     LevelFont = FCoreStyle::GetDefaultFontStyle("Bold", 16);
     BadgeFont = FCoreStyle::GetDefaultFontStyle("Bold", 13);
+    TierBandWidth = 4.f;
     BadgeSize = 29.f;
     MarkerSize = 27.f;
     GlyphMarkerWidth = 13.f;
@@ -254,6 +255,15 @@ void UCIWeaponToolRow::RefreshStats()
 FMargin UCIWeaponToolRow::GetIconPadding() const
 {
     return GetRowTheme().ThumbnailInset;
+}
+
+float UCIWeaponToolRow::GetMarkerLeftInset() const
+{
+    if (bShowTier && !bShowCount)
+    {
+        return GetInventoryTheme().TierBandWidth + GetRowTheme().ModInsetFromTierBand;
+    }
+    return Super::GetMarkerLeftInset();
 }
 
 TSharedRef<SWidget> UCIWeaponToolRow::BuildExpertise()

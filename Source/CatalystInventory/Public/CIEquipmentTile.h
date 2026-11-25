@@ -87,6 +87,7 @@ protected:
 
     const UCIEquipmentTileTheme& GetEquipmentTheme() const;
     virtual bool IsRowPresentation() const { return false; }
+    virtual float GetMarkerLeftInset() const { return GetInventoryTheme().Spacing; }
     void PopulateAttributes(SHorizontalBox& Box, const TArray<FString>& MaximumAttributes);
     TSharedRef<SWidget> BuildTalent();
     virtual TSharedRef<SWidget> BuildExpertise();

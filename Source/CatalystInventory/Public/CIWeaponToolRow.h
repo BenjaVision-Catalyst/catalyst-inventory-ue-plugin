@@ -27,6 +27,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
     float ContentInset = 12.f;
 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row", meta = (ClampMin = "0.0"))
+    float ModInsetFromTierBand = 9.f;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
     float ConsumableSize = 32.f;
 
@@ -78,6 +81,7 @@ public:
 protected:
     virtual bool IsRowPresentation() const override { return true; }
     virtual FMargin GetIconPadding() const override;
+    virtual float GetMarkerLeftInset() const override;
     virtual TSharedRef<SWidget> BuildExpertise() override;
     virtual TSharedRef<SWidget> BuildTileContent() override;
     virtual void ReleaseSlateResources(bool bReleaseChildren) override;
