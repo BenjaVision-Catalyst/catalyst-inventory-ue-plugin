@@ -6,6 +6,10 @@
   "Description": "Unreal companion for Catalyst Inventory.",
   "Category": "Catalyst",
   "CanContainContent": true,
+  "Plugins": [
+    { "Name": "CatalystFoundation", "Enabled": true },
+    { "Name": "CatalystConnect", "Enabled": true }
+  ],
   "Modules": [
     {
       "Name": "CatalystInventory",
