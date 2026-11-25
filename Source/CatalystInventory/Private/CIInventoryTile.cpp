@@ -38,6 +38,7 @@ UCIInventoryTile::UCIInventoryTile()
 void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
 {
     TierId = 1;
+    bShowTier = false;
     Label = FText::GetEmpty();
     bShowCount = false;
     Count = 0;
@@ -49,6 +50,7 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
             if (const auto* Tier = std::get_if<std::int64_t>(&Value.data); Tier && *Tier >= 1 && *Tier <= 6)
             {
                 TierId = static_cast<int32>(*Tier);
+                bShowTier = true;
             }
         }
         else if (Field->id == "displayName")
@@ -67,6 +69,7 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
             }
         }
     }
+    bShowTier = bShowTier && !bShowCount;
     InvalidateLayoutAndVolatility();
 }
 
@@ -91,6 +94,7 @@ TSharedRef<SWidget> UCIInventoryTile::BuildTileContent()
         + SOverlay::Slot().HAlign(HAlign_Left)
         [
             SNew(SBox).WidthOverride_Lambda([this] { return FOptionalSize(GetInventoryTheme().TierBandWidth); })
+            .Visibility_Lambda([this] { return bShowTier && !bShowCount ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
             [
                 SNew(SBorder).Padding(0).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
                 .BorderBackgroundColor_Lambda([this] {
@@ -110,9 +114,9 @@ TSharedRef<SWidget> UCIInventoryTile::BuildTileContent()
                 [
                     SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
                     .Padding_Lambda([this] { return FMargin(0, 0, 0, GetInventoryTheme().Spacing); })
-                    .Visibility_Lambda([this] { return Label.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible; })
+                    .Visibility_Lambda([this] { return TileLabel().IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible; })
                     [
-                        SNew(STextBlock).Text_Lambda([this] { return Label; })
+                        SNew(STextBlock).Text_Lambda([this] { return TileLabel(); })
                         .Font_Lambda([this] { return GetInventoryTheme().LabelFont; })
                         .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
                     ]

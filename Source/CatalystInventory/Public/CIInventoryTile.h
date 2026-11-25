@@ -54,6 +54,9 @@ public:
     int32 TierId = 1;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory Tile")
+    bool bShowTier = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory Tile")
     TObjectPtr<UTexture> Icon;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory Tile")
@@ -67,13 +70,15 @@ public:
 
     virtual const UCFTileTheme& GetTileTheme() const override;
 
-    void BindItem(const FCFMagritteBinding& Item);
+    virtual void BindItem(const FCFMagritteBinding& Item);
 
 protected:
     virtual TSharedRef<SWidget> BuildTileContent() override;
 
-private:
     const UCIInventoryTileTheme& GetInventoryTheme() const;
+    virtual FText TileLabel() const { return Label; }
+
+private:
 
     FSlateBrush IconBrush;
 };

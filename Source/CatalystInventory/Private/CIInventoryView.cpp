@@ -2,7 +2,7 @@
 
 #include "Engine/LocalPlayer.h"
 #include "Blueprint/WidgetTree.h"
-#include "CIInventoryTile.h"
+#include "CIEquipmentTile.h"
 
 void UCIInventoryView::BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> InSource,
     std::string InProfileFieldId, std::string InInventoryFieldId)
@@ -21,7 +21,7 @@ TSharedRef<SWidget> UCIInventoryView::RebuildWidget()
 {
     if (WidgetTree && !WidgetTree->RootWidget)
     {
-        InventoryTile = WidgetTree->ConstructWidget<UCIInventoryTile>();
+        InventoryTile = WidgetTree->ConstructWidget<UCIEquipmentTile>();
         WidgetTree->RootWidget = InventoryTile;
     }
     if (InventoryTile && TileTheme)

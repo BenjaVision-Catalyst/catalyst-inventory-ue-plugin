@@ -16,11 +16,18 @@ graph replacements and sign-out through `OnChanged` on the game thread. The
 widget follows both relations and broadcasts `OnInventoryBindingChanged`.
 `HasInventory` is false while any part of the graph is unavailable.
 
-The tile reads `tierId`, `displayName` and optional `count` from the item
-description. Assign icons in `ItemIcons` by Catalyst definition identifier.
+The tile reads `displayName` and either an individual item's `tierId` or a
+stack's `count`. Assign icons in `ItemIcons` by Catalyst definition identifier.
 Create a `CIInventoryTileTheme` Data Asset and assign it to the view's
 `TileTheme` or a standalone tile's `Theme`. It controls the frame, focus
 fill, backdrop blur, tier palette and band width, text fonts, tints, minimum
 size and spacing. One spacing value controls the outer inset and the gaps
 between the icon and visible labels. The icon preserves its aspect ratio
 while filling the available area.
+
+Use `CIEquipmentTile` for individual tools, weapons, gear and gadgets. The
+equipment row supplies `presentationKind`, an Inventory-wide
+`inventoryTypeCount`, ordered `modSlots`, and offensive, defensive and utility
+attribute ID lists. Each slot relates to a row with `slotIdentifier` and
+optional `equippedModIdentifier`. Brand, talent and expertise are optional.
+Equipment theme assets map brand, talent and attribute IDs to local art.
