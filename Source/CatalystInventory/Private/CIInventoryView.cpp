@@ -24,6 +24,10 @@ TSharedRef<SWidget> UCIInventoryView::RebuildWidget()
         InventoryTile = WidgetTree->ConstructWidget<UCIInventoryTile>();
         WidgetTree->RootWidget = InventoryTile;
     }
+    if (InventoryTile && TileTheme)
+    {
+        InventoryTile->Theme = TileTheme;
+    }
     return Super::RebuildWidget();
 }
 

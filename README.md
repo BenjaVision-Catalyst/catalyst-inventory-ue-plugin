@@ -18,5 +18,9 @@ widget follows both relations and broadcasts `OnInventoryBindingChanged`.
 
 The tile reads `tierId`, `displayName` and optional `count` from the item
 description. Assign icons in `ItemIcons` by Catalyst definition identifier.
-The left-edge band uses the editable six-tier palette. The base frame and
-focus state come from Foundation's `CFTile`.
+Create a `CIInventoryTileTheme` Data Asset and assign it to the view's
+`TileTheme` or a standalone tile's `Theme`. It controls the frame, focus
+fill, backdrop blur, tier palette and band width, text fonts, tints, minimum
+size and spacing. One spacing value controls the outer inset and the gaps
+between the icon and visible labels. The icon preserves its aspect ratio
+while filling the available area.

@@ -6,7 +6,8 @@
 #include "CIInventoryView.generated.h"
 
 class UCIInventoryTile;
-class UTexture2D;
+class UCIInventoryTileTheme;
+class UTexture;
 
 /** Widget Blueprint base for a signed-in player's game profile Inventory. */
 UCLASS(Abstract, Blueprintable, BlueprintType)
@@ -26,7 +27,10 @@ public:
 
 protected:
     UPROPERTY(EditDefaultsOnly, Category = "Catalyst|Inventory")
-    TMap<FString, TObjectPtr<UTexture2D>> ItemIcons;
+    TObjectPtr<UCIInventoryTileTheme> TileTheme;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Catalyst|Inventory")
+    TMap<FString, TObjectPtr<UTexture>> ItemIcons;
 
     UFUNCTION(BlueprintImplementableEvent, Category = "Catalyst|Inventory")
     void OnInventoryBindingChanged();
