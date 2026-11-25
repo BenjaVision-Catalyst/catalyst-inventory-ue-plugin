@@ -145,7 +145,7 @@ TSharedRef<SWidget> UCIInventoryTile::BuildInventoryContent()
                         {
                             IconBrush.SetImageSize(FVector2D(Icon->GetSurfaceWidth(), Icon->GetSurfaceHeight()));
                         }
-                        return Icon ? &IconBrush : FCoreStyle::Get().GetBrush("NoBrush");
+                        return Icon && ShowsItemIcon() ? &IconBrush : FCoreStyle::Get().GetBrush("NoBrush");
                     }).ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().IconTint); })
                 ]
             ]

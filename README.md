@@ -51,3 +51,15 @@ has a `statIdentifier`, `displayName` and numeric `value`. The server
 supplies the identifiers of attributes at maximum. Create a
 `CIWeaponToolRowTheme` to tune the layout and resolve the consumable,
 proficiency and talent art locally.
+
+Use `CIGearRow` for an individual gear item. It uses the same Equipment Row
+layout and Inventory tier band as tool and weapon rows. `CIGearRowTheme`
+resolves local brand, gear-slot, talent and junk art. The gear summary supplies
+the brand name, optional primary attribute, required player level and item
+state. The primary attribute specifies its identifier, display name, type,
+numeric value, format and maximum state. Use a fractional value for
+`signedPercent` (for example, 0.15 displays as +15%). Secondary attribute and
+talent indicators use the shared Equipment Row rendering.
+
+`isJunk` is a read-only state for gear presentation. The row displays that
+state when supplied by the model.

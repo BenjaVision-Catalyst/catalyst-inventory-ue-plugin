@@ -92,6 +92,7 @@ protected:
     bool HasTierBand() const;
 
     const UCIInventoryTileTheme& GetInventoryTheme() const;
+    virtual bool ShowsItemIcon() const { return true; }
     virtual FMargin GetIconPadding() const { return FMargin(0.f); }
     virtual FText TileLabel() const { return Label; }
 

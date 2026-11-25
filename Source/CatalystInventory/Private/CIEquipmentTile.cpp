@@ -142,32 +142,46 @@ void UCIEquipmentTile::RefreshMarkers()
     }
 }
 
-void UCIEquipmentTile::PopulateAttributes(SHorizontalBox& Box, const TArray<FString>& MaximumAttributes)
+void UCIEquipmentTile::PopulateAttributes(SHorizontalBox& Box, const TArray<FString>& MaximumAttributes,
+    const FString& ExcludedAttribute)
 {
     const auto& Style = GetEquipmentTheme();
     for (const FString& Id : OffensiveAttributes)
     {
-        AddMarker(Box, Id, TEXT("●"), Style.Offensive, true, MaximumAttributes.Contains(Id));
+        if (Id != ExcludedAttribute)
+        {
+            AddMarker(Box, Id, TEXT("●"), Style.Offensive, true, MaximumAttributes.Contains(Id));
+        }
     }
     for (const FString& Id : DefensiveAttributes)
     {
-        AddMarker(Box, Id, TEXT("◆"), Style.Defensive, true, MaximumAttributes.Contains(Id));
+        if (Id != ExcludedAttribute)
+        {
+            AddMarker(Box, Id, TEXT("◆"), Style.Defensive, true, MaximumAttributes.Contains(Id));
+        }
     }
     for (const FString& Id : UtilityAttributes)
     {
-        AddMarker(Box, Id, TEXT("▲"), Style.Utility, true, MaximumAttributes.Contains(Id));
+        if (Id != ExcludedAttribute)
+        {
+            AddMarker(Box, Id, TEXT("▲"), Style.Utility, true, MaximumAttributes.Contains(Id));
+        }
     }
 }
 
 void UCIEquipmentTile::AddMarker(SHorizontalBox& Box, const FString& Id, const TCHAR* Glyph,
-    FLinearColor Tint, bool bAttribute, bool bMaximum)
+    FLinearColor Tint, bool bAttribute, bool bMaximum, float Size)
 {
     const auto Brush = MakeShared<FSlateBrush>();
     const float MaximumInset = bMaximum ? GetEquipmentTheme().MaximumMarkerInset : 0.f;
     Box.AddSlot().AutoWidth().Padding(0, 0, GetEquipmentTheme().MarkerGap, 0)
     [
         SNew(SBox)
-        .WidthOverride_Lambda([this, Id, bAttribute] {
+        .WidthOverride_Lambda([this, Id, bAttribute, Size] {
+            if (Size > 0.f)
+            {
+                return FOptionalSize(Size);
+            }
             const auto& Style = GetEquipmentTheme();
             if (bAttribute)
             {
@@ -182,7 +196,7 @@ void UCIEquipmentTile::AddMarker(SHorizontalBox& Box, const FString& Id, const T
             }
             return FOptionalSize(Style.GlyphMarkerWidth);
         })
-        .HeightOverride_Lambda([this] { return FOptionalSize(GetEquipmentTheme().MarkerSize); })
+        .HeightOverride_Lambda([this, Size] { return FOptionalSize(Size > 0.f ? Size : GetEquipmentTheme().MarkerSize); })
         .ToolTipText(FText::FromString(Id))
         [
             SNew(SOverlay)
@@ -209,8 +223,9 @@ void UCIEquipmentTile::AddMarker(SHorizontalBox& Box, const FString& Id, const T
                 })
                 [
                     SNew(STextBlock).Text(FText::FromString(Glyph))
-                    .Font_Lambda([this] {
-                        const int32 PointSize = FMath::Max(1, FMath::RoundToInt(GetEquipmentTheme().MarkerSize * 1.2f));
+                    .Font_Lambda([this, Size] {
+                        const float MarkerSize = Size > 0.f ? Size : GetEquipmentTheme().MarkerSize;
+                        const int32 PointSize = FMath::Max(1, FMath::RoundToInt(MarkerSize * 1.2f));
                         return FCoreStyle::GetDefaultFontStyle("Regular", PointSize);
                     }).ColorAndOpacity(Tint)
                 ]
