@@ -7,7 +7,6 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScaleBox.h"
-#include "Widgets/SOverlay.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
 
@@ -28,6 +27,11 @@ UCIInventoryTileTheme::UCIInventoryTileTheme()
     };
     LabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 14);
     CountFont = FCoreStyle::GetDefaultFontStyle("Regular", 16);
+}
+
+const UCIInventoryTierStyle& UCIInventoryTileTheme::GetTierStyle() const
+{
+    return TierStyle ? *TierStyle : *GetDefault<UCIInventoryTierStyle>();
 }
 
 UCIInventoryTile::UCIInventoryTile()
@@ -84,17 +88,22 @@ const UCFTileTheme& UCIInventoryTile::GetTileTheme() const
     return Theme ? static_cast<const UCFTileTheme&>(*Theme) : *GetDefault<UCIInventoryTileTheme>();
 }
 
+bool UCIInventoryTile::HasTierBand() const
+{
+    return bShowTier && !bShowCount && GetInventoryTheme().GetTierStyle().BandWidth > 0.f;
+}
+
 TSharedRef<SWidget> UCIInventoryTile::BuildTileContent()
 {
     return SNew(SBox)
         .MinDesiredWidth_Lambda([this] { return FOptionalSize(GetInventoryTheme().MinimumSize.X); })
         .MinDesiredHeight_Lambda([this] { return FOptionalSize(GetInventoryTheme().MinimumSize.Y); })
     [
-        SNew(SOverlay)
-        + SOverlay::Slot().HAlign(HAlign_Left)
+        SNew(SHorizontalBox)
+        + SHorizontalBox::Slot().AutoWidth()
         [
-            SNew(SBox).WidthOverride_Lambda([this] { return FOptionalSize(GetInventoryTheme().TierBandWidth); })
-            .Visibility_Lambda([this] { return bShowTier && !bShowCount ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
+            SNew(SBox).WidthOverride_Lambda([this] { return FOptionalSize(GetInventoryTheme().GetTierStyle().BandWidth); })
+            .Visibility_Lambda([this] { return HasTierBand() ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
             [
                 SNew(SBorder).Padding(0).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
                 .BorderBackgroundColor_Lambda([this] {
@@ -104,53 +113,56 @@ TSharedRef<SWidget> UCIInventoryTile::BuildTileContent()
                 })
             ]
         ]
-        + SOverlay::Slot()
+        + SHorizontalBox::Slot().FillWidth(1.f)
+        [BuildInventoryContent()]
+    ];
+}
+
+TSharedRef<SWidget> UCIInventoryTile::BuildInventoryContent()
+{
+    return SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
+        .Padding_Lambda([this] { return FMargin(GetInventoryTheme().Spacing); })
         [
-            SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
-            .Padding_Lambda([this] { return FMargin(GetInventoryTheme().Spacing); })
+            SNew(SVerticalBox)
+            + SVerticalBox::Slot().AutoHeight()
             [
-                SNew(SVerticalBox)
-                + SVerticalBox::Slot().AutoHeight()
+                SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
+                .Padding_Lambda([this] { return FMargin(0, 0, 0, GetInventoryTheme().Spacing); })
+                .Visibility_Lambda([this] { return TileLabel().IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible; })
                 [
-                    SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
-                    .Padding_Lambda([this] { return FMargin(0, 0, 0, GetInventoryTheme().Spacing); })
-                    .Visibility_Lambda([this] { return TileLabel().IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible; })
+                    SNew(STextBlock).Text_Lambda([this] { return TileLabel(); })
+                    .Font_Lambda([this] { return GetInventoryTheme().LabelFont; })
+                    .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
+                ]
+            ]
+            + SVerticalBox::Slot().FillHeight(1.f).Padding(TAttribute<FMargin>::CreateLambda([this] { return GetIconPadding(); }))
+            [
+                SNew(SScaleBox).Stretch(EStretch::ScaleToFit).HAlign(HAlign_Center).VAlign(VAlign_Center)
+                [
+                    SNew(SImage).Image_Lambda([this] {
+                        IconBrush.SetResourceObject(Icon);
+                        if (Icon)
+                        {
+                            IconBrush.SetImageSize(FVector2D(Icon->GetSurfaceWidth(), Icon->GetSurfaceHeight()));
+                        }
+                        return Icon ? &IconBrush : FCoreStyle::Get().GetBrush("NoBrush");
+                    }).ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().IconTint); })
+                ]
+            ]
+            + SVerticalBox::Slot().AutoHeight()
+            [
+                SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
+                .Padding_Lambda([this] { return FMargin(0, GetInventoryTheme().Spacing, 0, 0); })
+                .Visibility_Lambda([this] { return bShowCount ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
+                [
+                    SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
+                    .HAlign(HAlign_Center)
                     [
-                        SNew(STextBlock).Text_Lambda([this] { return TileLabel(); })
-                        .Font_Lambda([this] { return GetInventoryTheme().LabelFont; })
+                        SNew(STextBlock).Text_Lambda([this] { return FText::AsNumber(Count); })
+                        .Font_Lambda([this] { return GetInventoryTheme().CountFont; })
                         .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
                     ]
                 ]
-                + SVerticalBox::Slot().FillHeight(1.f).Padding(TAttribute<FMargin>::CreateLambda([this] { return GetIconPadding(); }))
-                [
-                    SNew(SScaleBox).Stretch(EStretch::ScaleToFit).HAlign(HAlign_Center).VAlign(VAlign_Center)
-                    [
-                        SNew(SImage).Image_Lambda([this] {
-                            IconBrush.SetResourceObject(Icon);
-                            if (Icon)
-                            {
-                                IconBrush.SetImageSize(FVector2D(Icon->GetSurfaceWidth(), Icon->GetSurfaceHeight()));
-                            }
-                            return Icon ? &IconBrush : FCoreStyle::Get().GetBrush("NoBrush");
-                        }).ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().IconTint); })
-                    ]
-                ]
-                + SVerticalBox::Slot().AutoHeight()
-                [
-                    SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
-                    .Padding_Lambda([this] { return FMargin(0, GetInventoryTheme().Spacing, 0, 0); })
-                    .Visibility_Lambda([this] { return bShowCount ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
-                    [
-                        SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
-                        .HAlign(HAlign_Center)
-                        [
-                            SNew(STextBlock).Text_Lambda([this] { return FText::AsNumber(Count); })
-                            .Font_Lambda([this] { return GetInventoryTheme().CountFont; })
-                            .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
-                        ]
-                    ]
-                ]
             ]
-        ]
-    ];
+        ];
 }

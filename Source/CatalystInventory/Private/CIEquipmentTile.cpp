@@ -219,7 +219,7 @@ void UCIEquipmentTile::AddMarker(SHorizontalBox& Box, const FString& Id, const T
     ];
 }
 
-TSharedRef<SWidget> UCIEquipmentTile::BuildTileContent()
+TSharedRef<SWidget> UCIEquipmentTile::BuildInventoryContent()
 {
     SAssignNew(Markers, SHorizontalBox);
     RefreshMarkers();
@@ -246,7 +246,7 @@ TSharedRef<SWidget> UCIEquipmentTile::BuildTileContent()
                 ]
             ]
         ]
-        + SOverlay::Slot()[Super::BuildTileContent()]
+        + SOverlay::Slot()[Super::BuildInventoryContent()]
         + SOverlay::Slot()
         [
             SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))

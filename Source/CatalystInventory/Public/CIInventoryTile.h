@@ -7,6 +7,17 @@
 class FCFMagritteBinding;
 class UTexture;
 
+/** Shared tier-band geometry for compact tiles and rows. */
+UCLASS(BlueprintType)
+class CATALYSTINVENTORY_API UCIInventoryTierStyle : public UDataAsset
+{
+    GENERATED_BODY()
+
+public:
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tier", meta = (ClampMin = "0.0"))
+    float BandWidth = 4.f;
+};
+
 /** Editable frame, tier and content metrics shared across Inventory tiles. */
 UCLASS(BlueprintType)
 class CATALYSTINVENTORY_API UCIInventoryTileTheme : public UCFTileTheme
@@ -19,8 +30,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile")
     TMap<int32, FLinearColor> TierColors;
 
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile", meta = (ClampMin = "0.0"))
-    float TierBandWidth = 2.f;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile")
+    TObjectPtr<UCIInventoryTierStyle> TierStyle;
+
+    const UCIInventoryTierStyle& GetTierStyle() const;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile", meta = (ClampMin = "0.0"))
     float Spacing = 5.f;
@@ -73,7 +86,10 @@ public:
     virtual void BindItem(const FCFMagritteBinding& Item);
 
 protected:
-    virtual TSharedRef<SWidget> BuildTileContent() override;
+    virtual TSharedRef<SWidget> BuildTileContent() override final;
+    virtual TSharedRef<SWidget> BuildInventoryContent();
+
+    bool HasTierBand() const;
 
     const UCIInventoryTileTheme& GetInventoryTheme() const;
     virtual FMargin GetIconPadding() const { return FMargin(0.f); }

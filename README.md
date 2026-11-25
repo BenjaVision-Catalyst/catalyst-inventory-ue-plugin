@@ -20,10 +20,15 @@ The tile reads `displayName` and either an individual item's `tierId` or a
 stack's `count`. Assign icons in `ItemIcons` by Catalyst definition identifier.
 Create a `CIInventoryTileTheme` Data Asset and assign it to the view's
 `TileTheme` or a standalone tile's `Theme`. It controls the frame, focus
-fill, backdrop blur, tier palette and band width, text fonts, tints, minimum
-size and spacing. One spacing value controls the outer inset and the gaps
+fill, backdrop blur, tier palette, text fonts, tints, minimum size and spacing. One spacing value controls the outer inset and the gaps
 between the icon and visible labels. The icon preserves its aspect ratio
 while filling the available area.
+
+Compact tiles and rows use the same 4-unit tier band by default. To change the
+width for a presentation, assign the same `CIInventoryTierStyle` Data Asset to
+each theme's `TierStyle` and edit `BandWidth` on that shared asset. The band gets
+its own layout space before the tile content. Tiles with no tier, including
+stacks and gadgets, use the full width for content.
 
 Use `CIEquipmentTile` for individual tools, weapons, gear and gadgets. The
 equipment row supplies `presentationKind`, an Inventory-wide

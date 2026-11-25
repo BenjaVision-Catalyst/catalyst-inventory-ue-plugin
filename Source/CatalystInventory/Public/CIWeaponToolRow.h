@@ -83,7 +83,7 @@ protected:
     virtual FMargin GetIconPadding() const override;
     virtual float GetMarkerLeftInset() const override;
     virtual TSharedRef<SWidget> BuildExpertise() override;
-    virtual TSharedRef<SWidget> BuildTileContent() override;
+    virtual TSharedRef<SWidget> BuildInventoryContent() override;
     virtual void ReleaseSlateResources(bool bReleaseChildren) override;
 
 private:

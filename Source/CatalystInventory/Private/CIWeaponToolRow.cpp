@@ -32,7 +32,6 @@ UCIWeaponToolRowTheme::UCIWeaponToolRowTheme()
     StatLabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 16);
     LevelFont = FCoreStyle::GetDefaultFontStyle("Bold", 16);
     BadgeFont = FCoreStyle::GetDefaultFontStyle("Bold", 13);
-    TierBandWidth = 4.f;
     BadgeSize = 29.f;
     MarkerSize = 27.f;
     GlyphMarkerWidth = 13.f;
@@ -259,9 +258,9 @@ FMargin UCIWeaponToolRow::GetIconPadding() const
 
 float UCIWeaponToolRow::GetMarkerLeftInset() const
 {
-    if (bShowTier && !bShowCount)
+    if (HasTierBand())
     {
-        return GetInventoryTheme().TierBandWidth + GetRowTheme().ModInsetFromTierBand;
+        return GetRowTheme().ModInsetFromTierBand;
     }
     return Super::GetMarkerLeftInset();
 }
@@ -307,7 +306,7 @@ TSharedRef<SWidget> UCIWeaponToolRow::BuildRequiredLevel()
         ];
 }
 
-TSharedRef<SWidget> UCIWeaponToolRow::BuildTileContent()
+TSharedRef<SWidget> UCIWeaponToolRow::BuildInventoryContent()
 {
     const auto& Style = GetRowTheme();
     const auto* DividerBrush = FCoreStyle::Get().GetBrush("WhiteBrush");
@@ -322,7 +321,7 @@ TSharedRef<SWidget> UCIWeaponToolRow::BuildTileContent()
         + SHorizontalBox::Slot().AutoWidth()
         [
             SNew(SBox).WidthOverride(Style.ThumbnailWidth)
-            [Super::BuildTileContent()]
+            [Super::BuildInventoryContent()]
         ]
         + SHorizontalBox::Slot().AutoWidth()
         [

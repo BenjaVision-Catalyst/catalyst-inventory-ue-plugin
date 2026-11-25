@@ -81,7 +81,7 @@ public:
     int64 InventoryTypeCount = 0;
 
 protected:
-    virtual TSharedRef<SWidget> BuildTileContent() override;
+    virtual TSharedRef<SWidget> BuildInventoryContent() override;
     virtual FText TileLabel() const override { return PresentationKind.IsEmpty() ? Label : FText::GetEmpty(); }
     virtual void ReleaseSlateResources(bool bReleaseChildren) override;
 
