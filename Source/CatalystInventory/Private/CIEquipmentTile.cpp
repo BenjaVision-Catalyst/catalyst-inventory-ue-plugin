@@ -9,6 +9,7 @@
 #include "Widgets/Layout/SScaleBox.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/SOverlay.h"
+#include "Widgets/SNullWidget.h"
 #include "Widgets/Text/STextBlock.h"
 
 namespace
@@ -129,55 +130,83 @@ void UCIEquipmentTile::RefreshMarkers()
     }
 
     Markers->ClearChildren();
-    const auto AddMarker = [this](const FString& Id, const TCHAR* Glyph, FLinearColor Tint, bool bAttribute)
-    {
-        const auto Brush = MakeShared<FSlateBrush>();
-        Markers->AddSlot().AutoWidth().Padding(0, 0, GetEquipmentTheme().MarkerGap, 0)
-        [
-            SNew(SBox)
-            .WidthOverride_Lambda([this, Id, bAttribute] {
-                const auto& Style = GetEquipmentTheme();
-                return FOptionalSize(bAttribute && Style.AttributeIcons.FindRef(Id)
-                    ? Style.MarkerSize : Style.GlyphMarkerWidth);
-            })
-            .HeightOverride_Lambda([this] { return FOptionalSize(GetEquipmentTheme().MarkerSize); })
-            .ToolTipText(FText::FromString(Id))
-            [
-                SNew(SOverlay)
-                + SOverlay::Slot()
-                [
-                    SNew(SImage).Image_Lambda([this, Brush, Id, bAttribute] {
-                        return ImageBrush(*Brush, bAttribute ? GetEquipmentTheme().AttributeIcons.FindRef(Id).Get() : nullptr);
-                    }).ColorAndOpacity(Tint)
-                ]
-                + SOverlay::Slot()
-                [
-                    SNew(SScaleBox).Stretch(EStretch::ScaleToFitY).StretchDirection(EStretchDirection::DownOnly)
-                    .HAlign(HAlign_Center).VAlign(VAlign_Center)
-                    .Visibility_Lambda([this, Id, bAttribute] {
-                        return bAttribute && GetEquipmentTheme().AttributeIcons.FindRef(Id)
-                            ? EVisibility::Collapsed : EVisibility::HitTestInvisible;
-                    })
-                    [
-                        SNew(STextBlock).Text(FText::FromString(Glyph))
-                        .Font_Lambda([this] {
-                            const int32 PointSize = FMath::Max(1, FMath::RoundToInt(GetEquipmentTheme().MarkerSize * 1.2f));
-                            return FCoreStyle::GetDefaultFontStyle("Regular", PointSize);
-                        }).ColorAndOpacity(Tint)
-                    ]
-                ]
-            ]
-        ];
-    };
     for (const auto& Slot : ModSlots)
     {
         const bool bFilled = !Slot.Value.IsEmpty();
-        AddMarker(bFilled ? Slot.Key + TEXT(": ") + Slot.Value : Slot.Key, bFilled ? TEXT("■") : TEXT("□"),
+        AddMarker(*Markers, bFilled ? Slot.Key + TEXT(": ") + Slot.Value : Slot.Key, bFilled ? TEXT("■") : TEXT("□"),
             bFilled ? GetEquipmentTheme().FilledMod : GetEquipmentTheme().EmptyMod, false);
     }
-    for (const FString& Id : OffensiveAttributes) { AddMarker(Id, TEXT("●"), GetEquipmentTheme().Offensive, true); }
-    for (const FString& Id : DefensiveAttributes) { AddMarker(Id, TEXT("◆"), GetEquipmentTheme().Defensive, true); }
-    for (const FString& Id : UtilityAttributes) { AddMarker(Id, TEXT("▲"), GetEquipmentTheme().Utility, true); }
+    if (!IsRowPresentation())
+    {
+        PopulateAttributes(*Markers, {});
+    }
+}
+
+void UCIEquipmentTile::PopulateAttributes(SHorizontalBox& Box, const TArray<FString>& MaximumAttributes)
+{
+    const auto& Style = GetEquipmentTheme();
+    for (const FString& Id : OffensiveAttributes)
+    {
+        AddMarker(Box, Id, TEXT("●"), Style.Offensive, true, MaximumAttributes.Contains(Id));
+    }
+    for (const FString& Id : DefensiveAttributes)
+    {
+        AddMarker(Box, Id, TEXT("◆"), Style.Defensive, true, MaximumAttributes.Contains(Id));
+    }
+    for (const FString& Id : UtilityAttributes)
+    {
+        AddMarker(Box, Id, TEXT("▲"), Style.Utility, true, MaximumAttributes.Contains(Id));
+    }
+}
+
+void UCIEquipmentTile::AddMarker(SHorizontalBox& Box, const FString& Id, const TCHAR* Glyph,
+    FLinearColor Tint, bool bAttribute, bool bMaximum)
+{
+    const auto Brush = MakeShared<FSlateBrush>();
+    const float MaximumInset = bMaximum ? GetEquipmentTheme().MaximumMarkerInset : 0.f;
+    Box.AddSlot().AutoWidth().Padding(0, 0, GetEquipmentTheme().MarkerGap, 0)
+    [
+        SNew(SBox)
+        .WidthOverride_Lambda([this, Id, bAttribute] {
+            const auto& Style = GetEquipmentTheme();
+            return FOptionalSize(bAttribute && Style.AttributeIcons.FindRef(Id)
+                ? Style.MarkerSize : Style.GlyphMarkerWidth);
+        })
+        .HeightOverride_Lambda([this] { return FOptionalSize(GetEquipmentTheme().MarkerSize); })
+        .ToolTipText(FText::FromString(Id))
+        [
+            SNew(SOverlay)
+            + SOverlay::Slot().Padding(FMargin(0, 0, 0, MaximumInset))
+            [
+                SNew(SImage).Image_Lambda([this, Brush, Id, bAttribute] {
+                    return ImageBrush(*Brush, bAttribute ? GetEquipmentTheme().AttributeIcons.FindRef(Id).Get() : nullptr);
+                }).ColorAndOpacity(Tint)
+            ]
+            + SOverlay::Slot().VAlign(VAlign_Bottom).HAlign(HAlign_Center)
+            [
+                SNew(STextBlock).Text(FText::FromString(TEXT("▲")))
+                .Font(FCoreStyle::GetDefaultFontStyle("Regular", GetEquipmentTheme().MaximumMarkerFontSize))
+                .ColorAndOpacity(Tint)
+                .Visibility(bMaximum ? EVisibility::HitTestInvisible : EVisibility::Collapsed)
+            ]
+            + SOverlay::Slot().Padding(FMargin(0, 0, 0, MaximumInset))
+            [
+                SNew(SScaleBox).Stretch(EStretch::ScaleToFitY).StretchDirection(EStretchDirection::DownOnly)
+                .HAlign(HAlign_Center).VAlign(VAlign_Center)
+                .Visibility_Lambda([this, Id, bAttribute] {
+                    return bAttribute && GetEquipmentTheme().AttributeIcons.FindRef(Id)
+                        ? EVisibility::Collapsed : EVisibility::HitTestInvisible;
+                })
+                [
+                    SNew(STextBlock).Text(FText::FromString(Glyph))
+                    .Font_Lambda([this] {
+                        const int32 PointSize = FMath::Max(1, FMath::RoundToInt(GetEquipmentTheme().MarkerSize * 1.2f));
+                        return FCoreStyle::GetDefaultFontStyle("Regular", PointSize);
+                    }).ColorAndOpacity(Tint)
+                ]
+            ]
+        ]
+    ];
 }
 
 TSharedRef<SWidget> UCIEquipmentTile::BuildTileContent()
@@ -188,9 +217,9 @@ TSharedRef<SWidget> UCIEquipmentTile::BuildTileContent()
         return PresentationKind.IsEmpty() ? EVisibility::Collapsed : EVisibility::SelfHitTestInvisible;
     };
     return SNew(SBox)
-        .MinDesiredWidth_Lambda([this] { return PresentationKind.IsEmpty() ? FOptionalSize()
+        .MinDesiredWidth_Lambda([this] { return (PresentationKind.IsEmpty() || IsRowPresentation()) ? FOptionalSize()
             : FOptionalSize(GetEquipmentTheme().EquipmentSize.X); })
-        .MinDesiredHeight_Lambda([this] { return PresentationKind.IsEmpty() ? FOptionalSize()
+        .MinDesiredHeight_Lambda([this] { return (PresentationKind.IsEmpty() || IsRowPresentation()) ? FOptionalSize()
             : FOptionalSize(GetEquipmentTheme().EquipmentSize.Y); })
     [
         SNew(SOverlay)
@@ -217,7 +246,7 @@ TSharedRef<SWidget> UCIEquipmentTile::BuildTileContent()
                 SNew(SOverlay)
                 + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top)
                 [
-                    SNew(STextBlock).Text_Lambda([this] { return bHasTypeCount ? FText::AsNumber(InventoryTypeCount) : FText::GetEmpty(); })
+                    SNew(STextBlock).Text_Lambda([this] { return bHasTypeCount && !IsRowPresentation() ? FText::AsNumber(InventoryTypeCount) : FText::GetEmpty(); })
                     .Font_Lambda([this] { return GetInventoryTheme().CountFont; })
                     .ToolTipText(NSLOCTEXT("CatalystInventory", "TypeCount", "Items of this type in Inventory"))
                 ]
@@ -232,31 +261,42 @@ TSharedRef<SWidget> UCIEquipmentTile::BuildTileContent()
                 ]
                 + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Center)
                 [
-                    SNew(SBox)
-                    .WidthOverride_Lambda([this] { return FOptionalSize(GetEquipmentTheme().BadgeSize); })
-                    .HeightOverride_Lambda([this] { return FOptionalSize(GetEquipmentTheme().BadgeSize); })
-                    .ToolTipText_Lambda([this] { return FText::FromString(TalentId); })
-                    [
-                        SNew(SOverlay)
-                        + SOverlay::Slot()[SNew(SImage).Image_Lambda([this] {
-                            return ImageBrush(TalentBrush, GetEquipmentTheme().TalentIcons.FindRef(TalentId)); })]
-                        + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
-                        [
-                            SNew(STextBlock).Text(FText::FromString(TEXT("★")))
-                            .Visibility_Lambda([this] { return !TalentId.IsEmpty() && !GetEquipmentTheme().TalentIcons.FindRef(TalentId)
-                                ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
-                        ]
-                    ]
+                    IsRowPresentation() ? SNullWidget::NullWidget : BuildTalent()
                 ]
                 + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Bottom)
                 [
-                    SNew(STextBlock).Text_Lambda([this] { return ExpertiseLevel ? FText::AsNumber(*ExpertiseLevel) : FText::GetEmpty(); })
-                    .Font_Lambda([this] { return GetInventoryTheme().CountFont; })
-                    .ToolTipText(NSLOCTEXT("CatalystInventory", "Expertise", "Expertise"))
+                    BuildExpertise()
                 ]
             ]
         ]
     ];
+}
+
+TSharedRef<SWidget> UCIEquipmentTile::BuildTalent()
+{
+    return SNew(SBox)
+        .WidthOverride_Lambda([this] { return FOptionalSize(GetEquipmentTheme().BadgeSize); })
+        .HeightOverride_Lambda([this] { return FOptionalSize(GetEquipmentTheme().BadgeSize); })
+        .ToolTipText_Lambda([this] { return FText::FromString(TalentId); })
+        .Visibility_Lambda([this] { return TalentId.IsEmpty() ? EVisibility::Collapsed : EVisibility::SelfHitTestInvisible; })
+        [
+            SNew(SOverlay)
+            + SOverlay::Slot()[SNew(SImage).Image_Lambda([this] {
+                return ImageBrush(TalentBrush, GetEquipmentTheme().TalentIcons.FindRef(TalentId)); })]
+            + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+            [
+                SNew(STextBlock).Text(FText::FromString(TEXT("★")))
+                .Visibility_Lambda([this] { return !TalentId.IsEmpty() && !GetEquipmentTheme().TalentIcons.FindRef(TalentId)
+                    ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
+            ]
+        ];
+}
+
+TSharedRef<SWidget> UCIEquipmentTile::BuildExpertise()
+{
+    return SNew(STextBlock).Text_Lambda([this] { return ExpertiseLevel ? FText::AsNumber(*ExpertiseLevel) : FText::GetEmpty(); })
+        .Font_Lambda([this] { return GetInventoryTheme().CountFont; })
+        .ToolTipText(NSLOCTEXT("CatalystInventory", "Expertise", "Expertise"));
 }
 
 void UCIEquipmentTile::ReleaseSlateResources(bool bReleaseChildren)

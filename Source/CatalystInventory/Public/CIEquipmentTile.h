@@ -23,6 +23,12 @@ public:
     float GlyphMarkerWidth = 10.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile")
+    float MaximumMarkerInset = 8.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile", meta = (ClampMin = "1"))
+    int32 MaximumMarkerFontSize = 10;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile")
     float BrandWidth = 76.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile")
@@ -76,15 +82,22 @@ protected:
     virtual FText TileLabel() const override { return PresentationKind.IsEmpty() ? Label : FText::GetEmpty(); }
     virtual void ReleaseSlateResources(bool bReleaseChildren) override;
 
-private:
     const UCIEquipmentTileTheme& GetEquipmentTheme() const;
+    virtual bool IsRowPresentation() const { return false; }
+    void PopulateAttributes(SHorizontalBox& Box, const TArray<FString>& MaximumAttributes);
+    TSharedRef<SWidget> BuildTalent();
+    virtual TSharedRef<SWidget> BuildExpertise();
+    TOptional<int64> ExpertiseLevel;
+
+private:
+    void AddMarker(SHorizontalBox& Box, const FString& Id, const TCHAR* Glyph,
+        FLinearColor Tint, bool bAttribute, bool bMaximum = false);
     void RefreshMarkers();
 
     TSharedPtr<class SHorizontalBox> Markers;
     TArray<TPair<FString, FString>> ModSlots;
     TArray<FString> OffensiveAttributes, DefensiveAttributes, UtilityAttributes;
     FString BrandId, TalentId;
-    TOptional<int64> ExpertiseLevel;
     bool bHasTypeCount = false;
     FSlateBrush BrandBrush, TalentBrush;
 };

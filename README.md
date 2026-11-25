@@ -31,3 +31,18 @@ equipment row supplies `presentationKind`, an Inventory-wide
 attribute ID lists. Each slot relates to a row with `slotIdentifier` and
 optional `equippedModIdentifier`. Brand, talent and expertise are optional.
 Equipment theme assets map brand, talent and attribute IDs to local art.
+
+Use `CIWeaponToolRow` in a tool or weapon list. Bind the item with
+`BindItem` and pass the list's selected item to `SetComparisonItem`.
+Update the comparison item when selection changes and clear it when the
+list has no selection. The widget matches numeric stats by Catalyst
+identifier. Higher and lower values have distinct tints and arrows.
+Equal or unavailable comparisons keep the normal value style.
+
+The row accepts the compact equipment fields plus `consumableTypeIdentifier`,
+`requiredPlayerLevel`, `isProficient`, `maximumAttributes`,
+`talentIdentifiers` and ordered `comparisonStats`. Each comparison stat
+has a `statIdentifier`, `displayName` and numeric `value`. The server
+supplies the identifiers of attributes at maximum. Create a
+`CIWeaponToolRowTheme` to tune the layout and resolve the consumable,
+proficiency and talent art locally.
