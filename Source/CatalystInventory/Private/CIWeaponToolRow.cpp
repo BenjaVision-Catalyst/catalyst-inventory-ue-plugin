@@ -168,7 +168,9 @@ TSharedRef<SWidget> UCIWeaponToolRow::BuildInventoryContent()
     SAssignNew(Indicators, SHorizontalBox);
     RefreshDetails();
 
-    return BuildRow(Super::BuildInventoryContent(), Title.ToSharedRef(), StatWidgets.ToSharedRef(), Indicators.ToSharedRef());
+    const auto StatsPanel = SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
+        .HAlign(HAlign_Left)[StatWidgets.ToSharedRef()];
+    return BuildRow(Super::BuildInventoryContent(), Title.ToSharedRef(), StatsPanel, Indicators.ToSharedRef());
 }
 
 void UCIWeaponToolRow::ReleaseSlateResources(bool bReleaseChildren)

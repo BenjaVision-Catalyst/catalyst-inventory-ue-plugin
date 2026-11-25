@@ -2,6 +2,7 @@
 
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/SNullWidget.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/Text/STextBlock.h"
 
@@ -20,6 +21,7 @@ UCIGearRowTheme::UCIGearRowTheme()
 {
     HeaderHeight = 60.f;
     BrandWidth = 106.f;
+    TalentAreaWidth = 0.f;
 }
 
 const UCFTileTheme& UCIGearRow::GetTileTheme() const
@@ -99,12 +101,15 @@ void UCIGearRow::RefreshDetails()
 
     const auto& Style = GetGearTheme();
     Title->ClearChildren();
-    if (!GearSlot.IsEmpty())
-    {
-        Title->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, Style.ContentInset, 0)
-        [MakeIcon(Style.GearSlotIcons.FindRef(GearSlot), FText::FromString(TEXT("◇")),
-            FText::FromString(GearSlot), Style.BadgeSize)];
-    }
+    Title->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, Style.MarkerGap, 0.f)
+    [
+        SNew(SBox).WidthOverride(Style.PrimaryMarkerSize).HAlign(HAlign_Center)
+        [
+            GearSlot.IsEmpty() ? SNullWidget::NullWidget
+                : MakeIcon(Style.GearSlotIcons.FindRef(GearSlot), FText::FromString(TEXT("◇")),
+                    FText::FromString(GearSlot), Style.BadgeSize)
+        ]
+    ];
     Title->AddSlot().FillWidth(1.f).VAlign(VAlign_Center)
     [
         SNew(SVerticalBox)
@@ -138,13 +143,15 @@ void UCIGearRow::RefreshDetails()
             Tint = MarkerStyle.Utility;
         }
         AddMarker(*Primary, Attribute->Id, Glyph, Tint, true, Attribute->bMaximum, Style.PrimaryMarkerSize);
-        Primary->AddSlot().AutoWidth().VAlign(VAlign_Center)
+        Primary->AddSlot().FillWidth(1.f).VAlign(VAlign_Center)
         [
             SNew(SVerticalBox)
             + SVerticalBox::Slot().AutoHeight()
-            [SNew(STextBlock).Text(Attribute->Label).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)]
+            [SNew(STextBlock).Text(Attribute->Label).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
+                .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Attribute->Label)]
             + SVerticalBox::Slot().AutoHeight()
-            [SNew(STextBlock).Text(Attribute->Value).Font(Style.CountFont).ColorAndOpacity(Style.PrimaryValueTint)]
+            [SNew(STextBlock).Text(Attribute->Value).Font(Style.CountFont).ColorAndOpacity(Style.PrimaryValueTint)
+                .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Attribute->Value)]
         ];
     }
     PopulateRowIndicators(*Indicators, Attribute ? Attribute->Id : FString());

@@ -219,10 +219,7 @@ TSharedRef<SWidget> UCIEquipmentRow::BuildRow(const TSharedRef<SWidget>& Thumbna
             [
                 SNew(SHorizontalBox)
                 + SHorizontalBox::Slot().FillWidth(3.f).VAlign(VAlign_Center)
-                [
-                    SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
-                    .HAlign(HAlign_Left)[Details]
-                ]
+                [Details]
                 + SHorizontalBox::Slot().FillWidth(1.5f).VAlign(VAlign_Center)
                 [
                     SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
