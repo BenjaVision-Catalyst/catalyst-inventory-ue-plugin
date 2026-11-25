@@ -17,7 +17,7 @@ public:
     float MarkerSize = 23.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile")
-    float MarkerGap = 3.f;
+    float MarkerGap = 1.5f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile")
     float BrandWidth = 76.f;
