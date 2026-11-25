@@ -98,6 +98,7 @@ void UCIEquipmentTile::BindItem(const FCFMagritteBinding& Item)
         PresentationKind == TEXT("gear") || PresentationKind == TEXT("gadget"))
     {
         bShowCount = false;
+        bShowTier = bShowTier && PresentationKind != TEXT("gadget");
         for (const auto& Slot : Item.Related("modSlots", 16))
         {
             FString SlotId, ModId;
@@ -145,13 +146,21 @@ void UCIEquipmentTile::RefreshMarkers()
                         return ImageBrush(*Brush, bAttribute ? GetEquipmentTheme().AttributeIcons.FindRef(Id).Get() : nullptr);
                     }).ColorAndOpacity(Tint)
                 ]
-                + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+                + SOverlay::Slot()
                 [
-                    SNew(STextBlock).Text(FText::FromString(Glyph))
+                    SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
+                    .HAlign(HAlign_Center).VAlign(VAlign_Center)
                     .Visibility_Lambda([this, Id, bAttribute] {
                         return bAttribute && GetEquipmentTheme().AttributeIcons.FindRef(Id)
                             ? EVisibility::Collapsed : EVisibility::HitTestInvisible;
-                    }).ColorAndOpacity(Tint)
+                    })
+                    [
+                        SNew(STextBlock).Text(FText::FromString(Glyph))
+                        .Font_Lambda([this] {
+                            const int32 PointSize = FMath::Max(1, FMath::RoundToInt(GetEquipmentTheme().MarkerSize * 1.2f));
+                            return FCoreStyle::GetDefaultFontStyle("Regular", PointSize);
+                        }).ColorAndOpacity(Tint)
+                    ]
                 ]
             ]
         ];
