@@ -14,7 +14,7 @@ public:
     FVector2D EquipmentSize = FVector2D(216, 100);
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile")
-    float MarkerSize = 20.f;
+    float MarkerSize = 23.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile")
     float MarkerGap = 3.f;
