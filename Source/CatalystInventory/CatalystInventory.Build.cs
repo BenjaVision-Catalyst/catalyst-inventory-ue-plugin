@@ -4,6 +4,6 @@ public class CatalystInventory : ModuleRules
 {
     public CatalystInventory(ReadOnlyTargetRules Target) : base(Target)
     {
-        PrivateDependencyModuleNames.Add("Core");
+        PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "UMG" });
     }
 }

@@ -5,7 +5,7 @@
   "FriendlyName": "Catalyst Inventory",
   "Description": "Unreal companion for Catalyst Inventory.",
   "Category": "Catalyst",
-  "CanContainContent": false,
+  "CanContainContent": true,
   "Modules": [
     {
       "Name": "CatalystInventory",
