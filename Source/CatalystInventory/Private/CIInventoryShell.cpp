@@ -1,5 +1,7 @@
 #include "CIInventoryShell.h"
 
+#include "Components/NamedSlot.h"
+#include "Components/WidgetSwitcher.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Misc/App.h"
@@ -32,6 +34,8 @@ struct FInventoryShellLayout
 {
     FInventoryPlane Left, Right;
     FVector2D MenuBounds = FVector2D::ZeroVector;
+    FVector2D MainOrigin = FVector2D::ZeroVector;
+    FVector2D MainExtent = FVector2D::ZeroVector;
     double Scale = 0.0;
 };
 
@@ -87,6 +91,9 @@ FInventoryShellLayout LayoutFor(const FVector2D& Size)
     Layout.Left = MakePlane(PlaneWidth, 9.0);
     Layout.Left.Center.X = InnerEdge - Layout.Left.Project({PlaneWidth, 0.0}).X;
     Layout.MenuBounds = FVector2D(TabWidth, TabHeight);
+    const double MainRightInset = 8.0 * Scale;
+    Layout.MainOrigin = {Layout.Left.Extent.X - MainRightInset - GridWidth, GridTop + 10.0 * Scale};
+    Layout.MainExtent = {GridWidth, Layout.Left.Extent.Y - Layout.MainOrigin.Y - 59.0 * Scale};
     return Layout;
 }
 }
@@ -97,12 +104,16 @@ public:
     SLATE_BEGIN_ARGS(SCIInventoryShell) : _Outline(FLinearColor::White), _OutlineThickness(4.f) {}
         SLATE_ATTRIBUTE(FLinearColor, Outline)
         SLATE_ATTRIBUTE(float, OutlineThickness)
+        SLATE_ATTRIBUTE(FLinearColor, MainOutline)
+        SLATE_ATTRIBUTE(float, MainOutlineThickness)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& Args)
     {
         Outline = Args._Outline;
         OutlineThickness = Args._OutlineThickness;
+        MainOutline = Args._MainOutline;
+        MainOutlineThickness = Args._MainOutlineThickness;
     }
 
     ~SCIInventoryShell()
@@ -129,6 +140,12 @@ public:
         Invalidate(EInvalidateWidgetReason::Paint);
     }
 
+    void SetMainPanel(UWidgetSwitcher* InPanel)
+    {
+        MainPanel = InPanel;
+        MainTexture.Reset();
+    }
+
     virtual bool SupportsKeyboardFocus() const override { return true; }
     virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D::ZeroVector; }
 
@@ -137,11 +154,32 @@ public:
         return MenuWidget ? MenuWidget->OnKeyDown(Geometry, Event) : FReply::Unhandled();
     }
 
-    virtual void Tick(const FGeometry&, double, float) override
+    virtual void Tick(const FGeometry& Geometry, double, float DeltaTime) override
     {
         if (Renderer && Menu.IsValid() && Menu->GetSelectedIndex() != RenderedSelection)
         {
             RedrawMenu();
+        }
+
+        UWidget* ActivePanel = MainPanel.IsValid() ? MainPanel->GetActiveWidget() : nullptr;
+        const auto* NamedSlot = Cast<UNamedSlot>(ActivePanel);
+        const auto Size = Geometry.GetLocalSize();
+        if (!Renderer || !ActivePanel || (NamedSlot && !NamedSlot->GetContent()) || Size.GetMin() < 32.0)
+        {
+            if (MainTexture.IsValid())
+            {
+                MainTexture.Reset();
+                Invalidate(EInvalidateWidgetReason::Paint);
+            }
+            return;
+        }
+
+        const auto Extent = LayoutFor(Size).MainExtent;
+        if (Extent.GetMin() >= 1.0)
+        {
+            DrawToTexture(MainTexture, ActivePanel->TakeWidget(),
+                {FMath::CeilToInt(Extent.X), FMath::CeilToInt(Extent.Y)}, DeltaTime);
+            Invalidate(EInvalidateWidgetReason::Paint);
         }
     }
 
@@ -155,28 +193,40 @@ public:
         }
 
         const auto Layout = LayoutFor(Size);
-        const auto DrawOutline = [&](const FInventoryPlane& Plane)
+        const auto DrawOutline = [&](const FInventoryPlane& Plane, const FVector2D& Origin,
+            const FVector2D& Extent, const FLinearColor& Color, float Thickness, int32 OutlineLayer)
         {
-            if (Plane.Extent.GetMin() <= 0.0)
+            if (Extent.GetMin() <= 0.0 || Thickness <= 0.f)
             {
                 return;
             }
             const TArray<FVector2D> Corners{
-                Plane.Project({0.0, 0.0}), Plane.Project({Plane.Extent.X, 0.0}),
-                Plane.Project(Plane.Extent), Plane.Project({0.0, Plane.Extent.Y}), Plane.Project({0.0, 0.0})
+                Plane.Project(Origin), Plane.Project(Origin + FVector2D(Extent.X, 0.0)),
+                Plane.Project(Origin + Extent), Plane.Project(Origin + FVector2D(0.0, Extent.Y)),
+                Plane.Project(Origin)
             };
-            FSlateDrawElement::MakeLines(Elements, Layer, Geometry.ToPaintGeometry(), Corners,
-                ESlateDrawEffect::None, Outline.Get(), true, OutlineThickness.Get());
+            FSlateDrawElement::MakeLines(Elements, OutlineLayer, Geometry.ToPaintGeometry(), Corners,
+                ESlateDrawEffect::None, Color, true, Thickness);
         };
-        DrawOutline(Layout.Left);
-        DrawOutline(Layout.Right);
+        DrawOutline(Layout.Left, FVector2D::ZeroVector, Layout.Left.Extent, Outline.Get(), OutlineThickness.Get(), Layer);
+        DrawOutline(Layout.Right, FVector2D::ZeroVector, Layout.Right.Extent, Outline.Get(), OutlineThickness.Get(), Layer);
+
+        if (MainTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
+        {
+            DrawSurface(Geometry, Elements, Layer + 1, Layout.Left, MainTexture.Get(), Layout.MainOrigin, Layout.MainExtent);
+        }
+        DrawOutline(Layout.Left, Layout.MainOrigin, Layout.MainExtent, MainOutline.Get(), MainOutlineThickness.Get(), Layer + 2);
 
         if (MenuTexture.IsValid() && Layout.MenuBounds.GetMin() > 0.0)
         {
-            DrawMenu(Geometry, Elements, Layer + 1, Layout);
-            return Layer + 1;
+            const FVector2D SourceSize(MenuTexture->SizeX, MenuTexture->SizeY);
+            const double Inset = 8.0 * Layout.Scale;
+            const FVector2D Bounds = Layout.MenuBounds - FVector2D(Inset * 2.0, 0.0);
+            const double Fit = FMath::Min(Bounds.X / SourceSize.X, Bounds.Y / SourceSize.Y);
+            DrawSurface(Geometry, Elements, Layer + 2, Layout.Left, MenuTexture.Get(),
+                FVector2D(Layout.MainOrigin.X - FirstMenuItemX * Fit, Inset), SourceSize * Fit);
         }
-        return Layer;
+        return Layer + 2;
     }
 
 private:
@@ -190,23 +240,38 @@ private:
             MenuTexture.Reset();
             return;
         }
-        if (!MenuTexture.IsValid() || MenuTexture->SizeX != Size.X || MenuTexture->SizeY != Size.Y)
+        DrawToTexture(MenuTexture, MenuWidget.ToSharedRef(), Size, 0.f);
+
+        // Use the actual Slate arrangement so prompt text and theme spacing can vary.
+        FirstMenuItemX = 0.0;
+        if (const UWidget* FirstItem = Menu.IsValid() ? Menu->GetChildAt(0) : nullptr)
         {
-            MenuTexture.Reset(FWidgetRenderer::CreateTargetFor(Size, TF_Bilinear, false));
+            const auto ItemWidget = FirstItem->GetCachedWidget();
+            if (ItemWidget && ItemWidget->GetVisibility().IsVisible())
+            {
+                const auto& MenuGeometry = MenuWidget->GetPaintSpaceGeometry();
+                FirstMenuItemX = MenuGeometry.AbsoluteToLocal(
+                    ItemWidget->GetPaintSpaceGeometry().GetAbsolutePosition()).X;
+            }
         }
-        Renderer->DrawWidget(MenuTexture.Get(), MenuWidget.ToSharedRef(), Size, 0.f);
         RenderedSelection = Menu.IsValid() ? Menu->GetSelectedIndex() : INDEX_NONE;
         Invalidate(EInvalidateWidgetReason::Paint);
     }
 
-    void DrawMenu(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
-        const FInventoryShellLayout& Layout) const
+    void DrawToTexture(TStrongObjectPtr<UTextureRenderTarget2D>& Texture, const TSharedRef<SWidget>& Widget,
+        const FVector2D& Size, float DeltaTime)
     {
-        const FVector2D SourceSize(MenuTexture->SizeX, MenuTexture->SizeY);
-        const double Inset = 8.0 * Layout.Scale;
-        const FVector2D Bounds = Layout.MenuBounds - FVector2D(Inset * 2.0, 0.0);
-        const double Fit = FMath::Min(Bounds.X / SourceSize.X, Bounds.Y / SourceSize.Y);
-        const FVector2D DrawSize = SourceSize * Fit;
+        if (!Texture.IsValid() || Texture->SizeX != Size.X || Texture->SizeY != Size.Y)
+        {
+            Texture.Reset(FWidgetRenderer::CreateTargetFor(Size, TF_Bilinear, false));
+        }
+        Renderer->DrawWidget(Texture.Get(), Widget, Size, DeltaTime);
+    }
+
+    void DrawSurface(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
+        const FInventoryPlane& Plane, UTextureRenderTarget2D* Texture, const FVector2D& Origin,
+        const FVector2D& Extent) const
+    {
         constexpr int32 Strips = 32;
         TArray<FSlateVertex> Vertices;
         TArray<SlateIndex> Indices;
@@ -217,7 +282,7 @@ private:
             const float U = float(Strip) / Strips;
             for (const float V : {0.f, 1.f})
             {
-                const auto Point = Layout.Left.Project(FVector2D(Inset + U * DrawSize.X, Inset + V * DrawSize.Y));
+                const auto Point = Plane.Project(Origin + FVector2D(U * Extent.X, V * Extent.Y));
                 Vertices.Add(FSlateVertex::Make(Geometry.GetAccumulatedRenderTransform(),
                     FVector2f(Point), FVector2f(U, V), FColor::White));
             }
@@ -228,7 +293,7 @@ private:
             }
         }
         FSlateBrush Brush;
-        Brush.SetResourceObject(MenuTexture.Get());
+        Brush.SetResourceObject(Texture);
         const auto Handle = FSlateApplication::Get().GetRenderer()->GetResourceHandle(Brush);
         FSlateDrawElement::MakeCustomVerts(Elements, Layer, Handle, Vertices, Indices, nullptr, 0, 0,
             ESlateDrawEffect::PreMultipliedAlpha | ESlateDrawEffect::NoGamma);
@@ -236,10 +301,15 @@ private:
 
     TAttribute<FLinearColor> Outline;
     TAttribute<float> OutlineThickness;
+    TAttribute<FLinearColor> MainOutline;
+    TAttribute<float> MainOutlineThickness;
     TWeakObjectPtr<UCFMenu> Menu;
+    TWeakObjectPtr<UWidgetSwitcher> MainPanel;
     TSharedPtr<SWidget> MenuWidget;
     TStrongObjectPtr<UTextureRenderTarget2D> MenuTexture;
+    TStrongObjectPtr<UTextureRenderTarget2D> MainTexture;
     FWidgetRenderer* Renderer = nullptr;
+    double FirstMenuItemX = 0.0;
     int32 RenderedSelection = INDEX_NONE;
 };
 
@@ -247,31 +317,73 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
 {
     SAssignNew(Shell, SCIInventoryShell)
         .Outline_Lambda([this] { return PanelOutline; })
-        .OutlineThickness_Lambda([this] { return PanelOutlineThickness; });
-    UpdateMenu();
+        .OutlineThickness_Lambda([this] { return PanelOutlineThickness; })
+        .MainOutline_Lambda([this] { return MainPanelOutline; })
+        .MainOutlineThickness_Lambda([this] { return MainPanelOutlineThickness; });
+    UpdateContent();
     return Shell.ToSharedRef();
 }
 
 void UCIInventoryShell::ReleaseSlateResources(bool bReleaseChildren)
 {
+    UnbindMenu();
     Shell.Reset();
     Super::ReleaseSlateResources(bReleaseChildren);
 }
 
 void UCIInventoryShell::OnSlotAdded(UPanelSlot*)
 {
-    UpdateMenu();
+    UpdateContent();
 }
 
 void UCIInventoryShell::OnSlotRemoved(UPanelSlot*)
 {
-    UpdateMenu();
+    UpdateContent();
 }
 
-void UCIInventoryShell::UpdateMenu()
+UCFMenu* UCIInventoryShell::GetMenu() const
 {
-    if (Shell)
+    return Cast<UCFMenu>(GetChildAt(0));
+}
+
+UWidgetSwitcher* UCIInventoryShell::GetMainPanel() const
+{
+    return Cast<UWidgetSwitcher>(GetChildAt(1));
+}
+
+void UCIInventoryShell::UpdateContent()
+{
+    if (!Shell)
     {
-        Shell->SetMenu(Cast<UCFMenu>(GetContent()));
+        return;
+    }
+
+    UnbindMenu();
+    auto* Menu = GetMenu();
+    Shell->SetMenu(Menu);
+    Shell->SetMainPanel(GetMainPanel());
+    if (Menu)
+    {
+        BoundMenu = Menu;
+        Menu->OnSelectionChanged.AddUniqueDynamic(this, &UCIInventoryShell::OnMenuSelectionChanged);
+        OnMenuSelectionChanged(Menu->GetSelectedIndex(), nullptr);
+    }
+}
+
+void UCIInventoryShell::UnbindMenu()
+{
+    if (auto* Menu = BoundMenu.Get())
+    {
+        Menu->OnSelectionChanged.RemoveDynamic(this, &UCIInventoryShell::OnMenuSelectionChanged);
+    }
+    BoundMenu.Reset();
+}
+
+void UCIInventoryShell::OnMenuSelectionChanged(int32 Index, UCFMenuItem*)
+{
+    auto* MainPanel = GetMainPanel();
+    if (MainPanel && Index >= 0 && Index < MainPanel->GetNumWidgets())
+    {
+        MainPanel->SetActiveWidgetIndex(Index);
     }
 }

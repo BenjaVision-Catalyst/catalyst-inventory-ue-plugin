@@ -4,7 +4,8 @@
 [Catalyst Inventory](https://github.com/BenjaVision-Catalyst/catalyst-inventory).
 Create a Widget Blueprint derived from `CIInventoryView` in the UMG Designer
 to author an Inventory composition. With no authored root, the view builds an
-outlined Inventory shell with angled panels and the Foundation tab menu.
+outlined Inventory shell with angled panels, the Foundation tab menu, and a
+shared content area for the active tab.
 Set `MenuTheme` and the optional `MenuIcons` by tab identifier on the view.
 An authored composition can name a
 `CIInventoryTile` widget `InventoryTile` to bind that widget to the first item.

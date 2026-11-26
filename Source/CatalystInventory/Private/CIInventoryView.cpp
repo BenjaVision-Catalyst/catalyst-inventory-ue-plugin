@@ -4,6 +4,8 @@
 #include "Blueprint/WidgetTree.h"
 #include "CIInventoryShell.h"
 #include "CIInventoryTile.h"
+#include "Components/NamedSlot.h"
+#include "Components/WidgetSwitcher.h"
 #include "Presentation/CFMenu.h"
 
 void UCIInventoryView::BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> InSource,
@@ -25,6 +27,7 @@ TSharedRef<SWidget> UCIInventoryView::RebuildWidget()
     {
         auto* Shell = WidgetTree->ConstructWidget<UCIInventoryShell>();
         auto* Menu = WidgetTree->ConstructWidget<UCFMenu>();
+        auto* MainPanel = WidgetTree->ConstructWidget<UWidgetSwitcher>(UWidgetSwitcher::StaticClass(), TEXT("MainPanel"));
         Menu->Theme = MenuTheme;
         Menu->InitialSelectedIndex = 1;
         const TPair<FName, FText> Tabs[]{
@@ -42,8 +45,12 @@ TSharedRef<SWidget> UCIInventoryView::RebuildWidget()
                 Item->SetIcon(*Icon);
             }
             Menu->AddChild(Item);
+
+            const FName PanelName(Tab.Key.ToString() + TEXT("Panel"));
+            MainPanel->AddChild(WidgetTree->ConstructWidget<UNamedSlot>(UNamedSlot::StaticClass(), PanelName));
         }
-        Shell->SetContent(Menu);
+        Shell->AddChild(Menu);
+        Shell->AddChild(MainPanel);
         WidgetTree->RootWidget = Shell;
     }
     if (InventoryTile && TileTheme)
