@@ -18,6 +18,21 @@ public:
     float BandWidth = 4.f;
 };
 
+USTRUCT(BlueprintType)
+struct CATALYSTINVENTORY_API FCIInventoryScrollbarStyle
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Appearance", meta = (ClampMin = "0.5"))
+    float Width = 2.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Appearance")
+    FLinearColor TrackTint = FLinearColor(1.f, 1.f, 1.f, .15f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Appearance")
+    FLinearColor ThumbTint = FLinearColor(.9f, .96f, .92f);
+};
+
 /** Editable frame, tier and content metrics shared across Inventory tiles. */
 UCLASS(BlueprintType)
 class CATALYSTINVENTORY_API UCIInventoryTileTheme : public UCFTileTheme
@@ -37,6 +52,9 @@ public:
     /** Height of the shared section panel in unscaled Inventory layout units. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Layout", meta = (ClampMin = "1.0"))
     float PanelHeight = 481.5f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Layout")
+    FCIInventoryScrollbarStyle Scrollbar;
 
     // Grid dimensions use the same unscaled units as the Inventory scaffold.
     /** Horizontal distance between tiles in viewport pixels. */

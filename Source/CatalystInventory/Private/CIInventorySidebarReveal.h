@@ -33,20 +33,21 @@ struct FCIInventorySidebarGeometry
     {
     }
 
-    double GetTravel() const { return (Width + 2.0 * GridGap) * Reveal; }
+    double GetFullWidth() const { return Width + 2.0 * GridGap; }
+    double GetTravel() const { return GetFullWidth() * Reveal; }
 
     template <typename PaintStrip>
-    void PaintVisibleStrips(PaintStrip&& Paint) const
+    void PaintVisibleStrips(double SurfaceWidth, PaintStrip&& Paint) const
     {
         const double ClipWidth = GetTravel();
         const double Feather = FMath::Min(ClipWidth, GridGap * (1.0 - Reveal));
         const double Solid = ClipWidth - Feather;
         const auto PaintClipped = [&](double Start, double End, double Opacity)
         {
-            End = FMath::Min(End, Width);
+            End = FMath::Min(End, SurfaceWidth);
             if (Start < End)
             {
-                Paint(Start / Width, End / Width, Opacity);
+                Paint(Start / SurfaceWidth, End / SurfaceWidth, Opacity);
             }
         };
         PaintClipped(0.0, Solid, Reveal);

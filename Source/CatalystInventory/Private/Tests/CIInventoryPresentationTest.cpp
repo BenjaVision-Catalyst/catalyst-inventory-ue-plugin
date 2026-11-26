@@ -54,7 +54,7 @@ bool FCIInventorySidebarRevealTest::RunTest(const FString&)
     const FCIInventorySidebarGeometry Midpoint(600.0, 1000.0, 8.0, .5);
     TestTrue(TEXT("Sidebar width follows the original viewport cap"), FMath::IsNearlyEqual(Midpoint.Width, 200.0 * 2.0 / 3.0));
     TArray<FVector> Strips;
-    Midpoint.PaintVisibleStrips([&](double Start, double End, double Alpha) {
+    Midpoint.PaintVisibleStrips(Midpoint.Width, [&](double Start, double End, double Alpha) {
         Strips.Emplace(Start * Midpoint.Width, End * Midpoint.Width, Alpha);
     });
     if (TestEqual(TEXT("One solid region and four feather strips"), Strips.Num(), 5))
@@ -71,7 +71,7 @@ bool FCIInventorySidebarRevealTest::RunTest(const FString&)
     TestTrue(TEXT("The settled sidebar is two tile gaps from the grid"),
         FMath::IsNearlyEqual(Open.GetTravel() - Open.Width, 16.0));
     Strips.Reset();
-    Open.PaintVisibleStrips([&](double Start, double End, double Alpha) { Strips.Emplace(Start, End, Alpha); });
+    Open.PaintVisibleStrips(Open.Width, [&](double Start, double End, double Alpha) { Strips.Emplace(Start, End, Alpha); });
     TestTrue(TEXT("The settled sidebar has its full width and opacity"),
         Strips.Num() == 1 && Strips[0] == FVector(0.0, 1.0, 1.0));
     return true;
@@ -190,22 +190,32 @@ bool FCIInventoryPresentationTest::RunTest(const FString&)
         auto* Theme = NewObject<UCIInventoryTileTheme>(Shell);
         Theme->Style.Background = FLinearColor::Green;
         Theme->Style.FocusedBackground = FLinearColor::Red;
+        Theme->Scrollbar.Width = 6.f;
+        Theme->Scrollbar.TrackTint = FLinearColor::Blue;
+        Theme->Scrollbar.ThumbTint = FLinearColor::Yellow;
         Shell->SetLayoutTheme(Theme);
         auto* Renderer = new FWidgetRenderer(false);
         const FVector2D Size(1280, 720);
         const auto Geometry = FGeometry::MakeRoot(Size, FSlateLayoutTransform());
-        const auto ReadSidebarRows = [&] {
-            auto* Target = Renderer->DrawWidget(ShellSlate, Size);
+        const auto Capture = [&] {
             TArray<FColor> Pixels;
+            if (auto* Target = Renderer->DrawWidget(ShellSlate, Size))
+            {
+                Target->GameThread_GetRenderTargetResource()->ReadPixels(Pixels);
+            }
+            return Pixels;
+        };
+        const auto ReadSidebarRows = [&] {
+            const auto Pixels = Capture();
             TArray<FColor> Rows;
-            if (Target && Target->GameThread_GetRenderTargetResource()->ReadPixels(Pixels))
+            if (!Pixels.IsEmpty())
             {
                 FColor Previous = FColor::Black;
                 // This column crosses the sidebar fill clear of the row labels and tile borders.
                 constexpr int32 Column = 292;
-                for (int32 Y = 0; Y < Target->SizeY; ++Y)
+                for (int32 Y = 0; Y < Size.Y; ++Y)
                 {
-                    const FColor Pixel = Pixels[Y * Target->SizeX + Column];
+                    const FColor Pixel = Pixels[Y * int32(Size.X) + Column];
                     const FColor Fill = Pixel.R > 180 && Pixel.G < 60 ? FColor::Red
                         : Pixel.G > 180 && Pixel.R < 60 ? FColor::Green : FColor::Black;
                     if (Fill != Previous && Fill != FColor::Black)
@@ -216,6 +226,24 @@ bool FCIInventoryPresentationTest::RunTest(const FString&)
                 }
             }
             return Rows;
+        };
+        const auto ReadScrollbar = [&] {
+            const auto Pixels = Capture();
+            TPair<FBox2D, FBox2D> Bounds{FBox2D(ForceInit), FBox2D(ForceInit)};
+            for (int32 Index = 0; Index < Pixels.Num(); ++Index)
+            {
+                const FColor Color = Pixels[Index];
+                const FVector2D Point(Index % int32(Size.X), Index / int32(Size.X));
+                if (Color.B > 180 && Color.R < 60 && Color.G < 60)
+                {
+                    Bounds.Key += Point;
+                }
+                if (Color.R > 180 && Color.G > 180 && Color.B < 60)
+                {
+                    Bounds.Value += Point;
+                }
+            }
+            return Bounds;
         };
         for (const auto& Section : {TPair<int32, FName>{1, TEXT("gear")}, TPair<int32, FName>{0, TEXT("apparel")}})
         {
@@ -230,6 +258,34 @@ bool FCIInventoryPresentationTest::RunTest(const FString&)
             TestTrue(TEXT("Move the saved-set selection"), Press(EKeys::Down));
             const TArray<FColor> Second{FColor::Green, FColor::Red, FColor::Green};
             TestTrue(TEXT("Moving selection changes only the highlighted fill"), ReadSidebarRows() == Second);
+
+            TArray<FCIInventorySavedSet> Sets;
+            for (int32 Index = 0; Index < FCIInventorySavedSetRows::VisibleCount - 1; ++Index)
+            {
+                const FString Name = FString::FromInt(Index);
+                Sets.Add({Name, Name});
+            }
+            Shell->SetSavedSets(Sets);
+            const auto Fits = ReadScrollbar();
+            TestTrue(TEXT("Six rows including Create show no scrollbar"), !Fits.Key.bIsValid && !Fits.Value.bIsValid);
+            Sets.Add({TEXT("Sixth saved entry"), TEXT("sixth")});
+            Shell->SetSavedSets(Sets);
+            const auto AtTop = ReadScrollbar();
+            if (TestTrue(TEXT("An overflowing sidebar renders the themed track and thumb"),
+                AtTop.Key.bIsValid && AtTop.Value.bIsValid))
+            {
+                TestTrue(TEXT("The themed thumb is centered in the gap"),
+                    AtTop.Value.GetCenter().X > 324.0 && AtTop.Value.GetCenter().X < 329.0);
+                TestTrue(TEXT("The thumb starts at the top of the track"), AtTop.Value.Min.Y < AtTop.Key.Min.Y);
+                for (int32 Index = 0; Index < Sets.Num(); ++Index)
+                {
+                    Press(EKeys::Down);
+                }
+                const auto AtBottom = ReadScrollbar();
+                TestTrue(TEXT("Scrolling moves the thumb to the bottom of the same track"),
+                    AtBottom.Key.bIsValid && AtBottom.Value.bIsValid && AtBottom.Key.Max.Y < AtBottom.Value.Max.Y
+                    && AtBottom.Value.Min.Y > AtTop.Value.Min.Y);
+            }
             Press(EKeys::G);
         }
         BeginCleanup(Renderer);

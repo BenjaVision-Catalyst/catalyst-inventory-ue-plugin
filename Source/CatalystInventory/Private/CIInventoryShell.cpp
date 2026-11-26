@@ -8,6 +8,7 @@
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/HorizontalBox.h"
+#include "Components/Image.h"
 #include "Components/NamedSlot.h"
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
@@ -824,10 +825,11 @@ public:
                 {
                     BuildSavedSetsCanvas(Section, *Theme, Height);
                 }
+                const FVector2D SidebarTargetSize(FMath::CeilToInt(Sidebar.GetFullWidth() * ProjectionRasterScale),
+                    TargetSize.Y - MainBottomGuardPixels);
                 LayoutSavedSetRows(Now, *Theme);
-                DrawToTexture(SavedSetsTexture, SavedSetsCanvas->TakeWidget(), FVector2D(
-                    FMath::CeilToInt(Sidebar.Width * ProjectionRasterScale),
-                    TargetSize.Y - MainBottomGuardPixels), DeltaTime, PaintScale);
+                LayoutSavedSetsCanvas(*Theme, Sidebar, Layout, SidebarTargetSize.X / PaintScale);
+                DrawToTexture(SavedSetsTexture, SavedSetsCanvas->TakeWidget(), SidebarTargetSize, DeltaTime, PaintScale);
             }
             Invalidate(EInvalidateWidgetReason::Paint);
         }
@@ -847,9 +849,10 @@ public:
         {
             const auto Sidebar = GetSidebarGeometry(Layout, Size.X);
             const FVector2D Origin = Layout.MainOrigin - FVector2D(Sidebar.GetTravel(), 0.0);
-            Sidebar.PaintVisibleStrips([&](double Start, double End, double Opacity) {
+            const double SurfaceWidth = Sidebar.GetFullWidth();
+            Sidebar.PaintVisibleStrips(SurfaceWidth, [&](double Start, double End, double Opacity) {
                 DrawSurface(Geometry, Elements, Layer + 1, Layout.Left, SavedSetsTexture.Get(), Origin,
-                    {Sidebar.Width, Layout.MainExtent.Y}, Start, End, Opacity);
+                    {SurfaceWidth, Layout.MainExtent.Y}, Start, End, Opacity);
             });
         }
         if (MainTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
@@ -1117,15 +1120,13 @@ private:
         Heading->SetText(SavedSetsLabel(Section));
         Heading->SetFont(Theme.GroupLabelFont);
         Heading->SetColorAndOpacity(FSlateColor(Theme.GroupLabelTint));
-        auto* HeadingSlot = SavedSetsCanvas->AddChildToCanvas(Heading);
-        HeadingSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 0.f));
-        HeadingSlot->SetOffsets(FMargin(Padding.Left, Padding.Top, Padding.Right, Theme.GroupLabelHeight));
+        SavedSetsHeadingSlot = SavedSetsCanvas->AddChildToCanvas(Heading);
+        SavedSetsHeadingSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 0.f));
 
         auto* Body = NewObject<UCanvasPanel>(SavedSetsCanvas.Get());
         Body->SetClipping(EWidgetClipping::ClipToBounds);
-        auto* BodySlot = SavedSetsCanvas->AddChildToCanvas(Body);
-        BodySlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
-        BodySlot->SetOffsets(FMargin(0.f, HeadingHeight, 0.f, 0.f));
+        SavedSetsBodySlot = SavedSetsCanvas->AddChildToCanvas(Body);
+        SavedSetsBodySlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
         auto* SurfaceTheme = Theme.CreateProjectedSurfaceTheme(Body);
 
         SavedSetTiles.Reset();
@@ -1150,6 +1151,17 @@ private:
             SavedSetTiles.Add(Tile);
         }
 
+        auto* Track = NewObject<UImage>(SavedSetsCanvas.Get());
+        auto* Thumb = NewObject<UImage>(SavedSetsCanvas.Get());
+        const auto& White = *FCoreStyle::Get().GetBrush("WhiteBrush");
+        Track->SetBrush(White);
+        Thumb->SetBrush(White);
+        Track->SetColorAndOpacity(Theme.Scrollbar.TrackTint);
+        Thumb->SetColorAndOpacity(Theme.Scrollbar.ThumbTint);
+        SavedSetsTrackSlot = SavedSetsCanvas->AddChildToCanvas(Track);
+        SavedSetsThumbSlot = SavedSetsCanvas->AddChildToCanvas(Thumb);
+        SavedSetsThumbSlot->SetZOrder(1);
+
         SavedSetsTheme = &Theme;
         SavedSetsHeight = PanelExtent;
     }
@@ -1173,6 +1185,44 @@ private:
             }
         }
         SavedSetsPaintedAt = Now;
+    }
+
+    void LayoutSavedSetsCanvas(const UCIInventoryTileTheme& Theme, const FCIInventorySidebarGeometry& Sidebar,
+        const FInventoryShellLayout& Layout, double CanvasWidth)
+    {
+        const double CanvasScale = CanvasWidth / Sidebar.GetFullWidth();
+        const double ContentWidth = Sidebar.Width * CanvasScale;
+        const double Gap = CanvasWidth - ContentWidth;
+        const FMargin Padding = Theme.GroupLabelPadding;
+        const double Heading = Theme.GroupLabelHeight + Padding.GetTotalSpaceAlong<Orient_Vertical>();
+        SavedSetsHeadingSlot->SetOffsets(FMargin(Padding.Left, Padding.Top, Padding.Right + Gap, Theme.GroupLabelHeight));
+        SavedSetsBodySlot->SetOffsets(FMargin(0.f, Heading, Gap, 0.f));
+
+        const auto& Rows = SavedSetsPresentation.Rows;
+        const int32 Total = Rows.GetRowCount();
+        const int32 Visible = FCIInventorySavedSetRows::VisibleCount;
+        const bool bOverflow = Total > Visible && Gap > 0.0;
+        const auto Visibility = bOverflow ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed;
+        SavedSetsTrackSlot->Content->SetVisibility(Visibility);
+        SavedSetsThumbSlot->Content->SetVisibility(Visibility);
+        if (!bOverflow)
+        {
+            return;
+        }
+
+        // Place the center halfway between the projected edges, even under perspective.
+        const auto RightEdge = Layout.MainOrigin;
+        const auto LeftEdge = RightEdge - FVector2D(Sidebar.GetFullWidth() - Sidebar.Width, 0.0);
+        const auto Center = Layout.Left.Unproject((Layout.Left.Project(LeftEdge) + Layout.Left.Project(RightEdge)) * .5);
+        const double CenterX = ContentWidth + (Center.X - LeftEdge.X) * CanvasScale;
+        const double Width = FMath::Min(FMath::Max(.5f, Theme.Scrollbar.Width),
+            2.0 * FMath::Min(CenterX - ContentWidth, CanvasWidth - CenterX));
+        const double X = CenterX - Width * .5;
+        const double TrackHeight = Visible * SavedSetsRowHeight + (Visible - 1) * Theme.RowGap;
+        const double ThumbHeight = TrackHeight * double(Visible) / Total;
+        const double Scroll = FMath::Clamp(double(Rows.GetFirstIndex()) / (Total - Visible), 0.0, 1.0);
+        SavedSetsTrackSlot->SetOffsets(FMargin(X, Heading, Width, TrackHeight));
+        SavedSetsThumbSlot->SetOffsets(FMargin(X, Heading + (TrackHeight - ThumbHeight) * Scroll, Width, ThumbHeight));
     }
 
     FInventoryShellLayout GetLayout(const FVector2D& Size) const
@@ -1282,6 +1332,10 @@ private:
     TSharedPtr<SBox> MainRenderRoot;
     TSharedPtr<SCIInventoryActionFooter> FooterWidget;
     TStrongObjectPtr<UCanvasPanel> SavedSetsCanvas;
+    UCanvasPanelSlot* SavedSetsHeadingSlot = nullptr;
+    UCanvasPanelSlot* SavedSetsBodySlot = nullptr;
+    UCanvasPanelSlot* SavedSetsTrackSlot = nullptr;
+    UCanvasPanelSlot* SavedSetsThumbSlot = nullptr;
     TArray<UCFTile*> SavedSetTiles;
     TWeakObjectPtr<UCIInventoryTileTheme> SavedSetsTheme;
     FName SavedSetsSection;

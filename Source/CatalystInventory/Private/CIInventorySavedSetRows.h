@@ -141,6 +141,8 @@ struct FCIInventorySavedSetRows
     }
 
     const TArray<FRow>& GetRows() const { return Rows; }
+    int32 GetRowCount() const { return LiveCount; }
+    int32 GetFirstIndex() const { return FirstIndex; }
 
 private:
     static int32 FirstVisible(int32 First, int32 Selection)
