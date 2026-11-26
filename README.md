@@ -63,3 +63,16 @@ talent indicators use the shared Equipment Row rendering.
 
 `isJunk` is a read-only state for gear presentation. The row displays that
 state when supplied by the model.
+
+Use `CIApparelTile` for a category in the apparel grid. Bind a category
+identifier, owned count, tier and optional equipped definition identifier.
+The count appears in the top left. Resolve equipped art by that definition
+identifier, and assign category fallback art on `CIApparelTileTheme`.
+The view resolves art through `ItemIcons`. A standalone presenter can assign
+`Icon` after binding, including a render target if the game renders a model
+preview. Without equipped art the shared tile uses the category icon.
+
+Use `CIResourceTile` for a stack. Bind the resource definition identifier,
+optional display name and stack count. The same icon slot accepts a model
+preview or resource icon. The resource theme can hide the label and supply a
+fallback icon when the presenter has no definition-specific art.

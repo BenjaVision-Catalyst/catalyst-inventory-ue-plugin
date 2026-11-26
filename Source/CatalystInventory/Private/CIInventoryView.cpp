@@ -86,20 +86,9 @@ void UCIInventoryView::RefreshInventory()
         InventoryTile->SetVisibility(Item ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
         if (Item)
         {
-            InventoryTile->Icon = nullptr;
-            for (const auto& Field : Item->Describe().orderedChildren())
-            {
-                if (Field->id == "definitionIdentifier")
-                {
-                    const auto Value = Item->Read(*Field);
-                    if (const auto* Definition = std::get_if<std::string>(&Value.data))
-                    {
-                        InventoryTile->Icon = ItemIcons.FindRef(UTF8_TO_TCHAR(Definition->c_str()));
-                    }
-                    break;
-                }
-            }
             InventoryTile->BindItem(*Item);
+            const FString& ArtId = InventoryTile->GetArtDefinitionIdentifier();
+            InventoryTile->Icon = ArtId.IsEmpty() ? nullptr : ItemIcons.FindRef(ArtId).Get();
         }
     }
     OnInventoryBindingChanged();

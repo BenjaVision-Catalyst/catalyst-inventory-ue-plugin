@@ -44,6 +44,7 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
     TierId = 1;
     bShowTier = false;
     Label = FText::GetEmpty();
+    DefinitionIdentifier.Reset();
     bShowCount = false;
     Count = 0;
     for (const auto& Field : Item.Describe().orderedChildren())
@@ -55,6 +56,13 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
             {
                 TierId = static_cast<int32>(*Tier);
                 bShowTier = true;
+            }
+        }
+        else if (Field->id == "definitionIdentifier")
+        {
+            if (const auto* Definition = std::get_if<std::string>(&Value.data))
+            {
+                DefinitionIdentifier = UTF8_TO_TCHAR(Definition->c_str());
             }
         }
         else if (Field->id == "displayName")
@@ -131,7 +139,9 @@ TSharedRef<SWidget> UCIInventoryTile::BuildInventoryContent()
                 .Visibility_Lambda([this] { return TileLabel().IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible; })
                 [
                     SNew(STextBlock).Text_Lambda([this] { return TileLabel(); })
-                    .Font_Lambda([this] { return GetInventoryTheme().LabelFont; })
+                    .Font_Lambda([this] { return TileLabelFont(); })
+                    .OverflowPolicy(ETextOverflowPolicy::Ellipsis)
+                    .ToolTipText_Lambda([this] { return TileLabel(); })
                     .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
                 ]
             ]
@@ -139,13 +149,15 @@ TSharedRef<SWidget> UCIInventoryTile::BuildInventoryContent()
             [
                 SNew(SScaleBox).Stretch(EStretch::ScaleToFit).HAlign(HAlign_Center).VAlign(VAlign_Center)
                 [
-                    SNew(SImage).Image_Lambda([this] {
-                        IconBrush.SetResourceObject(Icon);
-                        if (Icon)
+                    SNew(SImage).Image_Lambda([this]() -> const FSlateBrush* {
+                        UTexture* Texture = ShowsItemIcon() ? GetTileIcon() : nullptr;
+                        IconBrush.SetResourceObject(Texture);
+                        if (Texture)
                         {
-                            IconBrush.SetImageSize(FVector2D(Icon->GetSurfaceWidth(), Icon->GetSurfaceHeight()));
+                            IconBrush.SetImageSize(FVector2D(Texture->GetSurfaceWidth(), Texture->GetSurfaceHeight()));
+                            return &IconBrush;
                         }
-                        return Icon && ShowsItemIcon() ? &IconBrush : FCoreStyle::Get().GetBrush("NoBrush");
+                        return FCoreStyle::Get().GetBrush("NoBrush");
                     }).ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().IconTint); })
                 ]
             ]

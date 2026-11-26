@@ -84,6 +84,7 @@ public:
     virtual const UCFTileTheme& GetTileTheme() const override;
 
     virtual void BindItem(const FCFMagritteBinding& Item);
+    virtual const FString& GetArtDefinitionIdentifier() const { return DefinitionIdentifier; }
 
 protected:
     virtual TSharedRef<SWidget> BuildTileContent() override final;
@@ -92,11 +93,13 @@ protected:
     bool HasTierBand() const;
 
     const UCIInventoryTileTheme& GetInventoryTheme() const;
+    virtual UTexture* GetTileIcon() const { return Icon; }
     virtual bool ShowsItemIcon() const { return true; }
     virtual FMargin GetIconPadding() const { return FMargin(0.f); }
     virtual FText TileLabel() const { return Label; }
+    virtual const FSlateFontInfo& TileLabelFont() const { return GetInventoryTheme().LabelFont; }
 
 private:
-
+    FString DefinitionIdentifier;
     FSlateBrush IconBrush;
 };
