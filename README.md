@@ -76,6 +76,8 @@ equipment row supplies `presentationKind`, an Inventory-wide
 attribute ID lists. Each slot relates to a row with `slotIdentifier` and
 optional `equippedModIdentifier`. Brand, talent and expertise are optional.
 Equipment theme assets map brand, talent and attribute IDs to local art.
+A positive numeric `storageCapacity` displays `inventoryTypeCount` as used
+space over capacity, including when the used space is zero.
 
 Use `CIWeaponToolRow` in a tool or weapon list. Bind the item with
 `BindItem` and pass the list's selected item to `SetComparisonItem`.

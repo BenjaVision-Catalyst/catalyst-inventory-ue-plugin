@@ -82,6 +82,7 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
     bShowCount = false;
     Count = 0;
     InventoryTypeCount = 0;
+    InventoryStorageCapacity = 0;
     for (const auto& Field : Item.Describe().orderedChildren())
     {
         const auto Value = Item.Read(*Field);
@@ -125,6 +126,13 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
             if (const auto* Quantity = std::get_if<std::int64_t>(&Value.data); Quantity && *Quantity > 0)
             {
                 InventoryTypeCount = *Quantity;
+            }
+        }
+        else if (Field->id == "storageCapacity")
+        {
+            if (const auto* Capacity = std::get_if<std::int64_t>(&Value.data); Capacity && *Capacity > 0)
+            {
+                InventoryStorageCapacity = *Capacity;
             }
         }
         else if (Field->id == "displayName")
@@ -242,13 +250,19 @@ TSharedRef<SWidget> UCIInventoryTile::BuildInventoryContent()
             [
                 SNew(STextBlock).Tag(TEXT("InventoryTileTypeCount"))
                 .Text_Lambda([this] {
+                    if (InventoryStorageCapacity > 0)
+                    {
+                        return FText::Format(NSLOCTEXT("CatalystInventory", "StorageUsage", "{0}/{1}"),
+                            FText::AsNumber(InventoryTypeCount), FText::AsNumber(InventoryStorageCapacity));
+                    }
                     return InventoryTypeCount > 0 && ShowsTypeCount() ? FText::AsNumber(InventoryTypeCount) : FText::GetEmpty();
                 })
                 .Font_Lambda([this] { return GetInventoryTheme().CountFont; })
                 .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
                 .ToolTipText(NSLOCTEXT("CatalystInventory", "TypeCount", "Items of this type in Inventory"))
                 .Visibility_Lambda([this] {
-                    return InventoryTypeCount > 0 && ShowsTypeCount() ? EVisibility::HitTestInvisible : EVisibility::Collapsed;
+                    return ShowsTypeCount() && (InventoryTypeCount > 0 || InventoryStorageCapacity > 0)
+                        ? EVisibility::HitTestInvisible : EVisibility::Collapsed;
                 })
             ]
         ];

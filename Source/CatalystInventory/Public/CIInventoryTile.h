@@ -190,5 +190,6 @@ private:
     UTexture* ResolveTileIcon() const;
     FName EmptySlotIdentifier;
     FString DefinitionIdentifier;
+    int64 InventoryStorageCapacity = 0;
     FSlateBrush IconBrush;
 };
