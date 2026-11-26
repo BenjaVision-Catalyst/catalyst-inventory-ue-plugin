@@ -78,6 +78,7 @@ private:
     bool bRestoreSavedSetsOpen = false;
     int32 RestoredSavedSetIndex = 0;
     FIntPoint RestoredGridFocus = FIntPoint::ZeroValue;
+    TMap<FName, TPair<FIntPoint, FString>> RestoredTabSelections;
     TSharedPtr<const FCIInventoryNavigationInput> RestoredNavigationInput;
     TSharedPtr<const FCIInventorySavedSetsPresentation> RestoredSavedSetsPresentation;
     TOptional<FCFControllerHold> RestoredOverwriteConfirmation;

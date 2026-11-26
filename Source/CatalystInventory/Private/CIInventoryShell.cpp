@@ -455,11 +455,32 @@ public:
         SelectSavedSet(Index);
     }
 
-    void ResetSectionNavigation()
+    TMap<FName, TPair<FIntPoint, FString>> GetTabSelections() const
     {
+        auto Selections = TabSelections;
+        if (const auto* Tile = GetSelectedTile())
+        {
+            const auto& Item = Tile->GetInspectorItem();
+            Selections.Add(ActionSection.Get(), {GridFocus,
+                Item ? FString(UTF8_TO_TCHAR(Item->ObjectId().c_str())) : FString()});
+        }
+        return Selections;
+    }
+
+    void SwitchSectionNavigation(FName Section)
+    {
+        TabSelections = GetTabSelections();
         SetSavedSetsState(false, 0);
         SavedSetsPresentation = {};
-        GridFocus = FIntPoint::ZeroValue;
+        SetNavigationGrid(nullptr);
+        RestoreTabSelection(Section);
+    }
+
+    void RestoreTabSelection(FName Section)
+    {
+        const auto* Selection = TabSelections.Find(Section);
+        GridFocus = Selection ? Selection->Key : FIntPoint::ZeroValue;
+        PendingSelectionId = Selection ? Selection->Value : FString();
     }
 
     FIntPoint GetGridFocus() const { return GridFocus; }
@@ -481,9 +502,15 @@ public:
     }
     const FCIInventoryNavigationInput& GetNavigationInput() const { return NavigationInput; }
 
-    void RestoreNavigation(FIntPoint Focus, const TSharedPtr<const FCIInventoryNavigationInput>& Input)
+    void RestoreNavigation(FIntPoint Focus, const TMap<FName, TPair<FIntPoint, FString>>& Selections,
+        const TSharedPtr<const FCIInventoryNavigationInput>& Input)
     {
-        GridFocus = Focus;
+        TabSelections = Selections;
+        RestoreTabSelection(ActionSection.Get());
+        if (!TabSelections.Contains(ActionSection.Get()))
+        {
+            GridFocus = Focus;
+        }
         if (Input)
         {
             NavigationInput = *Input;
@@ -1090,6 +1117,26 @@ private:
             if (!Row.Cells.IsEmpty())
             {
                 NavigationRows.Add(MoveTemp(Row));
+            }
+        }
+        if (!PendingSelectionId.IsEmpty())
+        {
+            const auto Identifier = MoveTemp(PendingSelectionId);
+            PendingSelectionId.Reset();
+            for (int32 Y = 0; Y < NavigationRows.Num(); ++Y)
+            {
+                const auto& Cells = NavigationRows[Y].Cells;
+                const int32 X = Cells.IndexOfByPredicate([&Identifier](const auto& Cell)
+                {
+                    const auto* Tile = Cell.Tile.Get();
+                    return Tile && Tile->GetInspectorItem()
+                        && Identifier.Equals(UTF8_TO_TCHAR(Tile->GetInspectorItem()->ObjectId().c_str()), ESearchCase::CaseSensitive);
+                });
+                if (X != INDEX_NONE)
+                {
+                    GridFocus = FIntPoint(X, Y);
+                    return;
+                }
             }
         }
         GridFocus = StepInventoryGrid(NavigationRows, GridFocus, FIntPoint::ZeroValue);
@@ -1770,6 +1817,8 @@ private:
     TWeakObjectPtr<UCFSpanGrid> NavigationGrid;
     TArray<FCIInventoryNavigationRow> NavigationRows;
     FIntPoint GridFocus = FIntPoint::ZeroValue;
+    TMap<FName, TPair<FIntPoint, FString>> TabSelections;
+    FString PendingSelectionId;
     FCIInventoryNavigationInput NavigationInput;
     TSharedPtr<SWidget> MenuWidget;
     TSharedPtr<SBox> MainRenderRoot;
@@ -1819,7 +1868,7 @@ void UCIInventoryShell::SetActionSection(FName Section)
         bConfirmEquips = false;
         if (Shell)
         {
-            Shell->ResetSectionNavigation();
+            Shell->SwitchSectionNavigation(Section);
         }
     }
     ActionSection = Section;
@@ -1878,8 +1927,13 @@ void UCIInventoryShell::SetCloseAction(FSimpleDelegate Action)
 
 void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
 {
+    RestoredTabSelections = Previous.Shell ? Previous.Shell->GetTabSelections() : Previous.RestoredTabSelections;
     if (ActionSection != Previous.ActionSection)
     {
+        if (Shell)
+        {
+            Shell->RestoreNavigation(FIntPoint::ZeroValue, RestoredTabSelections, nullptr);
+        }
         return;
     }
     RestoredGridFocus = Previous.Shell ? Previous.Shell->GetGridFocus() : Previous.RestoredGridFocus;
@@ -1900,7 +1954,7 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
     }
     if (Shell)
     {
-        Shell->RestoreNavigation(RestoredGridFocus, RestoredNavigationInput);
+        Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput);
         Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
         Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
         Shell->RestoreHoldConfirmation(ESavedSetHold::Overwrite, RestoredOverwriteConfirmation);
@@ -1987,7 +2041,7 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
         }));
     UpdateContent();
     Shell->SetSavedSets(SavedSets);
-    Shell->RestoreNavigation(RestoredGridFocus, RestoredNavigationInput);
+    Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput);
     Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
     Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
     Shell->RestoreHoldConfirmation(ESavedSetHold::Overwrite, RestoredOverwriteConfirmation);
