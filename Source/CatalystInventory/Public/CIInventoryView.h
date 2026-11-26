@@ -2,17 +2,19 @@
 
 #include "Blueprint/UserWidget.h"
 #include "Presentation/CFMagritteBinding.h"
-#include "Styling/SlateBrush.h"
 
 #include "CIInventoryView.generated.h"
 
 class UCIInventoryTile;
+class UCFMenuItem;
+class UWidgetSwitcher;
+struct FCFViewState;
 class UCIInventoryTileTheme;
 class UTexture;
 class UCFMenuTheme;
 
 /** Widget Blueprint base for a signed-in player's game profile Inventory. */
-UCLASS(Abstract, Blueprintable, BlueprintType)
+UCLASS(Blueprintable, BlueprintType)
 class CATALYSTINVENTORY_API UCIInventoryView : public UUserWidget
 {
     GENERATED_BODY()
@@ -38,16 +40,20 @@ protected:
     TObjectPtr<UCFMenuTheme> MenuTheme;
 
     UPROPERTY(EditDefaultsOnly, Category = "Catalyst|Inventory|Layout")
-    TMap<FName, FSlateBrush> MenuIcons;
+    FString DefaultSectionId = TEXT("gear");
 
     UFUNCTION(BlueprintImplementableEvent, Category = "Catalyst|Inventory")
     void OnInventoryBindingChanged();
 
-    virtual TSharedRef<SWidget> RebuildWidget() override;
     virtual void NativeConstruct() override;
     virtual void NativeDestruct() override;
 
 private:
+    friend class FCIInventoryBuilder;
+
+    UFUNCTION()
+    void PresentSection(int32 Index, UCFMenuItem* Item);
+
     void AttachSource();
     void DetachSource();
     void RefreshInventory();
@@ -58,6 +64,11 @@ private:
     TSharedPtr<ICFPlayerMagritteSource> Source;
     FDelegateHandle SourceChanged;
     TOptional<FCFMagritteBinding> Inventory;
+    TSharedPtr<FCFViewState> ViewState;
+    TArray<const magritte::Description*> SectionDescriptions;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UWidgetSwitcher> MainPanel;
     std::string ProfileFieldId;
     std::string InventoryFieldId;
     bool bConstructed = false;

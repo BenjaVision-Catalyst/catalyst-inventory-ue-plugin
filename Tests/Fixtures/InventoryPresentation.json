@@ -1,0 +1,26 @@
+{
+  "format": "magritte.graph/3",
+  "root": "inventory",
+  "descriptions": [
+    {"children": ["apparel", "gear", "resources", "stats"], "class": "MAPriorityContainer", "conditions": [], "id": "inventory", "properties": {}},
+    {"accessor": {"class": "MADictionaryAccessor", "key": "apparel"}, "class": "MAToOneRelationDescription", "classes": ["MAAdaptiveModel"], "conditions": [], "id": "apparel", "properties": {"label": {"type": "string", "value": "Apparel"}, "metadata:cfIcon": {"type": "symbol", "value": "shirt"}, "priority": {"type": "integer", "value": "10"}, "readOnly": {"type": "boolean", "value": true}}, "reference": "apparelSection"},
+    {"children": ["apparelSectionHeadline"], "class": "MAPriorityContainer", "conditions": [], "id": "apparelSection", "properties": {}},
+    {"accessor": {"class": "MADictionaryAccessor", "key": "headline"}, "class": "MAStringDescription", "conditions": [], "id": "apparelSectionHeadline", "properties": {"label": {"type": "string", "value": "Headline"}, "priority": {"type": "integer", "value": "0"}, "readOnly": {"type": "boolean", "value": true}}},
+    {"accessor": {"class": "MADictionaryAccessor", "key": "gear"}, "class": "MAToOneRelationDescription", "classes": ["MAAdaptiveModel"], "conditions": [], "id": "gear", "properties": {"label": {"type": "string", "value": "Gear"}, "metadata:cfIcon": {"type": "symbol", "value": "helmetSafety"}, "priority": {"type": "integer", "value": "20"}, "readOnly": {"type": "boolean", "value": true}}, "reference": "gearSection"},
+    {"children": ["gearSectionHeadline"], "class": "MAPriorityContainer", "conditions": [], "id": "gearSection", "properties": {}},
+    {"accessor": {"class": "MADictionaryAccessor", "key": "headline"}, "class": "MAStringDescription", "conditions": [], "id": "gearSectionHeadline", "properties": {"label": {"type": "string", "value": "Headline"}, "priority": {"type": "integer", "value": "0"}, "readOnly": {"type": "boolean", "value": true}}},
+    {"accessor": {"class": "MADictionaryAccessor", "key": "resources"}, "class": "MAToOneRelationDescription", "classes": ["MAAdaptiveModel"], "conditions": [], "id": "resources", "properties": {"label": {"type": "string", "value": "Resources"}, "metadata:cfIcon": {"type": "symbol", "value": "cubes"}, "priority": {"type": "integer", "value": "30"}, "readOnly": {"type": "boolean", "value": true}}, "reference": "resourcesSection"},
+    {"children": ["resourcesSectionHeadline"], "class": "MAPriorityContainer", "conditions": [], "id": "resourcesSection", "properties": {}},
+    {"accessor": {"class": "MADictionaryAccessor", "key": "headline"}, "class": "MAStringDescription", "conditions": [], "id": "resourcesSectionHeadline", "properties": {"label": {"type": "string", "value": "Headline"}, "priority": {"type": "integer", "value": "0"}, "readOnly": {"type": "boolean", "value": true}}},
+    {"accessor": {"class": "MADictionaryAccessor", "key": "stats"}, "class": "MAToOneRelationDescription", "classes": ["MAAdaptiveModel"], "conditions": [], "id": "stats", "properties": {"label": {"type": "string", "value": "Stats"}, "metadata:cfIcon": {"type": "symbol", "value": "chartSimple"}, "priority": {"type": "integer", "value": "40"}, "readOnly": {"type": "boolean", "value": true}}, "reference": "statsSection"},
+    {"children": ["statsSectionHeadline"], "class": "MAPriorityContainer", "conditions": [], "id": "statsSection", "properties": {}},
+    {"accessor": {"class": "MADictionaryAccessor", "key": "headline"}, "class": "MAStringDescription", "conditions": [], "id": "statsSectionHeadline", "properties": {"label": {"type": "string", "value": "Headline"}, "priority": {"type": "integer", "value": "0"}, "readOnly": {"type": "boolean", "value": true}}}
+  ],
+  "objects": [
+    {"description": "inventory", "id": "inventoryForProfile", "values": {"apparel": {"type": "reference", "value": "apparelSection"}, "gear": {"type": "reference", "value": "gearSection"}, "resources": {"type": "reference", "value": "resourcesSection"}, "stats": {"type": "reference", "value": "statsSection"}}},
+    {"description": "apparelSection", "id": "apparelSection", "values": {"apparelSectionHeadline": {"type": "string", "value": "Equipped apparel"}}},
+    {"description": "gearSection", "id": "gearSection", "values": {"gearSectionHeadline": {"type": "string", "value": "Equipped gear"}}},
+    {"description": "resourcesSection", "id": "resourcesSection", "values": {"resourcesSectionHeadline": {"type": "string", "value": "Owned resources"}}},
+    {"description": "statsSection", "id": "statsSection", "values": {"statsSectionHeadline": {"type": "string", "value": "Profile statistics"}}}
+  ]
+}

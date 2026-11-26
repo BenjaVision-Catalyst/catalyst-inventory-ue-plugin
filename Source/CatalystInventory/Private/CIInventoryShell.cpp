@@ -8,6 +8,7 @@
 #include "Presentation/CFMenu.h"
 #include "Rendering/DrawElements.h"
 #include "Rendering/SlateRenderer.h"
+#include "RenderingThread.h"
 #include "Slate/WidgetRenderer.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Widgets/SLeafWidget.h"

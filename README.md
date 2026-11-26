@@ -2,22 +2,20 @@
 
 `CatalystInventory` is the runtime module for the Unreal companion to
 [Catalyst Inventory](https://github.com/BenjaVision-Catalyst/catalyst-inventory).
-Create a Widget Blueprint derived from `CIInventoryView` in the UMG Designer
-to author an Inventory composition. With no authored root, the view builds an
-outlined Inventory shell with angled panels, the Foundation tab menu, and a
-shared content area for the active tab.
-Set `MenuTheme` and the optional `MenuIcons` by tab identifier on the view.
-An authored composition can name a
-`CIInventoryTile` widget `InventoryTile` to bind that widget to the first item.
-The view can be opened independently in the Designer without a connection.
+Construct an `FCIInventoryModel` from the authorized Inventory binding and
+call its `AsView` with the local player's presentation context. The
+description's local builder returns a `UCIInventoryView`. The scaffold
+presents the immediate, visible to-one descriptions as tabs in Magritte
+priority order. Each tab uses the description label and resolves its icon
+through the `UCFMenuTheme` icon table. Reuse the presentation context's state
+when reopening the view to restore the selected description for that Inventory.
+The selected description reads the section object whose view fills the shared
+panel.
 
-At runtime, call `BindToPlayer` with the game session's
-`ICFPlayerMagritteSource` and the installed description IDs for the profile
-and inventory relations. The source supplies the authorized User graph for the
-widget's owning local player, with the current game profile selected. Publish
-graph replacements and sign-out through `OnChanged` on the game thread. The
-widget follows both relations and broadcasts `OnInventoryBindingChanged`.
-`HasInventory` is false while any part of the graph is unavailable.
+An independently authored Widget Blueprint can still use the named
+`InventoryTile` binding and the game session's `ICFPlayerMagritteSource`
+through `BindToPlayer`. Publish graph replacements and sign-out through
+`OnChanged` on the game thread.
 
 The tile reads `displayName` and either an individual item's `tierId` or a
 stack's `count`. Assign icons in `ItemIcons` by Catalyst definition identifier.
