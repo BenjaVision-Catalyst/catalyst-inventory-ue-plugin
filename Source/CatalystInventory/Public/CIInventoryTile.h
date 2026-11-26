@@ -87,7 +87,7 @@ public:
 
     /** Size of the square centered icon box in tile layout units. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile", meta = (ClampMin = "1.0"))
-    float IconSize = 28.5f;
+    float IconSize = 32.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile")
     FSlateFontInfo LabelFont;
