@@ -25,6 +25,7 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "Catalyst|Inventory")
     UCIInventoryView* GetInventoryView() const;
+    void SetCloseAction(FSimpleDelegate Action);
 
 protected:
     TSharedRef<SWidget> RebuildWidget() override;
@@ -49,4 +50,5 @@ private:
     TFunction<void(FString)> OverwriteSavedSet;
     TFunction<void(FString)> DeleteSavedSet;
     TFunction<bool(FString, FString)> RenameSavedSet;
+    FSimpleDelegate CloseAction;
 };

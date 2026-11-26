@@ -45,6 +45,15 @@ UCIInventoryView* UCIInventorySessionView::GetInventoryView() const
     return Panel ? Cast<UCIInventoryView>(Panel->GetContent()) : nullptr;
 }
 
+void UCIInventorySessionView::SetCloseAction(FSimpleDelegate Action)
+{
+    CloseAction = MoveTemp(Action);
+    if (auto* View = GetInventoryView())
+    {
+        View->GetInventoryShell()->SetCloseAction(CloseAction);
+    }
+}
+
 TSharedRef<SWidget> UCIInventorySessionView::RebuildWidget()
 {
     if (!Panel)
@@ -116,6 +125,7 @@ void UCIInventorySessionView::Refresh()
         ViewState.ToSharedRef()}));
     if (auto* Shell = Content ? Content->GetInventoryShell() : nullptr)
     {
+        Shell->SetCloseAction(CloseAction);
         if (CreateSavedSet)
         {
             Shell->SetCreateSavedSetAction([WeakThis = TWeakObjectPtr<UCIInventorySessionView>(this)](bool bOutfit) {
