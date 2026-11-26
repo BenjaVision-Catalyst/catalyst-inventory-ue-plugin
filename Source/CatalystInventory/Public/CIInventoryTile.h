@@ -30,7 +30,7 @@ struct CATALYSTINVENTORY_API FCIInventoryScrollbarStyle
     FLinearColor TrackTint = FLinearColor(1.f, 1.f, 1.f, .15f);
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Appearance")
-    FLinearColor ThumbTint = FLinearColor(.9f, .96f, .92f);
+    FLinearColor ThumbTint = FLinearColor(1.f, 1.f, 1.f, .65f);
 };
 
 /** Editable frame, tier and content metrics shared across Inventory tiles. */
