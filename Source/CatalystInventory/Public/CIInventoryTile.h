@@ -54,6 +54,12 @@ public:
     float PanelHeight = 481.5f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Layout")
+    FSlateFontInfo InspectorTitleFont;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Layout", meta = (ClampMin = "0.0"))
+    float InspectorPadding = 14.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Layout")
     FCIInventoryScrollbarStyle Scrollbar;
 
     // Grid dimensions use the same unscaled units as the Inventory scaffold.
@@ -167,6 +173,7 @@ public:
     virtual const UCFTileTheme& GetTileTheme() const override;
 
     virtual void BindItem(const FCFMagritteBinding& Item);
+    const FText& GetItemLabel() const { return ItemLabel.IsEmpty() ? Label : ItemLabel; }
     virtual const FString& GetArtDefinitionIdentifier() const { return DefinitionIdentifier; }
 
 protected:
@@ -188,6 +195,7 @@ protected:
 
 private:
     UTexture* ResolveTileIcon() const;
+    FText ItemLabel;
     FName EmptySlotIdentifier;
     FString DefinitionIdentifier;
     int64 InventoryStorageCapacity = 0;

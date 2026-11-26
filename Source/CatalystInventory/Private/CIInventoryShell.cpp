@@ -5,6 +5,7 @@
 #include "CIInventoryTile.h"
 
 #include "Algo/BinarySearch.h"
+#include "Brushes/SlateRoundedBoxBrush.h"
 #include "Components/Border.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
@@ -35,6 +36,7 @@
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/SLeafWidget.h"
 #include "Widgets/SWindow.h"
+#include "Widgets/Text/STextBlock.h"
 
 namespace
 {
@@ -105,6 +107,8 @@ struct FInventoryShellLayout
     double MenuFit = 0.0;
     FVector2D MainOrigin = FVector2D::ZeroVector;
     FVector2D MainExtent = FVector2D::ZeroVector;
+    FVector2D InspectorOrigin = FVector2D::ZeroVector;
+    FVector2D InspectorExtent = FVector2D::ZeroVector;
     FVector2D FooterOrigin = FVector2D::ZeroVector;
     double Scale = 0.0;
 };
@@ -148,8 +152,10 @@ FInventoryShellLayout LayoutFor(const FVector2D& Size, const FVector2D& MenuSize
     };
     Layout.Left = MakePlane(FMath::Max(TabWidth, GridInset + GridWidth + 8.0 * Scale), 9.0);
     Layout.Right = MakePlane(FMath::Min(420.0 * Scale, RightRoom * .78 * PaneScale), -18.0);
-    const double InspectorLeft = Layout.Right.Project({0.0, GridTop}).X;
-    const double InspectorRight = Layout.Right.Project({Layout.Right.Extent.X - 8.0 * Scale, GridTop}).X;
+    Layout.InspectorOrigin = {0.0, GridTop};
+    Layout.InspectorExtent.X = Layout.Right.Extent.X - 8.0 * Scale;
+    const double InspectorLeft = Layout.Right.Project(Layout.InspectorOrigin).X;
+    const double InspectorRight = Layout.Right.Project({Layout.InspectorExtent.X, GridTop}).X;
     Layout.Right.Center.X = (CharacterRight + Size.X - InspectorLeft - InspectorRight) * .5;
     const double CharacterGap = Layout.Right.Center.X + InspectorLeft - CharacterRight;
     const double InnerEdge = CharacterLeft - CharacterGap
@@ -169,6 +175,7 @@ FInventoryShellLayout LayoutFor(const FVector2D& Size, const FVector2D& MenuSize
     Layout.MainOrigin = {Layout.Left.Extent.X - MainRightInset - GridWidth, GridTop};
     const double AvailableHeight = Layout.Left.Extent.Y - Layout.MainOrigin.Y - (FooterGap + FooterHeight) * Scale;
     Layout.MainExtent = {GridWidth, FMath::Min(AvailableHeight, FMath::Max(1.f, PanelHeight) * Scale)};
+    Layout.InspectorExtent.Y = Layout.MainExtent.Y;
     Layout.FooterOrigin = Layout.MainOrigin + FVector2D(0.0, Layout.MainExtent.Y + FooterGap * Scale);
     return Layout;
 }
@@ -453,6 +460,20 @@ public:
     }
 
     FIntPoint GetGridFocus() const { return GridFocus; }
+
+    FText GetInspectorLabel() const
+    {
+        if (HasSavedSets(ActionSection.Get()) && NavigationRows.IsValidIndex(GridFocus.Y))
+        {
+            const auto& Cells = NavigationRows[GridFocus.Y].Cells;
+            const auto* Tile = Cells.IsValidIndex(GridFocus.X) ? Cells[GridFocus.X].Tile.Get() : nullptr;
+            if (Tile)
+            {
+                return Tile->GetItemLabel();
+            }
+        }
+        return FText::GetEmpty();
+    }
     const FCIInventoryNavigationInput& GetNavigationInput() const { return NavigationInput; }
 
     void RestoreNavigation(FIntPoint Focus, const TSharedPtr<const FCIInventoryNavigationInput>& Input)
@@ -829,6 +850,7 @@ public:
         if (!Renderer || !Content || Size.GetMin() < 32.0)
         {
             FooterTexture.Reset();
+            InspectorTexture.Reset();
             if (MainTexture.IsValid())
             {
                 MainTexture.Reset();
@@ -838,6 +860,7 @@ public:
         }
 
         const auto Layout = GetLayout(Size);
+        RenderInspector(Layout, DeltaTime);
         const auto Extent = Layout.MainExtent;
         if (Extent.GetMin() >= 1.0)
         {
@@ -941,12 +964,17 @@ public:
                     {SurfaceWidth, Layout.MainExtent.Y}, Start, End, Opacity);
             });
         }
+        PaintBackdrops(Geometry, Elements, Layer, Layout);
         if (MainTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
         {
             const FVector2D RasterExtent(MainTexture->SizeX / ProjectionRasterScale,
                 MainTexture->SizeY / ProjectionRasterScale);
-            PaintTileBackdrops(Geometry, Elements, Layer, Layout);
             DrawSurface(Geometry, Elements, Layer + 1, Layout.Left, MainTexture.Get(), Layout.MainOrigin, RasterExtent);
+        }
+        if (InspectorTexture.IsValid() && Layout.InspectorExtent.GetMin() >= 1.0)
+        {
+            DrawSurface(Geometry, Elements, Layer + 1, Layout.Right, InspectorTexture.Get(),
+                Layout.InspectorOrigin, Layout.InspectorExtent);
         }
 
         if (MenuTexture.IsValid() && Layout.MenuExtent.GetMin() > 0.0)
@@ -1080,14 +1108,50 @@ private:
         }
     }
 
-    void PaintTileBackdrops(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
+    void RenderInspector(const FInventoryShellLayout& Layout, float DeltaTime)
+    {
+        const FText Label = GetInspectorLabel();
+        if (Label.IsEmpty() || Layout.InspectorExtent.GetMin() < 1.0)
+        {
+            InspectorTexture.Reset();
+            return;
+        }
+
+        const auto* Theme = InventoryTheme.Get();
+        const bool bThemeChanged = !InspectorWidget || InspectorTheme.Get() != Theme;
+        if (bThemeChanged)
+        {
+            InspectorBrush = FSlateRoundedBoxBrush(Theme->Style.Background, 0.f, Theme->Style.Border, Theme->Style.Stroke);
+            InspectorWidget = SNew(SBorder)
+                .BorderImage(&InspectorBrush)
+                .Padding(FMargin(Theme->InspectorPadding))
+                .VAlign(VAlign_Top)
+                [
+                    SAssignNew(InspectorTitle, STextBlock)
+                    .Font(Theme->InspectorTitleFont)
+                    .ColorAndOpacity(FSlateColor(Theme->TextTint))
+                ];
+            InspectorTheme = Theme;
+        }
+        const float Scale = Layout.Scale * ProjectionRasterScale;
+        const FIntPoint Size(FMath::CeilToInt(Layout.InspectorExtent.X * ProjectionRasterScale),
+            FMath::CeilToInt(Layout.InspectorExtent.Y * ProjectionRasterScale));
+        if (bThemeChanged || !InspectorTexture.IsValid() || InspectorTexture->SizeX != Size.X
+            || InspectorTexture->SizeY != Size.Y || InspectorScale != Scale || !InspectorTitle->GetText().EqualTo(Label))
+        {
+            InspectorTitle->SetText(Label);
+            InspectorTitle->SetWrapTextAt(FMath::Max(1.f, Size.X / Scale - 2.f * Theme->InspectorPadding));
+            DrawToTexture(InspectorTexture, InspectorWidget.ToSharedRef(), FVector2D(Size), DeltaTime, Scale);
+            InspectorScale = Scale;
+        }
+    }
+
+    void PaintBackdrops(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
         const FInventoryShellLayout& Layout) const
     {
-        const auto* Grid = Cast<UCFSpanGrid>(MainContent.Get());
-        const auto GridWidget = Grid ? Grid->GetCachedWidget() : nullptr;
         const float Strength = FMath::Clamp(InventoryTheme.Get()->Style.BackdropBlur, 0.f, 30.f);
         const auto* Window = Elements.GetPaintWindow();
-        if (!GridWidget || !ProjectedBlur || Strength <= 0.f || ProjectedBlur->IsUsingLowQualityFallbackBrush()
+        if (!ProjectedBlur || Strength <= 0.f || ProjectedBlur->IsUsingLowQualityFallbackBrush()
             || !Window || Window->IsVirtualWindow())
         {
             return;
@@ -1097,12 +1161,34 @@ private:
         int32 Downsample = 0;
         ProjectedBlur->ComputeEffectiveKernelSize(Strength, KernelSize, Downsample);
         const int32 Factor = FMath::Max(1, Downsample);
-        const FGeometry& GridGeometry = GridWidget->GetPaintSpaceGeometry();
-        const auto Project = [&](FVector2D Point) {
-            return Geometry.LocalToAbsolute(Layout.Left.Project(Layout.MainOrigin + Point));
+        const auto PaintBackdrop = [&](const FInventoryPlane& Plane, FVector2D Min, FVector2D Max) {
+            const auto Project = [&](FVector2D Point) { return Geometry.LocalToAbsolute(Plane.Project(Point)); };
+            const FVector2D TL = Project(Min);
+            const FVector2D TR = Project({Max.X, Min.Y});
+            const FVector2D BL = Project({Min.X, Max.Y});
+            const FVector2D BR = Project(Max);
+            const FVector2D Origin(FMath::Min(TL.X, BL.X), FMath::Min(TL.Y, TR.Y));
+            const FVector2D End(FMath::Max(TR.X, BR.X), FMath::Max(BL.Y, BR.Y));
+            const FVector2D Extent = End - Origin;
+            Elements.PushClip(FSlateClippingZone(TL, TR, BL, BR));
+            FSlateDrawElement::MakePostProcessBlur(Elements, Layer, FPaintGeometry(Origin, Extent, Geometry.Scale),
+                FVector4f(KernelSize, FMath::Max(.5f, Strength) / Factor, FMath::CeilToInt(Extent.X / Factor),
+                    FMath::CeilToInt(Extent.Y / Factor)), Downsample, FVector4f(0));
+            Elements.PopClip();
         };
 
-        // Sample the game viewport before compositing the clear tile surface.
+        // Sample the game viewport before compositing the clear inventory surfaces.
+        if (InspectorTexture.IsValid() && Layout.InspectorExtent.GetMin() >= 1.0)
+        {
+            PaintBackdrop(Layout.Right, Layout.InspectorOrigin, Layout.InspectorOrigin + Layout.InspectorExtent);
+        }
+        const auto* Grid = Cast<UCFSpanGrid>(MainContent.Get());
+        const auto GridWidget = Grid ? Grid->GetCachedWidget() : nullptr;
+        if (!MainTexture.IsValid() || Layout.MainExtent.GetMin() <= 0.0 || !GridWidget)
+        {
+            return;
+        }
+        const FGeometry& GridGeometry = GridWidget->GetPaintSpaceGeometry();
         for (const auto* Child : Grid->GetAllChildren())
         {
             const auto* Row = Cast<USizeBox>(Child);
@@ -1128,18 +1214,7 @@ private:
                 {
                     continue;
                 }
-                const FVector2D TL = Project(Min);
-                const FVector2D TR = Project({Max.X, Min.Y});
-                const FVector2D BL = Project({Min.X, Max.Y});
-                const FVector2D BR = Project(Max);
-                const FVector2D Origin(FMath::Min(TL.X, BL.X), FMath::Min(TL.Y, TR.Y));
-                const FVector2D End(FMath::Max(TR.X, BR.X), FMath::Max(BL.Y, BR.Y));
-                const FVector2D Extent = End - Origin;
-                Elements.PushClip(FSlateClippingZone(TL, TR, BL, BR));
-                FSlateDrawElement::MakePostProcessBlur(Elements, Layer, FPaintGeometry(Origin, Extent, Geometry.Scale),
-                    FVector4f(KernelSize, FMath::Max(.5f, Strength) / Factor, FMath::CeilToInt(Extent.X / Factor),
-                        FMath::CeilToInt(Extent.Y / Factor)), Downsample, FVector4f(0));
-                Elements.PopClip();
+                PaintBackdrop(Layout.Left, Layout.MainOrigin + Min, Layout.MainOrigin + Max);
             }
         }
     }
@@ -1548,6 +1623,12 @@ private:
     double SavedSetsHeight = 0.0;
     TStrongObjectPtr<UTextureRenderTarget2D> MenuTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> MainTexture;
+    FSlateRoundedBoxBrush InspectorBrush{FLinearColor::Transparent, 0.f};
+    TSharedPtr<SBorder> InspectorWidget;
+    TSharedPtr<STextBlock> InspectorTitle;
+    TStrongObjectPtr<UTextureRenderTarget2D> InspectorTexture;
+    TWeakObjectPtr<const UCIInventoryTileTheme> InspectorTheme;
+    float InspectorScale = 0.f;
     TStrongObjectPtr<UTextureRenderTarget2D> FooterTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> SavedSetsTexture;
     FCIInventorySavedSetsPresentation SavedSetsPresentation;
@@ -1665,6 +1746,11 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
 FIntPoint UCIInventoryShell::GetFocusedGridCellForTest() const
 {
     return Shell ? Shell->GetGridFocus() : RestoredGridFocus;
+}
+
+FText UCIInventoryShell::GetInspectorLabelForTest() const
+{
+    return Shell ? Shell->GetInspectorLabel() : FText::GetEmpty();
 }
 #endif
 

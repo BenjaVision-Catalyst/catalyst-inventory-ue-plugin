@@ -7,6 +7,7 @@
 #include "Components/WidgetSwitcher.h"
 #include "Input/Events.h"
 #include "Presentation/CFMenu.h"
+#include "Presentation/CFMagritteBinding.h"
 #include "Presentation/CFSpanGrid.h"
 #include "UObject/StrongObjectPtr.h"
 
@@ -39,14 +40,41 @@ bool FCIInventoryNavigationTest::RunTest(const FString&)
     Shell->AddChild(Panel);
     auto* UnpaintedGrid = NewObject<UCFSpanGrid>(Panel);
     UnpaintedGrid->Configure(2, 30.f, 0.f, 0.f, 0.f, 0.f, FMargin(), FSlateFontInfo(), FLinearColor::White);
-    UnpaintedGrid->AddItem(*NewObject<UCIInventoryTile>(UnpaintedGrid), 1);
-    UnpaintedGrid->AddItem(*NewObject<UCIInventoryTile>(UnpaintedGrid), 1);
+    const auto Card = std::make_shared<magritte::Description>();
+    Card->id = "equipmentCard";
+    Card->className = "MAPriorityContainer";
+    for (const auto* Id : {"displayName", "categoryIdentifier"})
+    {
+        auto Field = std::make_shared<magritte::Description>();
+        Field->id = Id;
+        Field->className = "MAStringDescription";
+        Card->children.push_back(Field);
+    }
+    const auto Graph = std::make_shared<magritte::Graph>();
+    const auto AddTile = [&](const char* Category, const char* ItemName) {
+        auto& Object = Graph->objects[Category];
+        Object.id = Category;
+        Object.description = Card;
+        Object.values = {{"categoryIdentifier", magritte::Value(Category)},
+            {"displayName", magritte::Value(ItemName)}};
+        auto* Tile = NewObject<UCIInventoryTile>(UnpaintedGrid);
+        Tile->BindItem(FCFMagritteBinding::Find(Graph, Object.id).GetValue());
+        TestTrue(TEXT("An equipment tile still hides the label on its front"), Tile->Label.IsEmpty());
+        UnpaintedGrid->AddItem(*Tile, 1);
+    };
+    AddTile("MeleeWeapon", "Training sword");
+    AddTile("LeftHandWeapon", "");
     Panel->AddChild(UnpaintedGrid);
     const auto Widget = Shell->TakeWidget();
     TestFalse(TEXT("The grid is still unpainted"), UnpaintedGrid->GetCachedWidget().IsValid());
     Widget->OnKeyDown(Widget->GetCachedGeometry(), FKeyEvent(EKeys::Right, FModifierKeysState(), 0, false, 0, 0));
     TestEqual(TEXT("The first navigation input finds tiles before Slate has built them"),
         Shell->GetFocusedGridCellForTest(), FIntPoint(1, 0));
+    TestEqual(TEXT("The inspector uses the slot name when the model has no item name"),
+        Shell->GetInspectorLabelForTest().ToString(), FString(TEXT("Left Hand Weapon")));
+    Widget->OnKeyDown(Widget->GetCachedGeometry(), FKeyEvent(EKeys::Left, FModifierKeysState(), 0, false, 0, 0));
+    TestEqual(TEXT("The inspector follows focus and displays the model's item name"),
+        Shell->GetInspectorLabelForTest().ToString(), FString(TEXT("Training sword")));
 
     FCIInventoryNavigationInput Input;
     Input.SetStickAxis(true, .9);

@@ -31,6 +31,7 @@ UCIInventoryTileTheme::UCIInventoryTileTheme()
     };
     GroupLabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 16);
     LabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 14);
+    InspectorTitleFont = FCoreStyle::GetDefaultFontStyle("Bold", 29);
     CountFont = FCoreStyle::GetDefaultFontStyle("Regular", 16);
     if (const auto Foundation = IPluginManager::Get().FindPlugin(TEXT("CatalystFoundation")))
     {
@@ -151,8 +152,13 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
             }
         }
     }
+    ItemLabel = Label;
     if (bHasCategory)
     {
+        if (ItemLabel.IsEmpty() && !CategoryIdentifier.IsNone())
+        {
+            ItemLabel = FText::FromString(FName::NameToDisplayString(CategoryIdentifier.ToString(), false));
+        }
         Label = FText::GetEmpty();
         DefinitionIdentifier = MoveTemp(EquippedDefinition);
         EmptySlotIdentifier = DefinitionIdentifier.IsEmpty() ? CategoryIdentifier : NAME_None;
