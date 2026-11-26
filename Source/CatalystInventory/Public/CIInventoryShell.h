@@ -9,6 +9,7 @@ class UCFMenuItem;
 class UCIInventoryTileTheme;
 class UWidgetSwitcher;
 struct FCIInventorySavedSetsPresentation;
+struct FCIInventoryNavigationInput;
 
 struct FCIInventorySavedSet
 {
@@ -34,6 +35,9 @@ public:
     void CloseSavedSetOptions();
     void SetCloseAction(FSimpleDelegate Action);
     void RestoreSavedSetsState(const UCIInventoryShell& Previous);
+#if WITH_DEV_AUTOMATION_TESTS
+    FIntPoint GetFocusedGridCellForTest() const;
+#endif
     /** Bind Create or Equip for the selected row. An unbound action is disabled. */
     void SetSavedSetConfirmAction(bool bEquip, FSimpleDelegate Action);
 
@@ -72,6 +76,8 @@ private:
     bool bConfirmEquips = false;
     bool bRestoreSavedSetsOpen = false;
     int32 RestoredSavedSetIndex = 0;
+    FIntPoint RestoredGridFocus = FIntPoint::ZeroValue;
+    TSharedPtr<const FCIInventoryNavigationInput> RestoredNavigationInput;
     TSharedPtr<const FCIInventorySavedSetsPresentation> RestoredSavedSetsPresentation;
     TOptional<FCFControllerHold> RestoredOverwriteConfirmation;
     TOptional<FCFControllerHold> RestoredDeleteConfirmation;

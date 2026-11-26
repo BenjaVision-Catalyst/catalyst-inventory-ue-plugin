@@ -161,6 +161,9 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "Inventory Tile")
     int64 InventoryTypeCount = 0;
 
+    // The authored span stays available after the grid projects its Slate slot widths.
+    int32 GridColumnSpan = 1;
+
     virtual const UCFTileTheme& GetTileTheme() const override;
 
     virtual void BindItem(const FCFMagritteBinding& Item);

@@ -127,7 +127,8 @@ private:
                     const auto* Equipment = Cast<UCIEquipmentTile>(Tile);
                     const bool bToolsWeapons = Equipment && (Equipment->PresentationKind == TEXT("weapon")
                         || Equipment->PresentationKind == TEXT("tool"));
-                    Grid->AddItem(*Tile, bToolsWeapons ? 2 : Span);
+                    Tile->GridColumnSpan = bToolsWeapons ? 2 : Span;
+                    Grid->AddItem(*Tile, Tile->GridColumnSpan);
                 }
             }
         }

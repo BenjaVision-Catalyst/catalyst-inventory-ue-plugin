@@ -1,5 +1,6 @@
 #include "CIInventoryShell.h"
 
+#include "CIInventoryNavigation.h"
 #include "CIInventorySavedSetRows.h"
 #include "CIInventoryTile.h"
 
@@ -50,6 +51,15 @@ const FName ResourcesSection(TEXT("resources"));
 bool HasSavedSets(FName Section)
 {
     return Section == GearSection || Section == ApparelSection;
+}
+
+FIntPoint NavigationDirection(const FKey& Key)
+{
+    if (Key == EKeys::Left || Key == EKeys::Gamepad_DPad_Left) { return {-1, 0}; }
+    if (Key == EKeys::Right || Key == EKeys::Gamepad_DPad_Right) { return {1, 0}; }
+    if (Key == EKeys::Up || Key == EKeys::Gamepad_DPad_Up) { return {0, -1}; }
+    if (Key == EKeys::Down || Key == EKeys::Gamepad_DPad_Down) { return {0, 1}; }
+    return FIntPoint::ZeroValue;
 }
 
 FText SavedSetsLabel(FName Section)
@@ -435,6 +445,25 @@ public:
         SelectSavedSet(Index);
     }
 
+    void ResetSectionNavigation()
+    {
+        SetSavedSetsState(false, 0);
+        SavedSetsPresentation = {};
+        GridFocus = FIntPoint::ZeroValue;
+    }
+
+    FIntPoint GetGridFocus() const { return GridFocus; }
+    const FCIInventoryNavigationInput& GetNavigationInput() const { return NavigationInput; }
+
+    void RestoreNavigation(FIntPoint Focus, const TSharedPtr<const FCIInventoryNavigationInput>& Input)
+    {
+        GridFocus = Focus;
+        if (Input)
+        {
+            NavigationInput = *Input;
+        }
+    }
+
     bool IsSavedSetsOpen() const { return bSavedSetsOpen; }
     int32 GetSavedSetIndex() const { return SavedSetIndex; }
     const FCIInventorySavedSetsPresentation& GetSavedSetsPresentation() const { return SavedSetsPresentation; }
@@ -528,20 +557,35 @@ public:
                 return FReply::Handled();
             }
         }
-        if (HasSavedSets(ActionSection.Get()) && (Key == EKeys::G || Key == EKeys::Gamepad_LeftTrigger))
+        if (Key == EKeys::Gamepad_LeftTrigger)
         {
-            if (!Event.IsRepeat())
-            {
-                ToggleSavedSets();
-            }
-            return FReply::Handled();
+            NavigationInput.bTriggerButton = true;
+            return UpdateNavigationTrigger() ? FReply::Handled() : FReply::Unhandled();
         }
-        if (bSavedSetsOpen && HasSavedSets(ActionSection.Get())
-            && (Key == EKeys::Up || Key == EKeys::Down || Key == EKeys::Gamepad_DPad_Up || Key == EKeys::Gamepad_DPad_Down))
+        if (HasSavedSets(ActionSection.Get()))
         {
-            const bool bUp = Key == EKeys::Up || Key == EKeys::Gamepad_DPad_Up;
-            SelectSavedSet(SavedSetIndex + (bUp ? -1 : 1));
-            return FReply::Handled();
+            if (Key == EKeys::G)
+            {
+                if (!Event.IsRepeat())
+                {
+                    ToggleSavedSets();
+                }
+                return FReply::Handled();
+            }
+            const auto Direction = NavigationDirection(Key);
+            if (Direction != FIntPoint::ZeroValue)
+            {
+                if (Key.IsGamepadKey())
+                {
+                    NavigationInput.SetPad(Direction, true);
+                    MoveNavigation(NavigationInput.Step(FPlatformTime::Seconds()));
+                }
+                else
+                {
+                    MoveNavigation(Direction);
+                }
+                return FReply::Handled();
+            }
         }
         if (bSavedSetsOpen && HasSavedSets(ActionSection.Get())
             && (Key == EKeys::Enter || Key == EKeys::Gamepad_FaceButton_Bottom))
@@ -557,9 +601,14 @@ public:
             SetSavedSetsState(false, SavedSetIndex);
             return FReply::Handled();
         }
-        if (Menu.IsValid() && (Key == EKeys::Q || Key == EKeys::E))
+        const bool bPrevious = Key == EKeys::Q || Key == EKeys::Gamepad_LeftShoulder;
+        const bool bNext = Key == EKeys::E || Key == EKeys::Gamepad_RightShoulder;
+        if (Menu.IsValid() && (bPrevious || bNext))
         {
-            Menu->StepSelection(Key == EKeys::Q ? -1 : 1);
+            if (!Event.IsRepeat())
+            {
+                Menu->StepSelection(bPrevious ? -1 : 1);
+            }
             return FReply::Handled();
         }
         return MenuWidget ? MenuWidget->OnKeyDown(Geometry, Event) : FReply::Unhandled();
@@ -567,11 +616,43 @@ public:
 
     FReply OnKeyUp(const FGeometry&, const FKeyEvent& Event) override
     {
-        return ReleaseHoldInput(Event.GetKey()) ? FReply::Handled() : FReply::Unhandled();
+        const FKey Key = Event.GetKey();
+        if (Key == EKeys::Gamepad_LeftTrigger)
+        {
+            NavigationInput.bTriggerButton = false;
+            return UpdateNavigationTrigger() ? FReply::Handled() : FReply::Unhandled();
+        }
+        if (Key.IsGamepadKey())
+        {
+            const auto Direction = NavigationDirection(Key);
+            if (Direction != FIntPoint::ZeroValue)
+            {
+                NavigationInput.SetPad(Direction, false);
+                return HasSavedSets(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
+            }
+        }
+        return ReleaseHoldInput(Key) ? FReply::Handled() : FReply::Unhandled();
+    }
+
+    FReply OnAnalogValueChanged(const FGeometry&, const FAnalogInputEvent& Event) override
+    {
+        const FKey Key = Event.GetKey();
+        if (Key == EKeys::Gamepad_LeftTriggerAxis)
+        {
+            NavigationInput.TriggerAxis = Event.GetAnalogValue();
+            return UpdateNavigationTrigger() ? FReply::Handled() : FReply::Unhandled();
+        }
+        if (Key == EKeys::Gamepad_LeftX || Key == EKeys::Gamepad_LeftY)
+        {
+            NavigationInput.SetStickAxis(Key == EKeys::Gamepad_LeftX, Event.GetAnalogValue());
+            return HasSavedSets(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
+        }
+        return FReply::Unhandled();
     }
 
     void OnFocusLost(const FFocusEvent&) override
     {
+        NavigationInput = {};
         for (const auto Action : SavedSetHoldActions)
         {
             Hold(Action).Inputs.Reset();
@@ -699,6 +780,10 @@ public:
     virtual void Tick(const FGeometry& Geometry, double, float DeltaTime) override
     {
         const double Now = FPlatformTime::Seconds();
+        if (HasSavedSets(ActionSection.Get()) && !OptionsWindow.IsValid())
+        {
+            MoveNavigation(NavigationInput.Step(Now));
+        }
         for (const auto Action : SavedSetHoldActions)
         {
             auto& State = Hold(Action);
@@ -714,8 +799,9 @@ public:
         }
 
         UWidget* ActivePanel = MainPanel.IsValid() ? MainPanel->GetActiveWidget() : nullptr;
-        const auto* NamedSlot = Cast<UNamedSlot>(ActivePanel);
-        UWidget* Content = NamedSlot ? NamedSlot->GetContent() : ActivePanel;
+        UWidget* Content = GetPanelContent(ActivePanel);
+        SetNavigationGrid(HasSavedSets(ActionSection.Get()) ? Cast<UCFSpanGrid>(Content) : nullptr);
+        UpdateGridFocus(DeltaTime);
         if (MainContent.Get() != Content)
         {
             MainContent = Content;
@@ -878,6 +964,117 @@ public:
     }
 
 private:
+    static UWidget* GetPanelContent(UWidget* Panel)
+    {
+        const auto* NamedSlot = Cast<UNamedSlot>(Panel);
+        return NamedSlot ? NamedSlot->GetContent() : Panel;
+    }
+
+    bool UpdateNavigationTrigger()
+    {
+        const bool bToggle = NavigationInput.UpdateTrigger();
+        const bool bHandled = HasSavedSets(ActionSection.Get());
+        if (bToggle && bHandled && !OptionsWindow.IsValid())
+        {
+            ToggleSavedSets();
+        }
+        return bHandled;
+    }
+
+    void SetNavigationGrid(UCFSpanGrid* Grid)
+    {
+        if (NavigationGrid.Get() == Grid && (Grid || NavigationRows.IsEmpty()))
+        {
+            return;
+        }
+        for (const auto& Row : NavigationRows)
+        {
+            for (const auto& Cell : Row.Cells)
+            {
+                if (auto* Tile = Cell.Tile.Get(); Tile && Cell.FocusProgress > 0.f)
+                {
+                    Tile->SetVisualState(0.f, 1.f);
+                }
+            }
+        }
+        NavigationRows.Reset();
+        NavigationGrid = Grid;
+        if (!Grid)
+        {
+            return;
+        }
+
+        for (const auto* Child : Grid->GetAllChildren())
+        {
+            const auto* Box = Cast<USizeBox>(Child);
+            const auto* Cells = Box ? Cast<UHorizontalBox>(Box->GetContent()) : nullptr;
+            if (!Cells || !Cells->IsVisible())
+            {
+                continue;
+            }
+            FCIInventoryNavigationRow Row;
+            Row.Columns = Grid->GetColumnCount();
+            for (auto* ChildCell : Cells->GetAllChildren())
+            {
+                if (auto* Tile = Cast<UCIInventoryTile>(ChildCell))
+                {
+                    if (Tile->GetVisibility() == ESlateVisibility::Collapsed)
+                    {
+                        Row.Columns -= Tile->GridColumnSpan;
+                    }
+                    else if (Tile->IsVisible())
+                    {
+                        Row.Cells.Add({Tile->GridColumnSpan, Tile});
+                    }
+                }
+            }
+            if (!Row.Cells.IsEmpty())
+            {
+                NavigationRows.Add(MoveTemp(Row));
+            }
+        }
+        GridFocus = StepInventoryGrid(NavigationRows, GridFocus, FIntPoint::ZeroValue);
+    }
+
+    void MoveNavigation(FIntPoint Direction)
+    {
+        if (Direction == FIntPoint::ZeroValue)
+        {
+            return;
+        }
+        if (bSavedSetsOpen)
+        {
+            if (Direction.Y != 0)
+            {
+                SelectSavedSet(SavedSetIndex + Direction.Y);
+            }
+            return;
+        }
+        SetNavigationGrid(MainPanel.IsValid()
+            ? Cast<UCFSpanGrid>(GetPanelContent(MainPanel->GetActiveWidget())) : nullptr);
+        GridFocus = StepInventoryGrid(NavigationRows, GridFocus, Direction);
+    }
+
+    void UpdateGridFocus(float DeltaTime)
+    {
+        for (int32 Row = 0; Row < NavigationRows.Num(); ++Row)
+        {
+            auto& Cells = NavigationRows[Row].Cells;
+            for (int32 Column = 0; Column < Cells.Num(); ++Column)
+            {
+                auto& Cell = Cells[Column];
+                const float Target = !bSavedSetsOpen && GridFocus == FIntPoint(Column, Row) ? 1.f : 0.f;
+                const float Progress = bSavedSetsOpen ? 0.f
+                    : FMath::FInterpConstantTo(Cell.FocusProgress, Target, DeltaTime, 7.f);
+                if (auto* Tile = Cell.Tile.Get(); Tile && Progress != Cell.FocusProgress)
+                {
+                    Cell.FocusProgress = Progress;
+                    Tile->SetVisualState(FMath::SmoothStep(0.f, 1.f, Progress), 1.f);
+                }
+            }
+        }
+    }
+
     void PaintTileBackdrops(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
         const FInventoryShellLayout& Layout) const
     {
@@ -1328,6 +1525,10 @@ private:
     TWeakObjectPtr<UCFMenu> Menu;
     TWeakObjectPtr<UWidgetSwitcher> MainPanel;
     TWeakObjectPtr<UWidget> MainContent;
+    TWeakObjectPtr<UCFSpanGrid> NavigationGrid;
+    TArray<FCIInventoryNavigationRow> NavigationRows;
+    FIntPoint GridFocus = FIntPoint::ZeroValue;
+    FCIInventoryNavigationInput NavigationInput;
     TSharedPtr<SWidget> MenuWidget;
     TSharedPtr<SBox> MainRenderRoot;
     TSharedPtr<SCIInventoryActionFooter> FooterWidget;
@@ -1366,9 +1567,7 @@ void UCIInventoryShell::SetActionSection(FName Section)
         bConfirmEquips = false;
         if (Shell)
         {
-            Shell->CloseSavedSetOptions();
-            Shell->CancelSavedSetHolds();
-            Shell->SetSavedSetsState(Shell->IsSavedSetsOpen() && HasSavedSets(Section), 0);
+            Shell->ResetSectionNavigation();
         }
     }
     ActionSection = Section;
@@ -1431,6 +1630,9 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
     {
         return;
     }
+    RestoredGridFocus = Previous.Shell ? Previous.Shell->GetGridFocus() : Previous.RestoredGridFocus;
+    RestoredNavigationInput = Previous.Shell ? MakeShared<FCIInventoryNavigationInput>(Previous.Shell->GetNavigationInput())
+        : Previous.RestoredNavigationInput;
     bRestoreSavedSetsOpen = Previous.Shell ? Previous.Shell->IsSavedSetsOpen() : Previous.bRestoreSavedSetsOpen;
     RestoredSavedSetIndex = Previous.Shell ? Previous.Shell->GetSavedSetIndex() : Previous.RestoredSavedSetIndex;
     RestoredSavedSetsPresentation = Previous.Shell ? MakeShared<FCIInventorySavedSetsPresentation>(Previous.Shell->GetSavedSetsPresentation())
@@ -1446,12 +1648,20 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
     }
     if (Shell)
     {
+        Shell->RestoreNavigation(RestoredGridFocus, RestoredNavigationInput);
         Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
         Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
         Shell->RestoreHoldConfirmation(ESavedSetHold::Overwrite, RestoredOverwriteConfirmation);
         Shell->RestoreHoldConfirmation(ESavedSetHold::Delete, RestoredDeleteConfirmation);
     }
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+FIntPoint UCIInventoryShell::GetFocusedGridCellForTest() const
+{
+    return Shell ? Shell->GetGridFocus() : RestoredGridFocus;
+}
+#endif
 
 void UCIInventoryShell::SetSavedSetConfirmAction(bool bEquip, FSimpleDelegate Action)
 {
@@ -1520,6 +1730,7 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
         }));
     UpdateContent();
     Shell->SetSavedSets(SavedSets);
+    Shell->RestoreNavigation(RestoredGridFocus, RestoredNavigationInput);
     Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
     Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
     Shell->RestoreHoldConfirmation(ESavedSetHold::Overwrite, RestoredOverwriteConfirmation);
