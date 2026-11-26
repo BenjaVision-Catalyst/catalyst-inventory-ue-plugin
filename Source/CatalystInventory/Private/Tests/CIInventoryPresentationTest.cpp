@@ -5,14 +5,19 @@
 #include "CIInventoryModel.h"
 #include "../CIInventorySidebarReveal.h"
 #include "CIInventoryShell.h"
+#include "CIInventoryTile.h"
 #include "CIInventoryView.h"
 #include "Components/NamedSlot.h"
 #include "Components/TextBlock.h"
 #include "Components/WidgetSwitcher.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "HAL/PlatformProcess.h"
 #include "Interfaces/IPluginManager.h"
 #include "Input/Events.h"
 #include "Misc/FileHelper.h"
 #include "Presentation/CFMenu.h"
+#include "RenderingThread.h"
+#include "Slate/WidgetRenderer.h"
 #include "UObject/StrongObjectPtr.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCIInventoryPresentationTest,
@@ -112,6 +117,55 @@ bool FCIInventoryPresentationTest::RunTest(const FString&)
     Shell->SetCloseAction(FSimpleDelegate::CreateLambda([&] { bClosed = true; }));
     TestTrue(TEXT("Tab activates the bound close action"), Press(EKeys::Tab) && bClosed);
     Shell->SetCloseAction({});
+    if (FApp::CanEverRender())
+    {
+        auto* Theme = NewObject<UCIInventoryTileTheme>(Shell);
+        Theme->Style.Background = FLinearColor::Green;
+        Theme->Style.FocusedBackground = FLinearColor::Red;
+        Shell->SetLayoutTheme(Theme);
+        auto* Renderer = new FWidgetRenderer(false);
+        const FVector2D Size(1280, 720);
+        const auto Geometry = FGeometry::MakeRoot(Size, FSlateLayoutTransform());
+        const auto ReadSidebarRows = [&] {
+            auto* Target = Renderer->DrawWidget(ShellSlate, Size);
+            TArray<FColor> Pixels;
+            TArray<FColor> Rows;
+            if (Target && Target->GameThread_GetRenderTargetResource()->ReadPixels(Pixels))
+            {
+                FColor Previous = FColor::Black;
+                // This column crosses the sidebar fill clear of the row labels and tile borders.
+                constexpr int32 Column = 292;
+                for (int32 Y = 0; Y < Target->SizeY; ++Y)
+                {
+                    const FColor Pixel = Pixels[Y * Target->SizeX + Column];
+                    const FColor Fill = Pixel.R > 180 && Pixel.G < 60 ? FColor::Red
+                        : Pixel.G > 180 && Pixel.R < 60 ? FColor::Green : FColor::Black;
+                    if (Fill != Previous && Fill != FColor::Black)
+                    {
+                        Rows.Add(Fill);
+                    }
+                    Previous = Fill;
+                }
+            }
+            return Rows;
+        };
+        for (const auto& Section : {TPair<int32, FName>{1, TEXT("gear")}, TPair<int32, FName>{0, TEXT("apparel")}})
+        {
+            Menu->SelectItem(Section.Key);
+            Shell->SetActionSection(Section.Value);
+            Shell->SetSavedSets({{TEXT("One"), TEXT("one")}, {TEXT("Two"), TEXT("two")}});
+            TestTrue(TEXT("Open the saved-set sidebar"), Press(EKeys::G));
+            ShellSlate->Tick(Geometry, 0.0, 0.f);
+            FPlatformProcess::Sleep(.21f);
+            const TArray<FColor> First{FColor::Red, FColor::Green, FColor::Green};
+            TestTrue(TEXT("The first selection shows both saved rows and Create"), ReadSidebarRows() == First);
+            TestTrue(TEXT("Move the saved-set selection"), Press(EKeys::Down));
+            const TArray<FColor> Second{FColor::Green, FColor::Red, FColor::Green};
+            TestTrue(TEXT("Moving selection changes only the highlighted fill"), ReadSidebarRows() == Second);
+            Press(EKeys::G);
+        }
+        BeginCleanup(Renderer);
+    }
     TestTrue(TEXT("Select Resources"), Menu->SelectItem(2));
 
     TStrongObjectPtr<UCIInventoryView> Reopened(Open());

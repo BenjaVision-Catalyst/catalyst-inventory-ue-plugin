@@ -1115,8 +1115,7 @@ private:
             Tile->SetContent(Inset);
             SavedSetsGrid->AddItem(*Tile, 1);
             Tile->TakeWidget();
-            const float Selection = Index == SavedSetIndex ? 1.f : 0.f;
-            Tile->SetVisualState(Selection, Selection);
+            Tile->SetVisualState(Index == SavedSetIndex ? 1.f : 0.f, 1.f);
         }
 
         SavedSetsSection = Section;
