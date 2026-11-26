@@ -10,6 +10,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Fonts/FontMeasure.h"
 #include "Framework/Application/SlateApplication.h"
+#include "InputCoreTypes.h"
 #include "Misc/App.h"
 #include "Presentation/CFMenu.h"
 #include "Presentation/CFSpanGrid.h"
@@ -34,6 +35,17 @@ const FName GearSection(TEXT("gear"));
 const FName ApparelSection(TEXT("apparel"));
 const FName ResourcesSection(TEXT("resources"));
 
+bool HasSavedSets(FName Section)
+{
+    return Section == GearSection || Section == ApparelSection;
+}
+
+FText SavedSetsLabel(FName Section)
+{
+    return Section == ApparelSection ? NSLOCTEXT("Inventory", "OutfitsHeading", "Outfits")
+        : NSLOCTEXT("Inventory", "GearSetsHeading", "Gear Sets");
+}
+
 struct FInventoryPlane
 {
     FVector2D Extent = FVector2D::ZeroVector;
@@ -47,6 +59,13 @@ struct FInventoryPlane
         const FVector2D Relative = Point - Extent * .5;
         const double Perspective = FocalLength / (FocalLength + Relative.X * SinYaw);
         return Center + FVector2D(Relative.X * CosYaw, Relative.Y) * Perspective;
+    }
+
+    FVector2D Unproject(const FVector2D& Point) const
+    {
+        const FVector2D Offset = Point - Center;
+        const double X = Offset.X * FocalLength / (FocalLength * CosYaw - Offset.X * SinYaw);
+        return FVector2D(X, Offset.Y * (FocalLength + X * SinYaw) / FocalLength) + Extent * .5;
     }
 };
 
@@ -143,9 +162,12 @@ public:
 
     FVector2D ComputeDesiredSize(float) const override { return FVector2D(0.f, FooterHeight); }
 
+    bool IsOverSavedSets(const FVector2D& Position) const { return SavedSetsBounds.ContainsPoint(Position); }
+
     int32 OnPaint(const FPaintArgs&, const FGeometry& Geometry, const FSlateRect&,
         FSlateWindowElementList& Elements, int32 Layer, const FWidgetStyle&, bool) const override
     {
+        SavedSetsBounds = FSlateRect(0, 0, 0, 0);
         const auto* CurrentMenu = Menu.Get();
         if (!CurrentMenu)
         {
@@ -201,17 +223,15 @@ public:
 
         DrawPrompt(NSLOCTEXT("Inventory", "CloseActionLabel", "Close"),
             bKeyboard ? TEXT("Backspace") : (bPlayStation ? TEXT("○") : TEXT("B")), true);
-        FText SectionAction = NSLOCTEXT("Inventory", "GearSetsHeading", "Gear Sets");
-        if (CurrentSection == ApparelSection)
-        {
-            SectionAction = NSLOCTEXT("Inventory", "OutfitsHeading", "Outfits");
-        }
-        if (bResources)
-        {
-            SectionAction = NSLOCTEXT("Inventory", "OpenResourceCategories", "Categories");
-        }
+        const FText SectionAction = bResources
+            ? NSLOCTEXT("Inventory", "OpenResourceCategories", "Categories") : SavedSetsLabel(CurrentSection);
+        const double ActionRight = Right;
         DrawPrompt(SectionAction, bKeyboard ? (bResources ? TEXT("C") : TEXT("G"))
             : (bPlayStation ? TEXT("L2") : TEXT("LT")), false);
+        if (HasSavedSets(CurrentSection))
+        {
+            SavedSetsBounds = FSlateRect(Right + ActionPromptGap, 0.0, ActionRight, 25.0);
+        }
         if (bResources)
         {
             DrawPrompt(NSLOCTEXT("Inventory", "ResourceRadials", "Radials"),
@@ -228,8 +248,76 @@ public:
 private:
     TAttribute<FName> Section;
     TWeakObjectPtr<UCFMenu> Menu;
+    mutable FSlateRect SavedSetsBounds{0, 0, 0, 0};
     const FSlateRoundedBoxBrush RoundCap{FLinearColor::White, 10.5f};
     const FSlateRoundedBoxBrush ShoulderCap{FLinearColor::White, 4.f};
+};
+
+class SCIInventorySavedSets final : public SLeafWidget
+{
+public:
+    SLATE_BEGIN_ARGS(SCIInventorySavedSets) {}
+        SLATE_ATTRIBUTE(FName, Section)
+        SLATE_ATTRIBUTE(float, HeadingSpace)
+        SLATE_ARGUMENT(UCFMenu*, Menu)
+    SLATE_END_ARGS()
+
+    void Construct(const FArguments& Args)
+    {
+        Section = Args._Section;
+        HeadingSpace = Args._HeadingSpace;
+        Menu = Args._Menu;
+    }
+
+    FVector2D ComputeDesiredSize(float) const override { return FVector2D::ZeroVector; }
+
+    int32 OnPaint(const FPaintArgs&, const FGeometry& Geometry, const FSlateRect&,
+        FSlateWindowElementList& Elements, int32 Layer, const FWidgetStyle&, bool) const override
+    {
+        const auto* CurrentMenu = Menu.Get();
+        if (!CurrentMenu)
+        {
+            return Layer;
+        }
+        const auto& Style = CurrentMenu->GetMenuTheme();
+        const FVector2D Extent = Geometry.GetLocalSize();
+        constexpr float RowGap = 8.f;
+        constexpr int32 VisibleRows = 6;
+        const double Heading = HeadingSpace.Get();
+        const double Height = (Extent.Y - Heading - (VisibleRows - 1) * RowGap) / VisibleRows;
+        if (Height <= 2.0 || Extent.X <= 2.0)
+        {
+            return Layer;
+        }
+
+        const auto Font = FCoreStyle::GetDefaultFontStyle("Regular", 20);
+        const auto DrawBox = [&](FVector2D Origin, FVector2D Size, FLinearColor Tint) {
+            FSlateDrawElement::MakeBox(Elements, Layer,
+                Geometry.ToPaintGeometry(Size, FSlateLayoutTransform(Origin)),
+                FCoreStyle::Get().GetBrush("WhiteBrush"), ESlateDrawEffect::NoPixelSnapping, Tint);
+        };
+        const auto DrawText = [&](FVector2D Origin, const FText& Value) {
+            const auto Size = FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->Measure(Value, Font);
+            FSlateDrawElement::MakeText(Elements, Layer + 1,
+                Geometry.ToPaintGeometry(Size, FSlateLayoutTransform(Origin)), Value, Font,
+                ESlateDrawEffect::NoPixelSnapping, Style.Ink);
+        };
+
+        DrawText(FVector2D::ZeroVector, SavedSetsLabel(Section.Get()));
+        DrawBox({0, Heading}, {Extent.X, Height}, Style.SelectedFill);
+        DrawBox({0, Heading}, {Extent.X, 1}, Style.Track);
+        DrawBox({0, Heading + Height - 1}, {Extent.X, 1}, Style.Track);
+        DrawBox({0, Heading}, {1, Height}, Style.Track);
+        DrawBox({Extent.X - 1, Heading}, {1, Height}, Style.Track);
+        const double TextHeight = FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->GetMaxCharacterHeight(Font);
+        DrawText({10, Heading + (Height - TextHeight) * .5}, NSLOCTEXT("Inventory", "NewGearSet", "Create"));
+        return Layer + 1;
+    }
+
+private:
+    TAttribute<FName> Section;
+    TAttribute<float> HeadingSpace;
+    TWeakObjectPtr<UCFMenu> Menu;
 };
 
 class SCIInventoryShell final : public SLeafWidget
@@ -264,9 +352,12 @@ public:
         MenuWidget = InMenu ? TSharedPtr<SWidget>(InMenu->TakeWidget()) : nullptr;
         FooterTexture.Reset();
         FooterWidget.Reset();
+        SavedSetsTexture.Reset();
+        SavedSetsWidget.Reset();
         if (InMenu)
         {
             SAssignNew(FooterWidget, SCIInventoryActionFooter).Menu(InMenu).Section(ActionSection);
+            SAssignNew(SavedSetsWidget, SCIInventorySavedSets).Menu(InMenu).Section(ActionSection).HeadingSpace(FooterGap);
         }
         MenuTexture.Reset();
         if (MenuWidget && FApp::CanEverRender() && FSlateApplication::IsInitialized())
@@ -293,7 +384,37 @@ public:
 
     virtual FReply OnKeyDown(const FGeometry& Geometry, const FKeyEvent& Event) override
     {
+        const FKey Key = Event.GetKey();
+        if (HasSavedSets(ActionSection.Get()) && (Key == EKeys::G || Key == EKeys::Gamepad_LeftTrigger))
+        {
+            if (!Event.IsRepeat())
+            {
+                bSavedSetsOpen = !bSavedSetsOpen;
+            }
+            return FReply::Handled();
+        }
+        if (bSavedSetsOpen && (Key == EKeys::BackSpace || Key == EKeys::Gamepad_FaceButton_Right))
+        {
+            bSavedSetsOpen = false;
+            return FReply::Handled();
+        }
         return MenuWidget ? MenuWidget->OnKeyDown(Geometry, Event) : FReply::Unhandled();
+    }
+
+    FReply OnMouseButtonDown(const FGeometry& Geometry, const FPointerEvent& Event) override
+    {
+        if (Event.GetEffectingButton() == EKeys::LeftMouseButton && FooterWidget && FooterTexture.IsValid()
+            && HasSavedSets(ActionSection.Get()))
+        {
+            const auto Layout = GetLayout(Geometry.GetLocalSize());
+            const FVector2D PlanePoint = Layout.Left.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()));
+            if (FooterWidget->IsOverSavedSets((PlanePoint - Layout.FooterOrigin) / Layout.Scale))
+            {
+                bSavedSetsOpen = !bSavedSetsOpen;
+                return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
+            }
+        }
+        return FReply::Unhandled();
     }
 
     virtual void Tick(const FGeometry& Geometry, double, float DeltaTime) override
@@ -314,6 +435,13 @@ public:
             Invalidate(EInvalidateWidgetReason::Paint);
         }
         const auto Size = Geometry.GetLocalSize();
+        const FName Section = ActionSection.Get();
+        if (!HasSavedSets(Section))
+        {
+            bSavedSetsOpen = false;
+            SavedSetsReveal = 0.f;
+        }
+        SavedSetsReveal = FMath::FInterpConstantTo(SavedSetsReveal, bSavedSetsOpen ? 1.f : 0.f, DeltaTime, 6.f);
         if (!Renderer || !Content || Size.GetMin() < 32.0)
         {
             FooterTexture.Reset();
@@ -379,7 +507,6 @@ public:
                 LastGridPixelScale = PixelScale;
             }
             DrawToTexture(MainTexture, MainRenderRoot.ToSharedRef(), TargetSize, DeltaTime, PaintScale);
-            const FName Section = ActionSection.Get();
             if (FooterWidget && (Section == GearSection || Section == ApparelSection || Section == ResourcesSection))
             {
                 DrawToTexture(FooterTexture, FooterWidget.ToSharedRef(),
@@ -389,6 +516,12 @@ public:
             else
             {
                 FooterTexture.Reset();
+            }
+            if (SavedSetsWidget && SavedSetsReveal > 0.f)
+            {
+                DrawToTexture(SavedSetsTexture, SavedSetsWidget.ToSharedRef(), FVector2D(
+                    FMath::CeilToInt(Extent.X * SavedSetsWidthRatio * ProjectionRasterScale),
+                    TargetSize.Y - MainBottomGuardPixels), DeltaTime, PaintScale);
             }
             Invalidate(EInvalidateWidgetReason::Paint);
         }
@@ -404,6 +537,13 @@ public:
         }
 
         const auto Layout = GetLayout(Size);
+        if (SavedSetsTexture.IsValid() && SavedSetsReveal > 0.f)
+        {
+            const FVector2D Extent(SavedSetsTexture->SizeX / ProjectionRasterScale,
+                SavedSetsTexture->SizeY / ProjectionRasterScale);
+            const FVector2D Origin = Layout.MainOrigin - FVector2D((Extent.X + 16.0 * Layout.Scale) * SavedSetsReveal, 0);
+            DrawSurface(Geometry, Elements, Layer + 1, Layout.Left, SavedSetsTexture.Get(), Origin, Extent, SavedSetsReveal);
+        }
         if (MainTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
         {
             const FVector2D RasterExtent(MainTexture->SizeX / ProjectionRasterScale,
@@ -473,7 +613,7 @@ private:
 
     void DrawSurface(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
         const FInventoryPlane& Plane, UTextureRenderTarget2D* Texture, const FVector2D& Origin,
-        const FVector2D& Extent) const
+        const FVector2D& Extent, float VisibleFraction = 1.f) const
     {
         TArray<FSlateVertex> Vertices;
         TArray<SlateIndex> Indices;
@@ -481,7 +621,7 @@ private:
         Indices.Reserve(ProjectionStrips * 6);
         for (int32 Strip = 0; Strip <= ProjectionStrips; ++Strip)
         {
-            const float U = float(Strip) / ProjectionStrips;
+            const float U = (float(Strip) / ProjectionStrips) * VisibleFraction;
             for (const float V : {0.f, 1.f})
             {
                 const auto Point = Plane.Project(Origin + FVector2D(U * Extent.X, V * Extent.Y));
@@ -511,9 +651,14 @@ private:
     TSharedPtr<SWidget> MenuWidget;
     TSharedPtr<SBox> MainRenderRoot;
     TSharedPtr<SCIInventoryActionFooter> FooterWidget;
+    TSharedPtr<SCIInventorySavedSets> SavedSetsWidget;
     TStrongObjectPtr<UTextureRenderTarget2D> MenuTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> MainTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> FooterTexture;
+    TStrongObjectPtr<UTextureRenderTarget2D> SavedSetsTexture;
+    static constexpr double SavedSetsWidthRatio = .49 * (2.0 / 3.0);
+    float SavedSetsReveal = 0.f;
+    bool bSavedSetsOpen = false;
     FWidgetRenderer* Renderer = nullptr;
     FVector2D LastGridViewport = FVector2D::ZeroVector;
     double LastGridPixelScale = 0.0;

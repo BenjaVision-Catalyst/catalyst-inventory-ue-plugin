@@ -4,7 +4,7 @@ public class CatalystInventory : ModuleRules
 {
     public CatalystInventory(ReadOnlyTargetRules Target) : base(Target)
     {
-        PrivateDependencyModuleNames.AddRange(new[] { "Projects", "RenderCore" });
+        PrivateDependencyModuleNames.AddRange(new[] { "InputCore", "Projects", "RenderCore" });
         PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "UMG", "CatalystFoundation", "CatalystConnectObjects", "Slate", "SlateCore" });
     }
 }
