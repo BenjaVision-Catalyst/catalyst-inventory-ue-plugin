@@ -9,6 +9,7 @@
 #include "Components/TextBlock.h"
 #include "Components/WidgetSwitcher.h"
 #include "Interfaces/IPluginManager.h"
+#include "Input/Events.h"
 #include "Misc/FileHelper.h"
 #include "Presentation/CFMenu.h"
 #include "UObject/StrongObjectPtr.h"
@@ -44,6 +45,19 @@ bool FCIInventoryPresentationTest::RunTest(const FString&)
     auto* Menu = Shell->GetMenu();
     TestEqual(TEXT("The container yields four menu items"), Menu->GetChildrenCount(), 4);
     TestEqual(TEXT("The initial Gear tab follows the first description"), Menu->GetSelectedIndex(), 1);
+    const auto ShellSlate = Shell->TakeWidget();
+    const auto Press = [&](const FKey& Key) {
+        return ShellSlate->OnKeyDown(ShellSlate->GetCachedGeometry(),
+            FKeyEvent(Key, FModifierKeysState(), 0, false, 0, 0)).IsEventHandled();
+    };
+    TestTrue(TEXT("Q is routed to the previous inventory tab"), Press(EKeys::Q));
+    TestEqual(TEXT("Q opens Apparel"), Menu->GetSelectedIndex(), 0);
+    TestTrue(TEXT("E is routed to the next inventory tab"), Press(EKeys::E));
+    TestEqual(TEXT("E returns to Gear"), Menu->GetSelectedIndex(), 1);
+    bool bClosed = false;
+    Shell->SetCloseAction(FSimpleDelegate::CreateLambda([&] { bClosed = true; }));
+    TestTrue(TEXT("Tab activates the bound close action"), Press(EKeys::Tab) && bClosed);
+    Shell->SetCloseAction({});
     TestTrue(TEXT("Select Resources"), Menu->SelectItem(2));
 
     TStrongObjectPtr<UCIInventoryView> Reopened(Open());

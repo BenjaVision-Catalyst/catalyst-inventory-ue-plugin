@@ -533,6 +533,11 @@ public:
             SetSavedSetsState(false, SavedSetIndex);
             return FReply::Handled();
         }
+        if (Menu.IsValid() && (Key == EKeys::Q || Key == EKeys::E))
+        {
+            Menu->StepSelection(Key == EKeys::Q ? -1 : 1);
+            return FReply::Handled();
+        }
         return MenuWidget ? MenuWidget->OnKeyDown(Geometry, Event) : FReply::Unhandled();
     }
 
