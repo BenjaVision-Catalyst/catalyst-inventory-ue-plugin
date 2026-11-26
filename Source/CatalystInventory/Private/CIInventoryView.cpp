@@ -2,7 +2,9 @@
 
 #include "Engine/LocalPlayer.h"
 #include "Blueprint/WidgetTree.h"
-#include "CIEquipmentTile.h"
+#include "CIInventoryShell.h"
+#include "CIInventoryTile.h"
+#include "Presentation/CFMenu.h"
 
 void UCIInventoryView::BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> InSource,
     std::string InProfileFieldId, std::string InInventoryFieldId)
@@ -21,8 +23,28 @@ TSharedRef<SWidget> UCIInventoryView::RebuildWidget()
 {
     if (WidgetTree && !WidgetTree->RootWidget)
     {
-        InventoryTile = WidgetTree->ConstructWidget<UCIEquipmentTile>();
-        WidgetTree->RootWidget = InventoryTile;
+        auto* Shell = WidgetTree->ConstructWidget<UCIInventoryShell>();
+        auto* Menu = WidgetTree->ConstructWidget<UCFMenu>();
+        Menu->Theme = MenuTheme;
+        Menu->InitialSelectedIndex = 1;
+        const TPair<FName, FText> Tabs[]{
+            {TEXT("Apparel"), NSLOCTEXT("CatalystInventory", "ApparelTab", "Apparel")},
+            {TEXT("Gear"), NSLOCTEXT("CatalystInventory", "GearTab", "Gear")},
+            {TEXT("Resources"), NSLOCTEXT("CatalystInventory", "ResourcesTab", "Resources")},
+            {TEXT("Stats"), NSLOCTEXT("CatalystInventory", "StatsTab", "Stats")}
+        };
+        for (const auto& Tab : Tabs)
+        {
+            auto* Item = WidgetTree->ConstructWidget<UCFMenuItem>();
+            Item->SetLabel(Tab.Value);
+            if (const auto* Icon = MenuIcons.Find(Tab.Key))
+            {
+                Item->SetIcon(*Icon);
+            }
+            Menu->AddChild(Item);
+        }
+        Shell->SetContent(Menu);
+        WidgetTree->RootWidget = Shell;
     }
     if (InventoryTile && TileTheme)
     {

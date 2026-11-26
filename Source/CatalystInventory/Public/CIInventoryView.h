@@ -2,12 +2,14 @@
 
 #include "Blueprint/UserWidget.h"
 #include "Presentation/CFMagritteBinding.h"
+#include "Styling/SlateBrush.h"
 
 #include "CIInventoryView.generated.h"
 
 class UCIInventoryTile;
 class UCIInventoryTileTheme;
 class UTexture;
+class UCFMenuTheme;
 
 /** Widget Blueprint base for a signed-in player's game profile Inventory. */
 UCLASS(Abstract, Blueprintable, BlueprintType)
@@ -31,6 +33,12 @@ protected:
 
     UPROPERTY(EditDefaultsOnly, Category = "Catalyst|Inventory")
     TMap<FString, TObjectPtr<UTexture>> ItemIcons;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Catalyst|Inventory|Layout")
+    TObjectPtr<UCFMenuTheme> MenuTheme;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Catalyst|Inventory|Layout")
+    TMap<FName, FSlateBrush> MenuIcons;
 
     UFUNCTION(BlueprintImplementableEvent, Category = "Catalyst|Inventory")
     void OnInventoryBindingChanged();

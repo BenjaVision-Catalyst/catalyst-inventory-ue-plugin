@@ -3,8 +3,10 @@
 `CatalystInventory` is the runtime module for the Unreal companion to
 [Catalyst Inventory](https://github.com/BenjaVision-Catalyst/catalyst-inventory).
 Create a Widget Blueprint derived from `CIInventoryView` in the UMG Designer
-to author an Inventory composition. The view builds a single Inventory tile
-when it has no authored root. An authored composition can name a
+to author an Inventory composition. With no authored root, the view builds an
+outlined Inventory shell with angled panels and the Foundation tab menu.
+Set `MenuTheme` and the optional `MenuIcons` by tab identifier on the view.
+An authored composition can name a
 `CIInventoryTile` widget `InventoryTile` to bind that widget to the first item.
 The view can be opened independently in the Designer without a connection.
 
