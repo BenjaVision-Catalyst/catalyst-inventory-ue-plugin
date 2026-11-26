@@ -155,6 +155,10 @@ void UCIGearRow::RefreshDetails()
         ];
     }
     PopulateRowIndicators(*Indicators, Attribute ? Attribute->Id : FString());
+    if (FavoriteIndicator)
+    {
+        FavoriteIndicator->SetVisibility(bFavorite ? EVisibility::Visible : EVisibility::Collapsed);
+    }
     InvalidateLayoutAndVolatility();
 }
 
@@ -170,9 +174,11 @@ TSharedRef<SWidget> UCIGearRow::BuildThumbnail()
         ]
         + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(Style.Spacing)
         [
-            SNew(STextBlock).Text(LOCTEXT("FavoriteGlyph", "★")).Font(Style.LabelFont).ColorAndOpacity(Style.TextTint)
+            SAssignNew(FavoriteIndicator, STextBlock)
+            .Tag(TEXT("GearFavoriteIndicator"))
+            .Text(LOCTEXT("FavoriteGlyph", "★")).Font(Style.LabelFont).ColorAndOpacity(Style.TextTint)
             .ToolTipText(LOCTEXT("Favorite", "Favorite"))
-            .Visibility_Lambda([this] { return bFavorite ? EVisibility::Visible : EVisibility::Collapsed; })
+            .Visibility(bFavorite ? EVisibility::Visible : EVisibility::Collapsed)
         ];
 }
 
@@ -190,6 +196,7 @@ void UCIGearRow::ReleaseSlateResources(bool bReleaseChildren)
     Title.Reset();
     Primary.Reset();
     Indicators.Reset();
+    FavoriteIndicator.Reset();
     Super::ReleaseSlateResources(bReleaseChildren);
 }
 
