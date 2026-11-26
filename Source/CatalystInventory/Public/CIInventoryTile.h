@@ -27,6 +27,9 @@ class CATALYSTINVENTORY_API UCIInventoryTileTheme : public UCFTileTheme
 public:
     UCIInventoryTileTheme();
 
+    // The projected shell composites scene blur separately from the offscreen tile surface.
+    UCIInventoryTileTheme* CreateProjectedSurfaceTheme(UObject* Outer) const;
+
     /** Space below the menu on the shared Inventory plane. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Layout", meta = (ClampMin = "0.0"))
     float MenuPanelGap = 16.f;

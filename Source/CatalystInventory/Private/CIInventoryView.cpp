@@ -35,8 +35,8 @@ class FCIInventorySection final : public FCFObject
 {
 public:
     FCIInventorySection(FCFMagritteBinding InBinding, UCIInventoryTileTheme* InTheme,
-        const TMap<FString, TObjectPtr<UTexture>>& InIcons, bool bInHalfSize)
-        : Binding(MoveTemp(InBinding)), Theme(InTheme), Icons(InIcons), bHalfSize(bInHalfSize) {}
+        const TMap<FString, TObjectPtr<UTexture>>& InIcons, bool bInHalfSize, bool bInProjected)
+        : Binding(MoveTemp(InBinding)), Theme(InTheme), Icons(InIcons), bHalfSize(bInHalfSize), bProjected(bInProjected) {}
 
     FCFViewDescription MagritteDescription() const override
     {
@@ -73,6 +73,7 @@ private:
         const int32 Span = bResources ? 1 : (bApparel ? 2 : 3);
         const UCIInventoryTileTheme* GridTheme = Theme ? Theme : GetDefault<UCIInventoryTileTheme>();
         auto* Grid = NewObject<UCFSpanGrid>(&Context.Owner);
+        auto* SurfaceTheme = bProjected ? GridTheme->CreateProjectedSurfaceTheme(Grid) : Theme;
         const float TileHeight = bResources ? GridTheme->ResourceTileHeight : GridTheme->EquipmentTileHeight;
         Grid->SetScrollBarVisibility(ESlateVisibility::Collapsed);
         Grid->SetFillPanelHeight(!bResources);
@@ -120,7 +121,7 @@ private:
                         ? static_cast<UCIInventoryTile*>(NewObject<UCIResourceTile>(Grid))
                         : (bApparel ? static_cast<UCIInventoryTile*>(NewObject<UCIInventoryTile>(Grid))
                                     : static_cast<UCIInventoryTile*>(NewObject<UCIEquipmentTile>(Grid)));
-                    Tile->Theme = Theme;
+                    Tile->Theme = SurfaceTheme;
                     Tile->BindItem(Item);
                     Tile->Icon = Icons.FindRef(Tile->GetArtDefinitionIdentifier()).Get();
                     const auto* Equipment = Cast<UCIEquipmentTile>(Tile);
@@ -137,6 +138,7 @@ private:
     UCIInventoryTileTheme* Theme;
     const TMap<FString, TObjectPtr<UTexture>>& Icons;
     bool bHalfSize;
+    bool bProjected;
 };
 }
 
@@ -150,7 +152,8 @@ void UCIInventoryView::PresentSection(int32 Index, UCFMenuItem*)
     const auto& Description = *SectionDescriptions[Index];
     ViewState->SelectionByObject.insert_or_assign(Inventory->ObjectId(), Description.id);
     auto Section = Inventory->Follow(Description);
-    if (auto* Shell = Cast<UCIInventoryShell>(WidgetTree->RootWidget))
+    auto* Shell = GetInventoryShell();
+    if (Shell)
     {
         const auto Layout = Section ? Section->Describe().property("metadata:ciGrid") : magritte::Value();
         const auto* Kind = std::get_if<magritte::Value::Symbol>(&Layout.data);
@@ -187,7 +190,8 @@ void UCIInventoryView::PresentSection(int32 Index, UCFMenuItem*)
     auto* Slot = CastChecked<UNamedSlot>(MainPanel->GetChildAt(Index));
     if (!Slot->GetContent() && Section)
     {
-        Slot->SetContent(FCIInventorySection(MoveTemp(*Section), TileTheme, ItemIcons, bHalfSize).AsView({*WidgetTree, ViewState.ToSharedRef()}));
+        Slot->SetContent(FCIInventorySection(MoveTemp(*Section), TileTheme, ItemIcons, bHalfSize, Shell != nullptr)
+            .AsView({*WidgetTree, ViewState.ToSharedRef()}));
     }
 }
 

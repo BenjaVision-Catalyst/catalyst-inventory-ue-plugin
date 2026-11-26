@@ -1,10 +1,13 @@
 #include "CIInventoryShell.h"
 
+#include "CIInventorySidebarReveal.h"
 #include "CIInventoryTile.h"
 
 #include "Algo/BinarySearch.h"
 #include "Components/Border.h"
+#include "Components/HorizontalBox.h"
 #include "Components/NamedSlot.h"
+#include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "Containers/StaticArray.h"
 #include "Components/WidgetSwitcher.h"
@@ -22,6 +25,7 @@
 #include "Slate/WidgetRenderer.h"
 #include "Styling/CoreStyle.h"
 #include "UObject/StrongObjectPtr.h"
+#include "Widgets/Layout/SBackgroundBlur.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Input/SEditableTextBox.h"
@@ -72,6 +76,12 @@ struct FInventoryPlane
         const double X = Offset.X * FocalLength / (FocalLength * CosYaw - Offset.X * SinYaw);
         return FVector2D(X, Offset.Y * (FocalLength + X * SinYaw) / FocalLength) + Extent * .5;
     }
+};
+
+class SCIProjectedBlur : public SBackgroundBlur
+{
+public:
+    using SBackgroundBlur::ComputeEffectiveKernelSize;
 };
 
 struct FInventoryShellLayout
@@ -382,6 +392,7 @@ public:
             if (!Renderer)
             {
                 Renderer = new FWidgetRenderer(false);
+                ProjectedBlur = SNew(SCIProjectedBlur);
             }
             RedrawMenu();
         }
@@ -424,6 +435,15 @@ public:
 
     bool IsSavedSetsOpen() const { return bSavedSetsOpen; }
     int32 GetSavedSetIndex() const { return SavedSetIndex; }
+    const FCIInventorySidebarReveal& GetSavedSetsReveal() const { return SavedSetsReveal; }
+
+    void RestoreSavedSetsReveal(const TSharedPtr<const FCIInventorySidebarReveal>& Reveal)
+    {
+        if (Reveal)
+        {
+            SavedSetsReveal = *Reveal;
+        }
+    }
     const FCIInventorySavedSet* SelectedSavedSet() const
     {
         return SavedSets.IsValidIndex(SavedSetIndex) ? &SavedSets[SavedSetIndex] : nullptr;
@@ -604,14 +624,14 @@ public:
                 ToggleSavedSets();
                 return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
             }
-            if (bSavedSetsOpen && SavedSetsTexture.IsValid() && SavedSetsReveal == 1.f)
+            if (bSavedSetsOpen && SavedSetsTexture.IsValid() && SavedSetsReveal.GetProgress() == 1.0)
             {
-                const double Width = SavedSetsTexture->SizeX / ProjectionRasterScale;
-                const auto Point = (PlanePoint - Layout.MainOrigin + FVector2D(Width + 16.0 * Layout.Scale, 0))
+                const auto Sidebar = GetSidebarGeometry(Layout, Geometry.GetLocalSize().X);
+                const auto Point = (PlanePoint - Layout.MainOrigin + FVector2D(Sidebar.GetTravel(), 0))
                     / Layout.Scale;
                 const auto& Theme = *InventoryTheme.Get();
                 const double Heading = Theme.GroupLabelHeight + Theme.GroupLabelPadding.GetTotalSpaceAlong<Orient_Vertical>();
-                if (Point.X >= 0 && Point.X < Width / Layout.Scale && Point.Y >= Heading && Point.Y < SavedSetsHeight)
+                if (Point.X >= 0 && Point.X < Sidebar.Width / Layout.Scale && Point.Y >= Heading && Point.Y < SavedSetsHeight)
                 {
                     const int32 Row = FMath::FloorToInt((Point.Y - Heading) / (SavedSetsRowHeight + Theme.RowGap));
                     const int32 Index = FirstSavedSetIndex + Row;
@@ -691,12 +711,15 @@ public:
         }
         const auto Size = Geometry.GetLocalSize();
         const FName Section = ActionSection.Get();
-        if (!HasSavedSets(Section))
+        if (HasSavedSets(Section))
+        {
+            SavedSetsReveal.Update(bSavedSetsOpen, Now);
+        }
+        else
         {
             bSavedSetsOpen = false;
-            SavedSetsReveal = 0.f;
+            SavedSetsReveal = {};
         }
-        SavedSetsReveal = FMath::FInterpConstantTo(SavedSetsReveal, bSavedSetsOpen ? 1.f : 0.f, DeltaTime, 6.f);
         if (!Renderer || !Content || Size.GetMin() < 32.0)
         {
             FooterTexture.Reset();
@@ -772,8 +795,9 @@ public:
             {
                 FooterTexture.Reset();
             }
-            if (SavedSetsReveal > 0.f)
+            if (bSavedSetsOpen || SavedSetsReveal.GetProgress() > 0.0)
             {
+                const auto Sidebar = GetSidebarGeometry(Layout, Size.X);
                 const double Height = Extent.Y / Layout.Scale;
                 auto* Theme = InventoryTheme.Get();
                 if (!SavedSetsGrid.IsValid() || SavedSetsSection != Section
@@ -782,7 +806,7 @@ public:
                     BuildSavedSetsGrid(Section, *Theme, Height);
                 }
                 DrawToTexture(SavedSetsTexture, SavedSetsGrid->TakeWidget(), FVector2D(
-                    FMath::CeilToInt(Extent.X * SavedSetsWidthRatio * ProjectionRasterScale),
+                    FMath::CeilToInt(Sidebar.Width * ProjectionRasterScale),
                     TargetSize.Y - MainBottomGuardPixels), DeltaTime, PaintScale);
             }
             Invalidate(EInvalidateWidgetReason::Paint);
@@ -799,17 +823,20 @@ public:
         }
 
         const auto Layout = GetLayout(Size);
-        if (SavedSetsTexture.IsValid() && SavedSetsReveal > 0.f)
+        if (SavedSetsTexture.IsValid() && SavedSetsReveal.GetProgress() > 0.0)
         {
-            const FVector2D Extent(SavedSetsTexture->SizeX / ProjectionRasterScale,
-                SavedSetsTexture->SizeY / ProjectionRasterScale);
-            const FVector2D Origin = Layout.MainOrigin - FVector2D((Extent.X + 16.0 * Layout.Scale) * SavedSetsReveal, 0);
-            DrawSurface(Geometry, Elements, Layer + 1, Layout.Left, SavedSetsTexture.Get(), Origin, Extent, SavedSetsReveal);
+            const auto Sidebar = GetSidebarGeometry(Layout, Size.X);
+            const FVector2D Origin = Layout.MainOrigin - FVector2D(Sidebar.GetTravel(), 0.0);
+            Sidebar.PaintVisibleStrips([&](double Start, double End, double Opacity) {
+                DrawSurface(Geometry, Elements, Layer + 1, Layout.Left, SavedSetsTexture.Get(), Origin,
+                    {Sidebar.Width, Layout.MainExtent.Y}, Start, End, Opacity);
+            });
         }
         if (MainTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
         {
             const FVector2D RasterExtent(MainTexture->SizeX / ProjectionRasterScale,
                 MainTexture->SizeY / ProjectionRasterScale);
+            PaintTileBackdrops(Geometry, Elements, Layer, Layout);
             DrawSurface(Geometry, Elements, Layer + 1, Layout.Left, MainTexture.Get(), Layout.MainOrigin, RasterExtent);
         }
 
@@ -828,6 +855,70 @@ public:
     }
 
 private:
+    void PaintTileBackdrops(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
+        const FInventoryShellLayout& Layout) const
+    {
+        const auto* Grid = Cast<UCFSpanGrid>(MainContent.Get());
+        const auto GridWidget = Grid ? Grid->GetCachedWidget() : nullptr;
+        const float Strength = FMath::Clamp(InventoryTheme.Get()->Style.BackdropBlur, 0.f, 30.f);
+        const auto* Window = Elements.GetPaintWindow();
+        if (!GridWidget || !ProjectedBlur || Strength <= 0.f || ProjectedBlur->IsUsingLowQualityFallbackBrush()
+            || !Window || Window->IsVirtualWindow())
+        {
+            return;
+        }
+
+        int32 KernelSize = 0;
+        int32 Downsample = 0;
+        ProjectedBlur->ComputeEffectiveKernelSize(Strength, KernelSize, Downsample);
+        const int32 Factor = FMath::Max(1, Downsample);
+        const FGeometry& GridGeometry = GridWidget->GetPaintSpaceGeometry();
+        const auto Project = [&](FVector2D Point) {
+            return Geometry.LocalToAbsolute(Layout.Left.Project(Layout.MainOrigin + Point));
+        };
+
+        // Sample the game viewport before compositing the clear tile surface.
+        for (const auto* Child : Grid->GetAllChildren())
+        {
+            const auto* Row = Cast<USizeBox>(Child);
+            const auto* Cells = Row ? Cast<UHorizontalBox>(Row->GetContent()) : nullptr;
+            if (!Cells || !Cells->IsVisible())
+            {
+                continue;
+            }
+            for (const auto* Cell : Cells->GetAllChildren())
+            {
+                const auto Tile = Cell->IsVisible() && Cell->IsA<UCFTile>() ? Cell->GetCachedWidget() : nullptr;
+                if (!Tile)
+                {
+                    continue;
+                }
+                const FGeometry& TileGeometry = Tile->GetPaintSpaceGeometry();
+                const auto GridPoint = [&](FVector2D Point) {
+                    return FVector2D(GridGeometry.AbsoluteToLocal(TileGeometry.LocalToAbsolute(Point))) * Layout.Scale;
+                };
+                const FVector2D Min = GridPoint(FVector2D::ZeroVector).ComponentMax(FVector2D::ZeroVector);
+                const FVector2D Max = GridPoint(TileGeometry.GetLocalSize()).ComponentMin(Layout.MainExtent);
+                if ((Max - Min).GetMin() <= 0.0)
+                {
+                    continue;
+                }
+                const FVector2D TL = Project(Min);
+                const FVector2D TR = Project({Max.X, Min.Y});
+                const FVector2D BL = Project({Min.X, Max.Y});
+                const FVector2D BR = Project(Max);
+                const FVector2D Origin(FMath::Min(TL.X, BL.X), FMath::Min(TL.Y, TR.Y));
+                const FVector2D End(FMath::Max(TR.X, BR.X), FMath::Max(BL.Y, BR.Y));
+                const FVector2D Extent = End - Origin;
+                Elements.PushClip(FSlateClippingZone(TL, TR, BL, BR));
+                FSlateDrawElement::MakePostProcessBlur(Elements, Layer, FPaintGeometry(Origin, Extent, Geometry.Scale),
+                    FVector4f(KernelSize, FMath::Max(.5f, Strength) / Factor, FMath::CeilToInt(Extent.X / Factor),
+                        FMath::CeilToInt(Extent.Y / Factor)), Downsample, FVector4f(0));
+                Elements.PopClip();
+            }
+        }
+    }
+
     bool CanOpenSavedSetOptions() const
     {
         return bSavedSetsOpen && HasSavedSets(ActionSection.Get()) && !OptionsWindow.IsValid()
@@ -999,18 +1090,18 @@ private:
     {
         const double Heading = Theme.GroupLabelHeight + Theme.GroupLabelPadding.GetTotalSpaceAlong<Orient_Vertical>();
         SavedSetsRowHeight = FMath::Max(1.0, (PanelExtent - Heading - (VisibleSavedSetRows - 1) * Theme.RowGap) / VisibleSavedSetRows);
-        SavedSetsTexture.Reset();
         SavedSetsGrid.Reset(NewObject<UCFSpanGrid>());
         SavedSetsGrid->SetScrollBarVisibility(ESlateVisibility::Collapsed);
         SavedSetsGrid->Configure(1, SavedSetsRowHeight, 0.f, Theme.RowGap, Theme.GroupGap,
             Theme.GroupLabelHeight, Theme.GroupLabelPadding, Theme.GroupLabelFont, Theme.GroupLabelTint);
         SavedSetsGrid->AddHeading(SavedSetsLabel(Section));
+        auto* SurfaceTheme = Theme.CreateProjectedSurfaceTheme(SavedSetsGrid.Get());
 
         FirstSavedSetIndex = FMath::Max(0, SavedSetIndex + 1 - VisibleSavedSetRows);
         for (int32 Index = FirstSavedSetIndex; Index < FirstSavedSetIndex + VisibleSavedSetRows && Index <= SavedSets.Num(); ++Index)
         {
             auto* Tile = NewObject<UCFTile>(SavedSetsGrid.Get());
-            Tile->Theme = &Theme;
+            Tile->Theme = SurfaceTheme;
             auto* Label = NewObject<UTextBlock>(Tile);
             Label->SetText(SavedSets.IsValidIndex(Index) ? FText::AsCultureInvariant(SavedSets[Index].Name)
                 : NSLOCTEXT("Inventory", "NewGearSet", "Create"));
@@ -1039,6 +1130,12 @@ private:
         const FVector2D MenuSize = MenuTexture.IsValid()
             ? FVector2D(MenuTexture->SizeX, MenuTexture->SizeY) : FVector2D::ZeroVector;
         return LayoutFor(Size, MenuSize, MenuPanelGap.Get(), PanelHeight.Get(), FooterGap.Get());
+    }
+
+    FCIInventorySidebarGeometry GetSidebarGeometry(const FInventoryShellLayout& Layout, double ViewportWidth) const
+    {
+        return {Layout.MainExtent.X, ViewportWidth, InventoryTheme.Get()->TileGap * Layout.Scale,
+            SavedSetsReveal.GetProgress()};
     }
 
     void RedrawMenu()
@@ -1081,20 +1178,23 @@ private:
 
     void DrawSurface(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
         const FInventoryPlane& Plane, UTextureRenderTarget2D* Texture, const FVector2D& Origin,
-        const FVector2D& Extent, float VisibleFraction = 1.f) const
+        const FVector2D& Extent, double Start = 0.0, double End = 1.0, double Opacity = 1.0) const
     {
+        const uint8 Fade = FMath::RoundToInt(255.0 * Opacity);
+        // The render target already contains premultiplied pixels.
+        const FColor Tint(Fade, Fade, Fade, Fade);
         TArray<FSlateVertex> Vertices;
         TArray<SlateIndex> Indices;
         Vertices.Reserve((ProjectionStrips + 1) * 2);
         Indices.Reserve(ProjectionStrips * 6);
         for (int32 Strip = 0; Strip <= ProjectionStrips; ++Strip)
         {
-            const float U = (float(Strip) / ProjectionStrips) * VisibleFraction;
+            const double U = FMath::Lerp(Start, End, double(Strip) / ProjectionStrips);
             for (const float V : {0.f, 1.f})
             {
                 const auto Point = Plane.Project(Origin + FVector2D(U * Extent.X, V * Extent.Y));
                 Vertices.Add(FSlateVertex::Make(Geometry.GetAccumulatedRenderTransform(),
-                    FVector2f(Point), FVector2f(U, V), FColor::White));
+                    FVector2f(Point), FVector2f(U, V), Tint));
             }
             if (Strip > 0)
             {
@@ -1139,9 +1239,8 @@ private:
     TStrongObjectPtr<UTextureRenderTarget2D> MainTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> FooterTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> SavedSetsTexture;
-    static constexpr double SavedSetsWidthRatio = .49 * (2.0 / 3.0);
     static constexpr int32 VisibleSavedSetRows = 6;
-    float SavedSetsReveal = 0.f;
+    FCIInventorySidebarReveal SavedSetsReveal;
     bool bSavedSetsOpen = false;
     TArray<FCIInventorySavedSet> SavedSets;
     int32 SavedSetIndex = 0;
@@ -1149,6 +1248,7 @@ private:
     int32 FirstSavedSetIndex = 0;
     float SavedSetsRowHeight = 0.f;
     FWidgetRenderer* Renderer = nullptr;
+    TSharedPtr<SCIProjectedBlur> ProjectedBlur;
     FVector2D LastGridViewport = FVector2D::ZeroVector;
     double LastGridPixelScale = 0.0;
     double FirstMenuItemX = 0.0;
@@ -1230,6 +1330,8 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
     }
     bRestoreSavedSetsOpen = Previous.Shell ? Previous.Shell->IsSavedSetsOpen() : Previous.bRestoreSavedSetsOpen;
     RestoredSavedSetIndex = Previous.Shell ? Previous.Shell->GetSavedSetIndex() : Previous.RestoredSavedSetIndex;
+    RestoredSavedSetsReveal = Previous.Shell ? MakeShared<FCIInventorySidebarReveal>(Previous.Shell->GetSavedSetsReveal())
+        : Previous.RestoredSavedSetsReveal;
     RestoredOverwriteConfirmation.Reset();
     RestoredDeleteConfirmation = bRestoreSavedSetsOpen && Previous.Shell
         ? Previous.Shell->CompletedHold(ESavedSetHold::Delete) : TOptional<FCFControllerHold>();
@@ -1242,6 +1344,7 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
     if (Shell)
     {
         Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
+        Shell->RestoreSavedSetsReveal(RestoredSavedSetsReveal);
         Shell->RestoreHoldConfirmation(ESavedSetHold::Overwrite, RestoredOverwriteConfirmation);
         Shell->RestoreHoldConfirmation(ESavedSetHold::Delete, RestoredDeleteConfirmation);
     }
@@ -1315,6 +1418,7 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
     UpdateContent();
     Shell->SetSavedSets(SavedSets);
     Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
+    Shell->RestoreSavedSetsReveal(RestoredSavedSetsReveal);
     Shell->RestoreHoldConfirmation(ESavedSetHold::Overwrite, RestoredOverwriteConfirmation);
     Shell->RestoreHoldConfirmation(ESavedSetHold::Delete, RestoredDeleteConfirmation);
     return Shell.ToSharedRef();

@@ -50,6 +50,13 @@ UCIInventoryTileTheme::UCIInventoryTileTheme()
     };
 }
 
+UCIInventoryTileTheme* UCIInventoryTileTheme::CreateProjectedSurfaceTheme(UObject* Outer) const
+{
+    auto* SurfaceTheme = DuplicateObject<UCIInventoryTileTheme>(this, Outer);
+    SurfaceTheme->Style.BackdropBlur = 0.f;
+    return SurfaceTheme;
+}
+
 const UCIInventoryTierStyle& UCIInventoryTileTheme::GetTierStyle() const
 {
     return TierStyle ? *TierStyle : *GetDefault<UCIInventoryTierStyle>();
