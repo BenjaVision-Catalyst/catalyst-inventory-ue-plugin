@@ -73,7 +73,19 @@ FInventoryShellLayout LayoutFor(const FVector2D& Size)
     const double InspectorRight = Layout.Right.Project({Layout.Right.Extent.X - 8.0 * Scale, GridTop}).X;
     Layout.Right.Center.X = (CharacterRight + Size.X - InspectorLeft - InspectorRight) * .5;
     const double CharacterGap = Layout.Right.Center.X + InspectorLeft - CharacterRight;
-    Layout.Left.Center.X = CharacterLeft - CharacterGap - Layout.Left.Project({GridInset + GridWidth, GridTop}).X;
+    const double InnerEdge = CharacterLeft - CharacterGap
+        + Layout.Left.Project({Layout.Left.Extent.X, GridTop}).X
+        - Layout.Left.Project({GridInset + GridWidth, GridTop}).X;
+    const double LeftMargin = FMath::Max(8.0, Size.X * .025);
+    const double ProjectedWidth = FMath::Max(0.0, InnerEdge - LeftMargin);
+
+    // Invert the projected span with the same yaw and focal length. Widen toward
+    // the viewport edge while keeping the central opening in the same place.
+    const double DepthFactor = ProjectedWidth * Layout.Left.SinYaw / (2.0 * Layout.Left.FocalLength);
+    const double PlaneWidth = 2.0 * ProjectedWidth
+        / (Layout.Left.CosYaw + FMath::Sqrt(FMath::Square(Layout.Left.CosYaw) + 4.0 * FMath::Square(DepthFactor)));
+    Layout.Left = MakePlane(PlaneWidth, 9.0);
+    Layout.Left.Center.X = InnerEdge - Layout.Left.Project({PlaneWidth, 0.0}).X;
     Layout.MenuBounds = FVector2D(TabWidth, TabHeight);
     return Layout;
 }
