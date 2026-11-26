@@ -183,6 +183,7 @@ public:
         const bool bKeyboard = Input == TEXT("Q");
         const bool bPlayStation = Input == TEXT("L1");
         const TCHAR* ConfirmGlyph = bKeyboard ? TEXT("Enter") : (bPlayStation ? TEXT("×") : TEXT("A"));
+        const TCHAR* OptionsGlyph = bKeyboard ? TEXT("F2") : (bPlayStation ? TEXT("□") : TEXT("X"));
         const FName CurrentSection = Section.Get();
         const bool bResources = CurrentSection == ResourcesSection;
         const auto Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
@@ -240,7 +241,7 @@ public:
         if (bResources)
         {
             DrawPrompt(NSLOCTEXT("Inventory", "ResourceRadials", "Radials"),
-                bKeyboard ? TEXT("F2") : (bPlayStation ? TEXT("□") : TEXT("X")), true);
+                OptionsGlyph, true);
             Right = Geometry.GetLocalSize().X;
             Y += 28.0;
             DrawPrompt(NSLOCTEXT("Inventory", "SelectResourceStack", "Select"),
@@ -251,6 +252,13 @@ public:
         {
             Right = Geometry.GetLocalSize().X;
             Y += 28.0;
+            // These actions need a selected saved entry. The sidebar currently contains only Create.
+            constexpr float UnavailableOpacity = .35f;
+            DrawPrompt(NSLOCTEXT("Inventory", "DeleteGearSetLabel", "Delete"),
+                bKeyboard ? TEXT("Del") : TEXT("R3"), true, UnavailableOpacity);
+            DrawPrompt(NSLOCTEXT("Inventory", "OverwriteGearSetLabel", "Overwrite"),
+                bKeyboard ? TEXT("T") : (bPlayStation ? TEXT("△") : TEXT("Y")), true, UnavailableOpacity);
+            DrawPrompt(NSLOCTEXT("Inventory", "GearSetOptionsLabel", "Options"), OptionsGlyph, true, UnavailableOpacity);
             DrawPrompt(NSLOCTEXT("Inventory", "CreateGearSetActionLabel", "Create"), ConfirmGlyph, true);
         }
         return Layer + 1;
