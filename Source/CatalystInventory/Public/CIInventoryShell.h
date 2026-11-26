@@ -8,7 +8,7 @@ class UCFMenu;
 class UCFMenuItem;
 class UCIInventoryTileTheme;
 class UWidgetSwitcher;
-struct FCIInventorySidebarReveal;
+struct FCIInventorySavedSetsPresentation;
 
 struct FCIInventorySavedSet
 {
@@ -72,7 +72,7 @@ private:
     bool bConfirmEquips = false;
     bool bRestoreSavedSetsOpen = false;
     int32 RestoredSavedSetIndex = 0;
-    TSharedPtr<const FCIInventorySidebarReveal> RestoredSavedSetsReveal;
+    TSharedPtr<const FCIInventorySavedSetsPresentation> RestoredSavedSetsPresentation;
     TOptional<FCFControllerHold> RestoredOverwriteConfirmation;
     TOptional<FCFControllerHold> RestoredDeleteConfirmation;
 

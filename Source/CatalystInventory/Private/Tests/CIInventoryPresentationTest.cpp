@@ -3,7 +3,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Blueprint/WidgetTree.h"
 #include "CIInventoryModel.h"
-#include "../CIInventorySidebarReveal.h"
+#include "../CIInventorySavedSetRows.h"
 #include "CIInventoryShell.h"
 #include "CIInventoryTile.h"
 #include "CIInventoryView.h"
@@ -74,6 +74,74 @@ bool FCIInventorySidebarRevealTest::RunTest(const FString&)
     Open.PaintVisibleStrips([&](double Start, double End, double Alpha) { Strips.Emplace(Start, End, Alpha); });
     TestTrue(TEXT("The settled sidebar has its full width and opacity"),
         Strips.Num() == 1 && Strips[0] == FVector(0.0, 1.0, 1.0));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCIInventorySavedSetRowsTest,
+    "Catalyst.Inventory.SavedSetRowAnimation",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCIInventorySavedSetRowsTest::RunTest(const FString&)
+{
+    FCIInventorySavedSetRows Rows;
+    TArray<FCIInventorySavedSet> Sets{{TEXT("One"), TEXT("1")}, {TEXT("Two"), TEXT("2")}};
+    const auto Saved = [&](const TCHAR* Id, double Time) {
+        const auto* Row = Rows.GetRows().FindByPredicate([&](const auto& Entry) { return Entry.Set.Identifier == Id; });
+        check(Row);
+        return Rows.Sample(*Row, Time);
+    };
+    const auto Create = [&](double Time) {
+        const auto* Row = Rows.GetRows().FindByPredicate([](const auto& Entry) { return Entry.bCreate; });
+        check(Row);
+        return Rows.Sample(*Row, Time);
+    };
+
+    Rows.Update(Sets, 2, 1.0);
+    Sets.Add({TEXT("Three"), TEXT("3")});
+    Rows.Update(Sets, 2, 2.0);
+    TestEqual(TEXT("Create starts at its previous slot"), Create(2.0).Position, 2.0);
+    TestEqual(TEXT("The new row starts invisible at its destination"), Saved(TEXT("3"), 2.0).Opacity, 0.0);
+    TestTrue(TEXT("Create slides toward the new slot"), FMath::IsNearlyEqual(Create(2.10).Position, 2.5));
+    TestEqual(TEXT("The new row stays in its slot as it fades"), Saved(TEXT("3"), 2.18).Position, 2.0);
+    const auto FadeIn = Saved(TEXT("3"), 2.18).Opacity;
+    TestTrue(TEXT("The new row fades in while Create moves away"), FadeIn > 0.0 && FadeIn < 1.0);
+    Rows = FCIInventorySavedSetRows(Rows);
+    TestFalse(TEXT("A refresh with the same rows keeps the animation in progress"), Rows.Update(Sets, 2, 2.18));
+    TestEqual(TEXT("A refresh preserves the sampled opacity"), Saved(TEXT("3"), 2.18).Opacity, FadeIn);
+    TestEqual(TEXT("Create reaches its new slot"), Create(2.30).Position, 3.0);
+    TestEqual(TEXT("The new row reaches full opacity"), Saved(TEXT("3"), 2.30).Opacity, 1.0);
+
+    Rows.Update(Sets, 1, 2.9);
+    Sets.RemoveAt(1);
+    Rows.Update(Sets, 1, 3.0);
+    const auto FadeOut = Saved(TEXT("2"), 3.06);
+    TestTrue(TEXT("The deleted row fades in its old slot"),
+        FadeOut.Position == 1.0 && FadeOut.Opacity > 0.0 && FadeOut.Opacity < 1.0);
+    TestEqual(TEXT("The row below waits for the deleted row to fade"), Saved(TEXT("3"), 3.06).Position, 2.0);
+    TestEqual(TEXT("The deleted row is gone during the slide"), Saved(TEXT("2"), 3.22).Opacity, 0.0);
+    TestTrue(TEXT("The row below slides up"), FMath::IsNearlyEqual(Saved(TEXT("3"), 3.22).Position, 1.5));
+    TestTrue(TEXT("Create also slides up"), FMath::IsNearlyEqual(Create(3.22).Position, 2.5));
+    TestEqual(TEXT("The row above does not move"), Saved(TEXT("1"), 3.25).Position, 0.0);
+    TestEqual(TEXT("The gap is closed"), Saved(TEXT("3"), 3.35).Position, 1.0);
+
+    Rows = {};
+    for (int32 Index = Sets.Num(); Index < FCIInventorySavedSetRows::VisibleCount - 1; ++Index)
+    {
+        const auto Name = LexToString(Index);
+        Sets.Add({Name, TEXT("extra-") + Name});
+    }
+    Rows.Update(Sets, Sets.Num(), 4.0);
+    Sets.Add({TEXT("Newest"), TEXT("newest")});
+    Rows.Update(Sets, Sets.Num() - 1, 5.0);
+    TestEqual(TEXT("At capacity Create remains visible below the new row"),
+        Create(5.3).Position, double(FCIInventorySavedSetRows::VisibleCount - 1));
+    TestEqual(TEXT("At capacity the new row is directly above Create"),
+        Saved(TEXT("newest"), 5.3).Position, Create(5.3).Position - 1.0);
+    Sets.Pop();
+    Rows.Update(Sets, Sets.Num(), 6.0);
+    TestEqual(TEXT("Deleting at capacity keeps the top of the list anchored"), Saved(TEXT("3"), 6.4).Position, 0.0);
+    TestEqual(TEXT("Create still moves up after a deletion at capacity"),
+        Create(6.4).Position, double(FCIInventorySavedSetRows::VisibleCount - 2));
     return true;
 }
 
