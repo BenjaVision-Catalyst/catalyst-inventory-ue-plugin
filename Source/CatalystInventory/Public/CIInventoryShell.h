@@ -16,6 +16,7 @@ class CATALYSTINVENTORY_API UCIInventoryShell : public UPanelWidget
 
 public:
     void SetLayoutTheme(UCIInventoryTileTheme* InTheme);
+    void SetActionSection(FName Section) { ActionSection = Section; }
 
     UFUNCTION(BlueprintPure, Category = "Inventory|Layout")
     UCFMenu* GetMenu() const;
@@ -40,6 +41,7 @@ private:
     TObjectPtr<UCIInventoryTileTheme> LayoutTheme;
 
     TWeakObjectPtr<UCFMenu> BoundMenu;
+    FName ActionSection;
 
     TSharedPtr<class SCIInventoryShell> Shell;
 };

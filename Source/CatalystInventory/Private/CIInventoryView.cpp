@@ -4,6 +4,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "CIEquipmentTile.h"
 #include "CIInventoryTile.h"
+#include "CIInventoryShell.h"
 #include "CIResourceTile.h"
 #include "Components/NamedSlot.h"
 #include "Components/TextBlock.h"
@@ -148,13 +149,17 @@ void UCIInventoryView::PresentSection(int32 Index, UCFMenuItem*)
 
     const auto& Description = *SectionDescriptions[Index];
     ViewState->SelectionByObject.insert_or_assign(Inventory->ObjectId(), Description.id);
-    auto* Slot = CastChecked<UNamedSlot>(MainPanel->GetChildAt(Index));
-    if (!Slot->GetContent())
+    auto Section = Inventory->Follow(Description);
+    if (auto* Shell = Cast<UCIInventoryShell>(WidgetTree->RootWidget))
     {
-        if (auto Section = Inventory->Follow(Description))
-        {
-            Slot->SetContent(FCIInventorySection(MoveTemp(*Section), TileTheme, ItemIcons, bHalfSize).AsView({*WidgetTree, ViewState.ToSharedRef()}));
-        }
+        const auto Layout = Section ? Section->Describe().property("metadata:ciGrid") : magritte::Value();
+        const auto* Kind = std::get_if<magritte::Value::Symbol>(&Layout.data);
+        Shell->SetActionSection(Kind ? FName(UTF8_TO_TCHAR(Kind->utf8.c_str())) : NAME_None);
+    }
+    auto* Slot = CastChecked<UNamedSlot>(MainPanel->GetChildAt(Index));
+    if (!Slot->GetContent() && Section)
+    {
+        Slot->SetContent(FCIInventorySection(MoveTemp(*Section), TileTheme, ItemIcons, bHalfSize).AsView({*WidgetTree, ViewState.ToSharedRef()}));
     }
 }
 

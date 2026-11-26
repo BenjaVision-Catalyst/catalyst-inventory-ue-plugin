@@ -3,10 +3,12 @@
 #include "CIInventoryTile.h"
 
 #include "Algo/BinarySearch.h"
+#include "Brushes/SlateRoundedBoxBrush.h"
 #include "Components/NamedSlot.h"
 #include "Containers/StaticArray.h"
 #include "Components/WidgetSwitcher.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "Fonts/FontMeasure.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Misc/App.h"
 #include "Presentation/CFMenu.h"
@@ -15,6 +17,7 @@
 #include "Rendering/SlateRenderer.h"
 #include "RenderingThread.h"
 #include "Slate/WidgetRenderer.h"
+#include "Styling/CoreStyle.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/SLeafWidget.h"
@@ -25,6 +28,11 @@ constexpr float ProjectionRasterScale = 2.f;
 constexpr int32 MainRightGuardPixels = 4;
 constexpr int32 MainBottomGuardPixels = 2;
 constexpr int32 ProjectionStrips = 32;
+constexpr float FooterGap = 8.f;
+constexpr float FooterHeight = 51.f;
+const FName GearSection(TEXT("gear"));
+const FName ApparelSection(TEXT("apparel"));
+const FName ResourcesSection(TEXT("resources"));
 
 struct FInventoryPlane
 {
@@ -110,11 +118,116 @@ FInventoryShellLayout LayoutFor(const FVector2D& Size, const FVector2D& MenuSize
     Layout.Left.Center.X = InnerEdge - Layout.Left.Project({PlaneWidth, 0.0}).X;
     const double MainRightInset = 8.0 * Scale;
     Layout.MainOrigin = {Layout.Left.Extent.X - MainRightInset - GridWidth, GridTop};
-    const double AvailableHeight = Layout.Left.Extent.Y - Layout.MainOrigin.Y - 59.0 * Scale;
+    const double AvailableHeight = Layout.Left.Extent.Y - Layout.MainOrigin.Y - (FooterGap + FooterHeight) * Scale;
     Layout.MainExtent = {GridWidth, FMath::Min(AvailableHeight, FMath::Max(1.f, PanelHeight) * Scale)};
     return Layout;
 }
 }
+
+class SCIInventoryActionFooter final : public SLeafWidget
+{
+public:
+    SLATE_BEGIN_ARGS(SCIInventoryActionFooter) {}
+        SLATE_ATTRIBUTE(FName, Section)
+        SLATE_ARGUMENT(UCFMenu*, Menu)
+    SLATE_END_ARGS()
+
+    void Construct(const FArguments& Args)
+    {
+        Section = Args._Section;
+        Menu = Args._Menu;
+    }
+
+    FVector2D ComputeDesiredSize(float) const override { return FVector2D(0.f, FooterHeight); }
+
+    int32 OnPaint(const FPaintArgs&, const FGeometry& Geometry, const FSlateRect&,
+        FSlateWindowElementList& Elements, int32 Layer, const FWidgetStyle&, bool) const override
+    {
+        const auto* CurrentMenu = Menu.Get();
+        if (!CurrentMenu)
+        {
+            return Layer;
+        }
+
+        const auto& Style = CurrentMenu->GetMenuTheme();
+        const FString Input = CurrentMenu->PreviousPrompt.ToString();
+        const bool bKeyboard = Input == TEXT("Q");
+        const bool bPlayStation = Input == TEXT("L1");
+        const FName CurrentSection = Section.Get();
+        const bool bResources = CurrentSection == ResourcesSection;
+        const auto Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
+        const auto Font = FCoreStyle::GetDefaultFontStyle("Regular", 15);
+        const auto CapFont = FCoreStyle::GetDefaultFontStyle("Regular", 10);
+        double Right = Geometry.GetLocalSize().X;
+        double Y = 2.0;
+
+        const auto DrawPrompt = [&](const FText& Label, const TCHAR* Glyph, bool bRound, float Opacity = 1.f)
+        {
+            const FText Key = FText::FromString(Glyph);
+            const FText Text = bKeyboard
+                ? FText::Format(NSLOCTEXT("Inventory", "GearActionKeyLabel", "{0}  {1}"), Key, Label)
+                : Label;
+            const FVector2D TextSize = Measure->Measure(Text, Font);
+            Right -= TextSize.X;
+            const auto DrawText = [&](const FText& Value, const FSlateFontInfo& TextFont,
+                const FVector2D& Position, const FVector2D& Size, FLinearColor Ink)
+            {
+                Ink.A *= Opacity;
+                FSlateDrawElement::MakeText(Elements, Layer + 1,
+                    Geometry.ToPaintGeometry(Size, FSlateLayoutTransform(Position)),
+                    Value, TextFont, ESlateDrawEffect::NoPixelSnapping, Ink);
+            };
+            DrawText(Text, Font, {Right, Y}, TextSize, Style.Ink);
+            if (!bKeyboard)
+            {
+                const FVector2D CapSize = bRound ? FVector2D(21, 21) : FVector2D(23, 18);
+                Right -= CapSize.X + 5.0;
+                const FVector2D Origin(Right, Y + (TextSize.Y - CapSize.Y) * .5);
+                const auto& Brush = bRound ? RoundCap : ShoulderCap;
+                FLinearColor Fill = Style.ShoulderFill;
+                Fill.A *= Opacity;
+                FSlateDrawElement::MakeBox(Elements, Layer,
+                    Geometry.ToPaintGeometry(CapSize, FSlateLayoutTransform(Origin)),
+                    &Brush, ESlateDrawEffect::NoPixelSnapping, Fill);
+                const auto& KeyFont = bRound && Glyph[1] == 0 ? Font : CapFont;
+                const FVector2D KeySize = Measure->Measure(Key, KeyFont);
+                DrawText(Key, KeyFont, Origin + (CapSize - KeySize) * .5, KeySize, Style.ShoulderInk);
+            }
+            Right -= 14.0;
+        };
+
+        DrawPrompt(NSLOCTEXT("Inventory", "CloseActionLabel", "Close"),
+            bKeyboard ? TEXT("Backspace") : (bPlayStation ? TEXT("○") : TEXT("B")), true);
+        FText SectionAction = NSLOCTEXT("Inventory", "GearSetsHeading", "Gear Sets");
+        if (CurrentSection == ApparelSection)
+        {
+            SectionAction = NSLOCTEXT("Inventory", "OutfitsHeading", "Outfits");
+        }
+        if (bResources)
+        {
+            SectionAction = NSLOCTEXT("Inventory", "OpenResourceCategories", "Categories");
+        }
+        DrawPrompt(SectionAction, bKeyboard ? (bResources ? TEXT("C") : TEXT("G"))
+            : (bPlayStation ? TEXT("L2") : TEXT("LT")), false);
+        if (bResources)
+        {
+            DrawPrompt(NSLOCTEXT("Inventory", "ResourceRadials", "Radials"),
+                bKeyboard ? TEXT("F2") : (bPlayStation ? TEXT("□") : TEXT("X")), true);
+            Right = Geometry.GetLocalSize().X;
+            Y += 28.0;
+            DrawPrompt(NSLOCTEXT("Inventory", "SelectResourceStack", "Select"),
+                bKeyboard ? TEXT("Enter") : (bPlayStation ? TEXT("×") : TEXT("A")), true, .35f);
+            DrawPrompt(NSLOCTEXT("Inventory", "ResourceDrop", "Drop"), TEXT("R3"), true, .35f);
+        }
+        return Layer + 1;
+    }
+
+private:
+    TAttribute<FName> Section;
+    TWeakObjectPtr<UCFMenu> Menu;
+    const FSlateRoundedBoxBrush RoundCap{FLinearColor::White, 10.5f};
+    const FSlateRoundedBoxBrush ShoulderCap{FLinearColor::White, 4.f};
+};
 
 class SCIInventoryShell final : public SLeafWidget
 {
@@ -122,12 +235,14 @@ public:
     SLATE_BEGIN_ARGS(SCIInventoryShell) {}
         SLATE_ATTRIBUTE(float, MenuPanelGap)
         SLATE_ATTRIBUTE(float, PanelHeight)
+        SLATE_ATTRIBUTE(FName, ActionSection)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& Args)
     {
         MenuPanelGap = Args._MenuPanelGap;
         PanelHeight = Args._PanelHeight;
+        ActionSection = Args._ActionSection;
     }
 
     ~SCIInventoryShell()
@@ -142,6 +257,12 @@ public:
     {
         Menu = InMenu;
         MenuWidget = InMenu ? TSharedPtr<SWidget>(InMenu->TakeWidget()) : nullptr;
+        FooterTexture.Reset();
+        FooterWidget.Reset();
+        if (InMenu)
+        {
+            SAssignNew(FooterWidget, SCIInventoryActionFooter).Menu(InMenu).Section(ActionSection);
+        }
         MenuTexture.Reset();
         if (MenuWidget && FApp::CanEverRender() && FSlateApplication::IsInitialized())
         {
@@ -190,6 +311,7 @@ public:
         const auto Size = Geometry.GetLocalSize();
         if (!Renderer || !Content || Size.GetMin() < 32.0)
         {
+            FooterTexture.Reset();
             if (MainTexture.IsValid())
             {
                 MainTexture.Reset();
@@ -252,6 +374,17 @@ public:
                 LastGridPixelScale = PixelScale;
             }
             DrawToTexture(MainTexture, MainRenderRoot.ToSharedRef(), TargetSize, DeltaTime, PaintScale);
+            const FName Section = ActionSection.Get();
+            if (FooterWidget && (Section == GearSection || Section == ApparelSection || Section == ResourcesSection))
+            {
+                DrawToTexture(FooterTexture, FooterWidget.ToSharedRef(),
+                    FVector2D(TargetSize.X - MainRightGuardPixels,
+                        FMath::CeilToInt(FooterHeight * PaintScale)), DeltaTime, PaintScale);
+            }
+            else
+            {
+                FooterTexture.Reset();
+            }
             Invalidate(EInvalidateWidgetReason::Paint);
         }
     }
@@ -277,6 +410,13 @@ public:
         {
             DrawSurface(Geometry, Elements, Layer + 2, Layout.Left, MenuTexture.Get(),
                 FVector2D(Layout.MainOrigin.X - FirstMenuItemX * Layout.MenuFit, Layout.MenuInset), Layout.MenuExtent);
+        }
+        if (FooterTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
+        {
+            const FVector2D FooterExtent(FooterTexture->SizeX / ProjectionRasterScale,
+                FooterTexture->SizeY / ProjectionRasterScale);
+            DrawSurface(Geometry, Elements, Layer + 2, Layout.Left, FooterTexture.Get(),
+                Layout.MainOrigin + FVector2D(0.0, Layout.MainExtent.Y + FooterGap * Layout.Scale), FooterExtent);
         }
         return Layer + 2;
     }
@@ -359,13 +499,16 @@ private:
 
     TAttribute<float> MenuPanelGap;
     TAttribute<float> PanelHeight;
+    TAttribute<FName> ActionSection;
     TWeakObjectPtr<UCFMenu> Menu;
     TWeakObjectPtr<UWidgetSwitcher> MainPanel;
     TWeakObjectPtr<UWidget> MainContent;
     TSharedPtr<SWidget> MenuWidget;
     TSharedPtr<SBox> MainRenderRoot;
+    TSharedPtr<SCIInventoryActionFooter> FooterWidget;
     TStrongObjectPtr<UTextureRenderTarget2D> MenuTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> MainTexture;
+    TStrongObjectPtr<UTextureRenderTarget2D> FooterTexture;
     FWidgetRenderer* Renderer = nullptr;
     FVector2D LastGridViewport = FVector2D::ZeroVector;
     double LastGridPixelScale = 0.0;
@@ -386,7 +529,8 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
         })
         .PanelHeight_Lambda([this] {
             return (LayoutTheme ? LayoutTheme.Get() : GetDefault<UCIInventoryTileTheme>())->PanelHeight;
-        });
+        })
+        .ActionSection_Lambda([this] { return ActionSection; });
     UpdateContent();
     return Shell.ToSharedRef();
 }
