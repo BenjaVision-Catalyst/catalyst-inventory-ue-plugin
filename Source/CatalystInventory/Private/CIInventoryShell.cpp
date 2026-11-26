@@ -23,7 +23,10 @@
 #include "Styling/CoreStyle.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SBorder.h"
+#include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/SLeafWidget.h"
+#include "Widgets/SWindow.h"
 
 namespace
 {
@@ -153,6 +156,7 @@ namespace
 enum class ESavedSetHold : uint8 { Overwrite, Delete };
 constexpr ESavedSetHold SavedSetHoldActions[] = {ESavedSetHold::Overwrite, ESavedSetHold::Delete};
 using FSavedSetHoldAction = TDelegate<void(ESavedSetHold, FString)>;
+using FRenameSavedSet = TDelegate<bool(FString, FString)>;
 
 struct FSavedSetHold
 {
@@ -174,6 +178,7 @@ public:
         SLATE_ATTRIBUTE(FCFControllerHoldIndicator, OverwriteIndicator)
         SLATE_ATTRIBUTE(bool, DeleteAvailable)
         SLATE_ATTRIBUTE(FCFControllerHoldIndicator, DeleteIndicator)
+        SLATE_ATTRIBUTE(bool, OptionsAvailable)
         SLATE_ARGUMENT(UCFMenu*, Menu)
     SLATE_END_ARGS()
 
@@ -187,6 +192,7 @@ public:
         OverwriteIndicator = Args._OverwriteIndicator;
         DeleteAvailable = Args._DeleteAvailable;
         DeleteIndicator = Args._DeleteIndicator;
+        OptionsAvailable = Args._OptionsAvailable;
         Menu = Args._Menu;
     }
 
@@ -194,6 +200,7 @@ public:
 
     bool IsOverSavedSets(const FVector2D& Position) const { return SavedSetsBounds.ContainsPoint(Position); }
     bool IsOverConfirm(const FVector2D& Position) const { return ConfirmBounds.ContainsPoint(Position); }
+    bool IsOverOptions(const FVector2D& Position) const { return OptionsBounds.ContainsPoint(Position); }
     bool IsOverHold(ESavedSetHold Action, const FVector2D& Position) const
     {
         return (Action == ESavedSetHold::Overwrite ? OverwriteBounds : DeleteBounds).ContainsPoint(Position);
@@ -206,6 +213,7 @@ public:
         ConfirmBounds = FSlateRect(0, 0, 0, 0);
         OverwriteBounds = FSlateRect(0, 0, 0, 0);
         DeleteBounds = FSlateRect(0, 0, 0, 0);
+        OptionsBounds = FSlateRect(0, 0, 0, 0);
         const auto* CurrentMenu = Menu.Get();
         if (!CurrentMenu)
         {
@@ -261,7 +269,10 @@ public:
                 : NSLOCTEXT("Inventory", "CreateGearSetActionLabel", "Create"),
                 EKeys::Enter, EKeys::Gamepad_FaceButton_Bottom, ConfirmAvailable.Get());
             ConfirmBounds = FSlateRect(Right + ActionPromptGap, 25.0, Geometry.GetLocalSize().X, FooterHeight);
-            DrawPrompt(NSLOCTEXT("Inventory", "GearSetOptionsLabel", "Options"), EKeys::F2, EKeys::Gamepad_FaceButton_Left, false);
+            const double OptionsRight = Right;
+            DrawPrompt(NSLOCTEXT("Inventory", "GearSetOptionsLabel", "Options"), EKeys::F2, EKeys::Gamepad_FaceButton_Left,
+                OptionsAvailable.Get());
+            OptionsBounds = FSlateRect(Right + ActionPromptGap, 25.0, OptionsRight, FooterHeight);
             const double OverwriteRight = Right;
             DrawPrompt(NSLOCTEXT("Inventory", "OverwriteGearSetLabel", "Overwrite"), EKeys::T, EKeys::Gamepad_FaceButton_Top,
                 OverwriteAvailable.Get(), true, OverwriteIndicator.Get());
@@ -284,11 +295,13 @@ private:
     TAttribute<FCFControllerHoldIndicator> OverwriteIndicator;
     TAttribute<bool> DeleteAvailable;
     TAttribute<FCFControllerHoldIndicator> DeleteIndicator;
+    TAttribute<bool> OptionsAvailable;
     TWeakObjectPtr<UCFMenu> Menu;
     mutable FSlateRect SavedSetsBounds{0, 0, 0, 0};
     mutable FSlateRect ConfirmBounds{0, 0, 0, 0};
     mutable FSlateRect OverwriteBounds{0, 0, 0, 0};
     mutable FSlateRect DeleteBounds{0, 0, 0, 0};
+    mutable FSlateRect OptionsBounds{0, 0, 0, 0};
 };
 
 class SCIInventoryShell final : public SLeafWidget
@@ -306,6 +319,8 @@ public:
         SLATE_ATTRIBUTE(bool, CanOverwrite)
         SLATE_ATTRIBUTE(bool, CanDelete)
         SLATE_EVENT(FSavedSetHoldAction, OnSavedSetHold)
+        SLATE_ATTRIBUTE(bool, CanRename)
+        SLATE_EVENT(FRenameSavedSet, OnRenameSavedSet)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& Args)
@@ -321,10 +336,13 @@ public:
         CanOverwrite = Args._CanOverwrite;
         CanDelete = Args._CanDelete;
         OnSavedSetHold = Args._OnSavedSetHold;
+        CanRename = Args._CanRename;
+        OnRenameSavedSet = Args._OnRenameSavedSet;
     }
 
     ~SCIInventoryShell()
     {
+        CloseSavedSetOptions();
         if (Renderer)
         {
             BeginCleanup(Renderer);
@@ -349,7 +367,8 @@ public:
                 .OverwriteAvailable_Lambda([this] { return HoldTarget(ESavedSetHold::Overwrite).IsValid(); })
                 .OverwriteIndicator_Lambda([this] { return HoldIndicator(ESavedSetHold::Overwrite); })
                 .DeleteAvailable_Lambda([this] { return HoldTarget(ESavedSetHold::Delete).IsValid(); })
-                .DeleteIndicator_Lambda([this] { return HoldIndicator(ESavedSetHold::Delete); });
+                .DeleteIndicator_Lambda([this] { return HoldIndicator(ESavedSetHold::Delete); })
+                .OptionsAvailable_Lambda([this] { return CanOpenSavedSetOptions(); });
         }
         MenuTexture.Reset();
         if (MenuWidget && FApp::CanEverRender() && FSlateApplication::IsInitialized())
@@ -378,6 +397,7 @@ public:
         SavedSetIndex = FMath::Min(SavedSetIndex, SavedSets.Num());
         if (PreviousTarget != SelectedSavedSetId())
         {
+            CloseSavedSetOptions();
             CancelSavedSetHolds();
         }
         SavedSetsGrid.Reset();
@@ -387,6 +407,7 @@ public:
     {
         if (bSavedSetsOpen != bOpen)
         {
+            CloseSavedSetOptions();
             CancelSavedSetHolds();
         }
         bSavedSetsOpen = bOpen;
@@ -407,6 +428,15 @@ public:
         {
             auto& State = Hold(Action);
             State.Confirmation.Update(!State.Inputs.IsEmpty(), FGuid(), Now);
+        }
+    }
+
+    void CloseSavedSetOptions()
+    {
+        if (auto Dialog = OptionsWindow.Pin())
+        {
+            OptionsWindow.Reset();
+            Dialog->RequestDestroyWindow();
         }
     }
 
@@ -432,6 +462,10 @@ public:
 
     virtual FReply OnKeyDown(const FGeometry& Geometry, const FKeyEvent& Event) override
     {
+        if (OptionsWindow.IsValid())
+        {
+            return FReply::Handled();
+        }
         const FKey Key = Event.GetKey();
         if (bSavedSetsOpen && HasSavedSets(ActionSection.Get()))
         {
@@ -447,7 +481,11 @@ public:
             }
             if (Key == EKeys::F2 || Key == EKeys::Gamepad_FaceButton_Left)
             {
-                CancelSavedSetHolds();
+                if (!Event.IsRepeat())
+                {
+                    OpenSavedSetOptions();
+                }
+                return FReply::Handled();
             }
         }
         if (HasSavedSets(ActionSection.Get()) && (Key == EKeys::G || Key == EKeys::Gamepad_LeftTrigger))
@@ -498,12 +536,21 @@ public:
 
     FReply OnMouseButtonDown(const FGeometry& Geometry, const FPointerEvent& Event) override
     {
+        if (OptionsWindow.IsValid())
+        {
+            return FReply::Handled();
+        }
         if (Event.GetEffectingButton() == EKeys::LeftMouseButton && FooterWidget && FooterTexture.IsValid()
             && HasSavedSets(ActionSection.Get()))
         {
             const auto Layout = GetLayout(Geometry.GetLocalSize());
             const FVector2D PlanePoint = Layout.Left.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()));
             const FVector2D FooterPoint = (PlanePoint - Layout.FooterOrigin) / Layout.Scale;
+            if (bSavedSetsOpen && FooterWidget->IsOverOptions(FooterPoint))
+            {
+                OpenSavedSetOptions();
+                return FReply::Handled();
+            }
             for (const auto Action : SavedSetHoldActions)
             {
                 if (bSavedSetsOpen && FooterWidget->IsOverHold(Action, FooterPoint))
@@ -753,6 +800,87 @@ public:
     }
 
 private:
+    bool CanOpenSavedSetOptions() const
+    {
+        return bSavedSetsOpen && HasSavedSets(ActionSection.Get()) && !OptionsWindow.IsValid()
+            && CanRename.Get() && SelectedSavedSetId().IsValid();
+    }
+
+    FText ValidateSavedSetName(const FString& Identifier, const FString& Name) const
+    {
+        if (Name.IsEmpty() || Name.Len() > 48 || Name.Contains(TEXT("\n")) || Name.Contains(TEXT("\r")))
+        {
+            return NSLOCTEXT("Inventory", "InvalidGearSetName", "Enter a name between 1 and 48 characters.");
+        }
+        if (SavedSets.ContainsByPredicate([&](const FCIInventorySavedSet& Set) {
+            return Set.Identifier != Identifier && Set.Name.Equals(Name, ESearchCase::IgnoreCase);
+        }))
+        {
+            return NSLOCTEXT("Inventory", "DuplicateGearSetName", "That name is already in use.");
+        }
+        return FText::GetEmpty();
+    }
+
+    void OpenSavedSetOptions()
+    {
+        CancelSavedSetHolds();
+        if (!CanOpenSavedSetOptions() || !FSlateApplication::IsInitialized() || !Menu.IsValid())
+        {
+            return;
+        }
+
+        const auto& Selected = *SelectedSavedSet();
+        const auto Dialog = SNew(SWindow)
+            .Title(ActionSection.Get() == ApparelSection ? NSLOCTEXT("Inventory", "RenameOutfitTitle", "Rename Outfit")
+                : NSLOCTEXT("Inventory", "RenameGearSetTitle", "Rename Gear Set"))
+            .ClientSize(FVector2D(420, 90))
+            .SizingRule(ESizingRule::FixedSize)
+            .SupportsMinimize(false)
+            .SupportsMaximize(false);
+        const TWeakPtr<SCIInventoryShell> WeakShell = SharedThis(this);
+        const auto Field = MakeShared<TWeakPtr<SEditableTextBox>>();
+        auto NameField = SNew(SEditableTextBox)
+            .Text(FText::FromString(Selected.Name))
+            .Font(Menu->GetMenuTheme().ActionLabelFont)
+            .SelectAllTextWhenFocused(true)
+            .SelectAllTextOnCommit(false)
+            .ClearKeyboardFocusOnCommit(false)
+            .RevertTextOnEscape(true)
+            .OnTextCommitted_Lambda([WeakShell, Field, Identifier = Selected.Identifier](const FText& Value, ETextCommit::Type Commit) {
+                const auto Self = WeakShell.Pin();
+                if (Commit != ETextCommit::OnEnter || !Self || !Self->OptionsWindow.IsValid())
+                {
+                    return;
+                }
+                const FString Name = Value.ToString().TrimStartAndEnd();
+                FText Error = Self->ValidateSavedSetName(Identifier, Name);
+                if (Error.IsEmpty())
+                {
+                    if (Self->OnRenameSavedSet.IsBound() && Self->OnRenameSavedSet.Execute(Identifier, Name))
+                    {
+                        Self->CloseSavedSetOptions();
+                        return;
+                    }
+                    Error = NSLOCTEXT("Inventory", "RenameSavedSetUnavailable", "Unable to rename right now.");
+                }
+                if (const auto LiveField = Field->Pin())
+                {
+                    LiveField->SetError(Error);
+                }
+            });
+        *Field = NameField;
+        Dialog->SetContent(SNew(SBorder).Padding(FMargin(18))[NameField]);
+        Dialog->SetWidgetToFocusOnActivate(NameField);
+        Dialog->SetOnWindowClosed(FOnWindowClosed::CreateLambda([WeakShell](const TSharedRef<SWindow>& Closed) {
+            if (const auto Self = WeakShell.Pin(); Self && Self->OptionsWindow.Pin() == Closed)
+            {
+                Self->OptionsWindow.Reset();
+            }
+        }));
+        OptionsWindow = Dialog;
+        FSlateApplication::Get().AddWindow(Dialog);
+    }
+
     FSavedSetHold& Hold(ESavedSetHold Action) { return Holds[static_cast<int32>(Action)]; }
     const FSavedSetHold& Hold(ESavedSetHold Action) const { return Holds[static_cast<int32>(Action)]; }
 
@@ -774,7 +902,8 @@ private:
     FGuid HoldTarget(ESavedSetHold Action) const
     {
         const bool bAvailable = Action == ESavedSetHold::Overwrite ? CanOverwrite.Get() : CanDelete.Get();
-        return bSavedSetsOpen && HasSavedSets(ActionSection.Get()) && bAvailable ? SelectedSavedSetId() : FGuid();
+        return bSavedSetsOpen && HasSavedSets(ActionSection.Get()) && bAvailable && !OptionsWindow.IsValid()
+            ? SelectedSavedSetId() : FGuid();
     }
 
     FGuid ActiveHoldTarget(ESavedSetHold Action) const
@@ -827,6 +956,7 @@ private:
         const int32 Selection = FMath::Clamp(Index, 0, SavedSets.Num());
         if (SavedSetIndex != Selection)
         {
+            CloseSavedSetOptions();
             CancelSavedSetHolds();
             SavedSetIndex = Selection;
         }
@@ -962,6 +1092,9 @@ private:
     TAttribute<bool> CanOverwrite;
     TAttribute<bool> CanDelete;
     FSavedSetHoldAction OnSavedSetHold;
+    TAttribute<bool> CanRename;
+    FRenameSavedSet OnRenameSavedSet;
+    TWeakPtr<SWindow> OptionsWindow;
     TStaticArray<FSavedSetHold, 2> Holds;
     TWeakObjectPtr<UCFMenu> Menu;
     TWeakObjectPtr<UWidgetSwitcher> MainPanel;
@@ -1001,6 +1134,7 @@ void UCIInventoryShell::SetActionSection(FName Section)
         bConfirmEquips = false;
         if (Shell)
         {
+            Shell->CloseSavedSetOptions();
             Shell->CancelSavedSetHolds();
             Shell->SetSavedSetsState(Shell->IsSavedSetsOpen() && HasSavedSets(Section), 0);
         }
@@ -1035,6 +1169,19 @@ void UCIInventoryShell::SetOverwriteSavedSetAction(TFunction<void(FString)> Acti
 void UCIInventoryShell::SetDeleteSavedSetAction(TFunction<void(FString)> Action)
 {
     DeleteSavedSet = MoveTemp(Action);
+}
+
+void UCIInventoryShell::SetRenameSavedSetAction(TFunction<bool(FString, FString)> Action)
+{
+    RenameSavedSet = MoveTemp(Action);
+}
+
+void UCIInventoryShell::CloseSavedSetOptions()
+{
+    if (Shell)
+    {
+        Shell->CloseSavedSetOptions();
+    }
 }
 
 void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
@@ -1093,6 +1240,10 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
         .ConfirmEquips_Lambda([this] { return bConfirmEquips || (Shell && Shell->SelectedSavedSet()); })
         .CanOverwrite_Lambda([this] { return static_cast<bool>(OverwriteSavedSet); })
         .CanDelete_Lambda([this] { return static_cast<bool>(DeleteSavedSet); })
+        .CanRename_Lambda([this] { return static_cast<bool>(RenameSavedSet); })
+        .OnRenameSavedSet(FRenameSavedSet::CreateWeakLambda(this, [this](FString Identifier, FString Name) {
+            return RenameSavedSet && RenameSavedSet(MoveTemp(Identifier), MoveTemp(Name));
+        }))
         .OnSavedSetHold(FSavedSetHoldAction::CreateWeakLambda(this, [this](ESavedSetHold Action, FString Identifier) {
             const auto& Callback = Action == ESavedSetHold::Overwrite ? OverwriteSavedSet : DeleteSavedSet;
             if (Callback)
@@ -1132,6 +1283,7 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
 
 void UCIInventoryShell::ReleaseSlateResources(bool bReleaseChildren)
 {
+    CloseSavedSetOptions();
     UnbindMenu();
     Shell.Reset();
     Super::ReleaseSlateResources(bReleaseChildren);

@@ -45,6 +45,12 @@ and Overwrite use the same one-second confirmation and cancel each other
 when pressed together. After deletion, the sidebar keeps the row position
 so the next saved set or Create becomes selected.
 
+Bind Rename to enable Options on saved rows. F2 on keyboard, the left face
+button on a controller, or the Options prompt opens the rename dialog for the
+selected Gear Set or Outfit. Enter saves the trimmed name after validation.
+The callback sends operation 108 with the saved-set UUID followed by the
+UTF-8 name through the signed-in profile connection.
+
 An independently authored Widget Blueprint can still use the named
 `InventoryTile` binding and the game session's `ICFPlayerMagritteSource`
 through `BindToPlayer`. Publish graph replacements and sign-out through

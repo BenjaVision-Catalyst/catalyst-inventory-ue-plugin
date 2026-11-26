@@ -29,6 +29,8 @@ public:
     void SetEquipSavedSetAction(TFunction<void(FString)> Action);
     void SetOverwriteSavedSetAction(TFunction<void(FString)> Action);
     void SetDeleteSavedSetAction(TFunction<void(FString)> Action);
+    void SetRenameSavedSetAction(TFunction<bool(FString, FString)> Action);
+    void CloseSavedSetOptions();
     void RestoreSavedSetsState(const UCIInventoryShell& Previous);
     /** Bind Create or Equip for the selected row. An unbound action is disabled. */
     void SetSavedSetConfirmAction(bool bEquip, FSimpleDelegate Action);
@@ -62,6 +64,7 @@ private:
     TFunction<void(FString)> EquipSavedSet;
     TFunction<void(FString)> OverwriteSavedSet;
     TFunction<void(FString)> DeleteSavedSet;
+    TFunction<bool(FString, FString)> RenameSavedSet;
     FSimpleDelegate SavedSetConfirm;
     bool bConfirmEquips = false;
     bool bRestoreSavedSetsOpen = false;

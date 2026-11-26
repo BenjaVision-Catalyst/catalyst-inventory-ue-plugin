@@ -20,7 +20,8 @@ public:
         TSubclassOf<UCIInventoryView> InViewClass = {}, TFunction<void(bool bOutfit)> InCreateSavedSet = {},
         TFunction<void(FString SetIdentifier)> InEquipSavedSet = {},
         TFunction<void(FString SetIdentifier)> InOverwriteSavedSet = {},
-        TFunction<void(FString SetIdentifier)> InDeleteSavedSet = {});
+        TFunction<void(FString SetIdentifier)> InDeleteSavedSet = {},
+        TFunction<bool(FString SetIdentifier, FString Name)> InRenameSavedSet = {});
 
     UFUNCTION(BlueprintPure, Category = "Catalyst|Inventory")
     UCIInventoryView* GetInventoryView() const;
@@ -47,4 +48,5 @@ private:
     TFunction<void(FString)> EquipSavedSet;
     TFunction<void(FString)> OverwriteSavedSet;
     TFunction<void(FString)> DeleteSavedSet;
+    TFunction<bool(FString, FString)> RenameSavedSet;
 };

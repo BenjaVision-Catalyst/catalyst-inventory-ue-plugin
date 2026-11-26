@@ -8,10 +8,21 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/SWidget.h"
 
+namespace
+{
+void CloseSavedSetOptions(const UCIInventoryView* View)
+{
+    if (auto* Shell = View ? View->GetInventoryShell() : nullptr)
+    {
+        Shell->CloseSavedSetOptions();
+    }
+}
+}
+
 void UCIInventorySessionView::BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> InSource,
     TSubclassOf<UCIInventoryView> InViewClass, TFunction<void(bool)> InCreateSavedSet,
     TFunction<void(FString)> InEquipSavedSet, TFunction<void(FString)> InOverwriteSavedSet,
-    TFunction<void(FString)> InDeleteSavedSet)
+    TFunction<void(FString)> InDeleteSavedSet, TFunction<bool(FString, FString)> InRenameSavedSet)
 {
     Unsubscribe();
     Source = MoveTemp(InSource);
@@ -20,6 +31,7 @@ void UCIInventorySessionView::BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> I
     EquipSavedSet = MoveTemp(InEquipSavedSet);
     OverwriteSavedSet = MoveTemp(InOverwriteSavedSet);
     DeleteSavedSet = MoveTemp(InDeleteSavedSet);
+    RenameSavedSet = MoveTemp(InRenameSavedSet);
     ViewState.Reset();
     if (Panel && Source)
     {
@@ -56,6 +68,7 @@ void UCIInventorySessionView::NativeConstruct()
 void UCIInventorySessionView::NativeDestruct()
 {
     Unsubscribe();
+    CloseSavedSetOptions(GetInventoryView());
     Panel->ClearChildren();
     ViewState.Reset();
     Super::NativeDestruct();
@@ -80,13 +93,15 @@ void UCIInventorySessionView::Refresh()
     const auto User = Player && Source ? Source->SignedInUser(*Player) : TOptional<FCFMagritteBinding>();
     const auto Profile = User ? User->Follow("profile") : TOptional<FCFMagritteBinding>();
     auto Inventory = Profile ? Profile->Follow("inventory") : TOptional<FCFMagritteBinding>();
+    auto* Mounted = GetInventoryView();
+    CloseSavedSetOptions(Mounted);
     if (!Inventory)
     {
         Panel->ClearChildren();
         ViewState.Reset();
         return;
     }
-    const auto* Previous = ViewState ? GetInventoryView() : nullptr;
+    const auto* Previous = ViewState ? Mounted : nullptr;
     if (!ViewState)
     {
         ViewState = MakeShared<FCFViewState>();
@@ -135,6 +150,13 @@ void UCIInventorySessionView::Refresh()
                 {
                     Self->DeleteSavedSet(MoveTemp(Identifier));
                 }
+            });
+        }
+        if (RenameSavedSet)
+        {
+            Shell->SetRenameSavedSetAction([WeakThis = TWeakObjectPtr<UCIInventorySessionView>(this)](FString Identifier, FString Name) {
+                auto* Self = WeakThis.Get();
+                return Self && Self->RenameSavedSet && Self->RenameSavedSet(MoveTemp(Identifier), MoveTemp(Name));
             });
         }
         if (PreviousShell)
