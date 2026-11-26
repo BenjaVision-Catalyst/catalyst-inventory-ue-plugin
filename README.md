@@ -76,3 +76,8 @@ Use `CIResourceTile` for a stack. Bind the resource definition identifier,
 optional display name and stack count. The same icon slot accepts a model
 preview or resource icon. The resource theme can hide the label and supply a
 fallback icon when the presenter has no definition-specific art.
+
+Use `CIApparelRow` for an individual apparel item in a list. Bind the item
+summary's definition identifier, display name, tier and optional brand name.
+The apparel row theme uses the equipment row's visual defaults with a shorter
+layout. The view resolves preview art by definition identifier.
