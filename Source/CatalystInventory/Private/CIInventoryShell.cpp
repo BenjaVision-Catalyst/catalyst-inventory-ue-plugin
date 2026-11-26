@@ -4,7 +4,9 @@
 
 #include "Algo/BinarySearch.h"
 #include "Brushes/SlateRoundedBoxBrush.h"
+#include "Components/Border.h"
 #include "Components/NamedSlot.h"
+#include "Components/TextBlock.h"
 #include "Containers/StaticArray.h"
 #include "Components/WidgetSwitcher.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -253,73 +255,6 @@ private:
     const FSlateRoundedBoxBrush ShoulderCap{FLinearColor::White, 4.f};
 };
 
-class SCIInventorySavedSets final : public SLeafWidget
-{
-public:
-    SLATE_BEGIN_ARGS(SCIInventorySavedSets) {}
-        SLATE_ATTRIBUTE(FName, Section)
-        SLATE_ATTRIBUTE(float, HeadingSpace)
-        SLATE_ARGUMENT(UCFMenu*, Menu)
-    SLATE_END_ARGS()
-
-    void Construct(const FArguments& Args)
-    {
-        Section = Args._Section;
-        HeadingSpace = Args._HeadingSpace;
-        Menu = Args._Menu;
-    }
-
-    FVector2D ComputeDesiredSize(float) const override { return FVector2D::ZeroVector; }
-
-    int32 OnPaint(const FPaintArgs&, const FGeometry& Geometry, const FSlateRect&,
-        FSlateWindowElementList& Elements, int32 Layer, const FWidgetStyle&, bool) const override
-    {
-        const auto* CurrentMenu = Menu.Get();
-        if (!CurrentMenu)
-        {
-            return Layer;
-        }
-        const auto& Style = CurrentMenu->GetMenuTheme();
-        const FVector2D Extent = Geometry.GetLocalSize();
-        constexpr float RowGap = 8.f;
-        constexpr int32 VisibleRows = 6;
-        const double Heading = HeadingSpace.Get();
-        const double Height = (Extent.Y - Heading - (VisibleRows - 1) * RowGap) / VisibleRows;
-        if (Height <= 2.0 || Extent.X <= 2.0)
-        {
-            return Layer;
-        }
-
-        const auto Font = FCoreStyle::GetDefaultFontStyle("Regular", 20);
-        const auto DrawBox = [&](FVector2D Origin, FVector2D Size, FLinearColor Tint) {
-            FSlateDrawElement::MakeBox(Elements, Layer,
-                Geometry.ToPaintGeometry(Size, FSlateLayoutTransform(Origin)),
-                FCoreStyle::Get().GetBrush("WhiteBrush"), ESlateDrawEffect::NoPixelSnapping, Tint);
-        };
-        const auto DrawText = [&](FVector2D Origin, const FText& Value) {
-            const auto Size = FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->Measure(Value, Font);
-            FSlateDrawElement::MakeText(Elements, Layer + 1,
-                Geometry.ToPaintGeometry(Size, FSlateLayoutTransform(Origin)), Value, Font,
-                ESlateDrawEffect::NoPixelSnapping, Style.Ink);
-        };
-
-        DrawText(FVector2D::ZeroVector, SavedSetsLabel(Section.Get()));
-        DrawBox({0, Heading}, {Extent.X, Height}, Style.SelectedFill);
-        DrawBox({0, Heading}, {Extent.X, 1}, Style.Track);
-        DrawBox({0, Heading + Height - 1}, {Extent.X, 1}, Style.Track);
-        DrawBox({0, Heading}, {1, Height}, Style.Track);
-        DrawBox({Extent.X - 1, Heading}, {1, Height}, Style.Track);
-        const double TextHeight = FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->GetMaxCharacterHeight(Font);
-        DrawText({10, Heading + (Height - TextHeight) * .5}, NSLOCTEXT("Inventory", "NewGearSet", "Create"));
-        return Layer + 1;
-    }
-
-private:
-    TAttribute<FName> Section;
-    TAttribute<float> HeadingSpace;
-    TWeakObjectPtr<UCFMenu> Menu;
-};
-
 class SCIInventoryShell final : public SLeafWidget
 {
 public:
@@ -328,6 +263,7 @@ public:
         SLATE_ATTRIBUTE(float, PanelHeight)
         SLATE_ATTRIBUTE(float, FooterGap)
         SLATE_ATTRIBUTE(FName, ActionSection)
+        SLATE_ATTRIBUTE(UCIInventoryTileTheme*, InventoryTheme)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& Args)
@@ -336,6 +272,7 @@ public:
         PanelHeight = Args._PanelHeight;
         FooterGap = Args._FooterGap;
         ActionSection = Args._ActionSection;
+        InventoryTheme = Args._InventoryTheme;
     }
 
     ~SCIInventoryShell()
@@ -353,11 +290,9 @@ public:
         FooterTexture.Reset();
         FooterWidget.Reset();
         SavedSetsTexture.Reset();
-        SavedSetsWidget.Reset();
         if (InMenu)
         {
             SAssignNew(FooterWidget, SCIInventoryActionFooter).Menu(InMenu).Section(ActionSection);
-            SAssignNew(SavedSetsWidget, SCIInventorySavedSets).Menu(InMenu).Section(ActionSection).HeadingSpace(FooterGap);
         }
         MenuTexture.Reset();
         if (MenuWidget && FApp::CanEverRender() && FSlateApplication::IsInitialized())
@@ -517,9 +452,16 @@ public:
             {
                 FooterTexture.Reset();
             }
-            if (SavedSetsWidget && SavedSetsReveal > 0.f)
+            if (SavedSetsReveal > 0.f)
             {
-                DrawToTexture(SavedSetsTexture, SavedSetsWidget.ToSharedRef(), FVector2D(
+                const double Height = Extent.Y / Layout.Scale;
+                auto* Theme = InventoryTheme.Get();
+                if (!SavedSetsGrid.IsValid() || SavedSetsSection != Section
+                    || SavedSetsTheme.Get() != Theme || SavedSetsHeight != Height)
+                {
+                    BuildSavedSetsGrid(Section, *Theme, Height);
+                }
+                DrawToTexture(SavedSetsTexture, SavedSetsGrid->TakeWidget(), FVector2D(
                     FMath::CeilToInt(Extent.X * SavedSetsWidthRatio * ProjectionRasterScale),
                     TargetSize.Y - MainBottomGuardPixels), DeltaTime, PaintScale);
             }
@@ -566,6 +508,38 @@ public:
     }
 
 private:
+    void BuildSavedSetsGrid(FName Section, UCIInventoryTileTheme& Theme, double PanelExtent)
+    {
+        constexpr int32 VisibleRows = 6;
+        const double Heading = Theme.GroupLabelHeight + Theme.GroupLabelPadding.GetTotalSpaceAlong<Orient_Vertical>();
+        const float RowHeight = FMath::Max(1.0, (PanelExtent - Heading - (VisibleRows - 1) * Theme.RowGap) / VisibleRows);
+        SavedSetsGrid.Reset(NewObject<UCFSpanGrid>());
+        SavedSetsGrid->SetScrollBarVisibility(ESlateVisibility::Collapsed);
+        SavedSetsGrid->Configure(1, RowHeight, 0.f, Theme.RowGap, Theme.GroupGap,
+            Theme.GroupLabelHeight, Theme.GroupLabelPadding, Theme.GroupLabelFont, Theme.GroupLabelTint);
+        SavedSetsGrid->AddHeading(SavedSetsLabel(Section));
+
+        auto* Tile = NewObject<UCFTile>(SavedSetsGrid.Get());
+        Tile->Theme = &Theme;
+        auto* Label = NewObject<UTextBlock>(Tile);
+        Label->SetText(NSLOCTEXT("Inventory", "NewGearSet", "Create"));
+        Label->SetFont(Theme.LabelFont);
+        Label->SetColorAndOpacity(FSlateColor(Theme.TextTint));
+        auto* Inset = NewObject<UBorder>(Tile);
+        Inset->SetBrushColor(FLinearColor::Transparent);
+        Inset->SetPadding(FMargin(Theme.Spacing, 0.f));
+        Inset->SetVerticalAlignment(VAlign_Center);
+        Inset->SetContent(Label);
+        Tile->SetContent(Inset);
+        SavedSetsGrid->AddItem(*Tile, 1);
+        Tile->TakeWidget();
+        Tile->SetVisualState(1.f, 1.f);
+
+        SavedSetsSection = Section;
+        SavedSetsTheme = &Theme;
+        SavedSetsHeight = PanelExtent;
+    }
+
     FInventoryShellLayout GetLayout(const FVector2D& Size) const
     {
         const FVector2D MenuSize = MenuTexture.IsValid()
@@ -645,13 +619,17 @@ private:
     TAttribute<float> PanelHeight;
     TAttribute<float> FooterGap;
     TAttribute<FName> ActionSection;
+    TAttribute<UCIInventoryTileTheme*> InventoryTheme;
     TWeakObjectPtr<UCFMenu> Menu;
     TWeakObjectPtr<UWidgetSwitcher> MainPanel;
     TWeakObjectPtr<UWidget> MainContent;
     TSharedPtr<SWidget> MenuWidget;
     TSharedPtr<SBox> MainRenderRoot;
     TSharedPtr<SCIInventoryActionFooter> FooterWidget;
-    TSharedPtr<SCIInventorySavedSets> SavedSetsWidget;
+    TStrongObjectPtr<UCFSpanGrid> SavedSetsGrid;
+    TWeakObjectPtr<UCIInventoryTileTheme> SavedSetsTheme;
+    FName SavedSetsSection;
+    double SavedSetsHeight = 0.0;
     TStrongObjectPtr<UTextureRenderTarget2D> MenuTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> MainTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> FooterTexture;
@@ -684,7 +662,10 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
             const auto& Theme = LayoutTheme ? *LayoutTheme : *GetDefault<UCIInventoryTileTheme>();
             return FMath::Max(0.f, Theme.GroupLabelHeight + Theme.GroupLabelPadding.GetTotalSpaceAlong<Orient_Vertical>());
         })
-        .ActionSection_Lambda([this] { return ActionSection; });
+        .ActionSection_Lambda([this] { return ActionSection; })
+        .InventoryTheme_Lambda([this] {
+            return LayoutTheme ? LayoutTheme.Get() : GetMutableDefault<UCIInventoryTileTheme>();
+        });
     UpdateContent();
     return Shell.ToSharedRef();
 }
