@@ -28,6 +28,12 @@ captures the equipped slots and returns an updated profile. The view uses
 the section's `gearSavedSets` or `apparelSavedSets` relation to render the
 list and keeps the created entry selected after the refresh.
 
+Supply the Equip callback at the same binding to enable Equip on saved rows
+in either sidebar. Send the selected row's `itemIdentifier` as the UTF-8
+payload of operation 105 through `RequestProfileUpdate`. The gateway looks
+up the set for the authenticated player, applies its eligible slots and
+returns the updated equipment in the same profile graph.
+
 An independently authored Widget Blueprint can still use the named
 `InventoryTile` binding and the game session's `ICFPlayerMagritteSource`
 through `BindToPlayer`. Publish graph replacements and sign-out through

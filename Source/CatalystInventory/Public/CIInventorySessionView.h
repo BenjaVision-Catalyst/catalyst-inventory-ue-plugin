@@ -15,9 +15,10 @@ class CATALYSTINVENTORY_API UCIInventorySessionView : public UUserWidget
     GENERATED_BODY()
 
 public:
-    /** Create uses the same authorized game profile connection as the presentation source. */
+    /** Saved-set actions use the same authorized game profile connection as the presentation source. */
     void BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> InSource,
-        TSubclassOf<UCIInventoryView> InViewClass = {}, TFunction<void(bool bOutfit)> InCreateSavedSet = {});
+        TSubclassOf<UCIInventoryView> InViewClass = {}, TFunction<void(bool bOutfit)> InCreateSavedSet = {},
+        TFunction<void(FString SetIdentifier)> InEquipSavedSet = {});
 
     UFUNCTION(BlueprintPure, Category = "Catalyst|Inventory")
     UCIInventoryView* GetInventoryView() const;
@@ -41,4 +42,5 @@ private:
     TSharedPtr<FCFViewState> ViewState;
     FDelegateHandle Changed;
     TFunction<void(bool)> CreateSavedSet;
+    TFunction<void(FString)> EquipSavedSet;
 };

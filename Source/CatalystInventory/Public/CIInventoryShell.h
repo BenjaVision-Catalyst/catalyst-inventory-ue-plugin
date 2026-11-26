@@ -8,6 +8,12 @@ class UCFMenuItem;
 class UCIInventoryTileTheme;
 class UWidgetSwitcher;
 
+struct FCIInventorySavedSet
+{
+    FString Name;
+    FString Identifier;
+};
+
 /** Projects the Inventory menu and active tab panel into viewport space. */
 UCLASS(BlueprintType, Blueprintable)
 class CATALYSTINVENTORY_API UCIInventoryShell : public UPanelWidget
@@ -17,8 +23,9 @@ class CATALYSTINVENTORY_API UCIInventoryShell : public UPanelWidget
 public:
     void SetLayoutTheme(UCIInventoryTileTheme* InTheme);
     void SetActionSection(FName Section);
-    void SetSavedSetNames(TArray<FString> Names);
+    void SetSavedSets(TArray<FCIInventorySavedSet> Sets);
     void SetCreateSavedSetAction(TFunction<void(bool)> Action);
+    void SetEquipSavedSetAction(TFunction<void(FString)> Action);
     void RestoreSavedSetsState(const UCIInventoryShell& Previous);
     /** Bind Create or Equip for the selected row. An unbound action is disabled. */
     void SetSavedSetConfirmAction(bool bEquip, FSimpleDelegate Action);
@@ -47,8 +54,9 @@ private:
 
     TWeakObjectPtr<UCFMenu> BoundMenu;
     FName ActionSection;
-    TArray<FString> SavedSetNames;
+    TArray<FCIInventorySavedSet> SavedSets;
     TFunction<void(bool)> CreateSavedSet;
+    TFunction<void(FString)> EquipSavedSet;
     FSimpleDelegate SavedSetConfirm;
     bool bConfirmEquips = false;
     bool bRestoreSavedSetsOpen = false;

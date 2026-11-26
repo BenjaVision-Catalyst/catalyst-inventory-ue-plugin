@@ -155,26 +155,34 @@ void UCIInventoryView::PresentSection(int32 Index, UCFMenuItem*)
         const auto Layout = Section ? Section->Describe().property("metadata:ciGrid") : magritte::Value();
         const auto* Kind = std::get_if<magritte::Value::Symbol>(&Layout.data);
         Shell->SetActionSection(Kind ? FName(UTF8_TO_TCHAR(Kind->utf8.c_str())) : NAME_None);
-        TArray<FString> Names;
+        TArray<FCIInventorySavedSet> Sets;
         if (Section && Kind && (Kind->utf8 == "gear" || Kind->utf8 == "apparel"))
         {
             for (const auto& Entry : Section->Related(Kind->utf8 + "SavedSets", 32))
             {
+                FCIInventorySavedSet Set;
                 for (const auto& Field : Entry.Describe().orderedChildren())
                 {
-                    if (Field->id == "displayName")
+                    const auto Value = Entry.Read(*Field);
+                    if (const auto* Text = std::get_if<std::string>(&Value.data))
                     {
-                        const auto Value = Entry.Read(*Field);
-                        if (const auto* Name = std::get_if<std::string>(&Value.data))
+                        if (Field->id == "displayName")
                         {
-                            Names.Add(UTF8_TO_TCHAR(Name->c_str()));
+                            Set.Name = UTF8_TO_TCHAR(Text->c_str());
                         }
-                        break;
+                        else if (Field->id == "itemIdentifier")
+                        {
+                            Set.Identifier = UTF8_TO_TCHAR(Text->c_str());
+                        }
                     }
+                }
+                if (!Set.Name.IsEmpty())
+                {
+                    Sets.Add(MoveTemp(Set));
                 }
             }
         }
-        Shell->SetSavedSetNames(MoveTemp(Names));
+        Shell->SetSavedSets(MoveTemp(Sets));
     }
     auto* Slot = CastChecked<UNamedSlot>(MainPanel->GetChildAt(Index));
     if (!Slot->GetContent() && Section)

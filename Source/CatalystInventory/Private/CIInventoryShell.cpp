@@ -319,22 +319,25 @@ public:
         MainRenderRoot.Reset();
     }
 
-    void SetSavedSetNames(const TArray<FString>& Names)
+    void SetSavedSets(const TArray<FCIInventorySavedSet>& Sets)
     {
-        SavedSetNames = Names;
-        SavedSetIndex = FMath::Min(SavedSetIndex, SavedSetNames.Num());
+        SavedSets = Sets;
+        SavedSetIndex = FMath::Min(SavedSetIndex, SavedSets.Num());
         SavedSetsGrid.Reset();
     }
 
     void SetSavedSetsState(bool bOpen, int32 Index)
     {
         bSavedSetsOpen = bOpen;
-        SavedSetIndex = FMath::Clamp(Index, 0, SavedSetNames.Num());
+        SavedSetIndex = FMath::Clamp(Index, 0, SavedSets.Num());
     }
 
     bool IsSavedSetsOpen() const { return bSavedSetsOpen; }
     int32 GetSavedSetIndex() const { return SavedSetIndex; }
-    bool IsExistingSavedSetSelected() const { return SavedSetIndex < SavedSetNames.Num(); }
+    const FCIInventorySavedSet* SelectedSavedSet() const
+    {
+        return SavedSets.IsValidIndex(SavedSetIndex) ? &SavedSets[SavedSetIndex] : nullptr;
+    }
 
     virtual bool SupportsKeyboardFocus() const override { return true; }
     virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D::ZeroVector; }
@@ -354,7 +357,7 @@ public:
             && (Key == EKeys::Up || Key == EKeys::Down || Key == EKeys::Gamepad_DPad_Up || Key == EKeys::Gamepad_DPad_Down))
         {
             const bool bUp = Key == EKeys::Up || Key == EKeys::Gamepad_DPad_Up;
-            SavedSetIndex = FMath::Clamp(SavedSetIndex + (bUp ? -1 : 1), 0, SavedSetNames.Num());
+            SavedSetIndex = FMath::Clamp(SavedSetIndex + (bUp ? -1 : 1), 0, SavedSets.Num());
             return FReply::Handled();
         }
         if (bSavedSetsOpen && HasSavedSets(ActionSection.Get())
@@ -406,7 +409,7 @@ public:
                 {
                     const int32 Row = FMath::FloorToInt((Point.Y - Heading) / (SavedSetsRowHeight + Theme.RowGap));
                     const int32 Index = FirstSavedSetIndex + Row;
-                    if (Row < VisibleSavedSetRows && Index <= SavedSetNames.Num())
+                    if (Row < VisibleSavedSetRows && Index <= SavedSets.Num())
                     {
                         SavedSetIndex = Index;
                         return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
@@ -594,12 +597,12 @@ private:
         SavedSetsGrid->AddHeading(SavedSetsLabel(Section));
 
         FirstSavedSetIndex = FMath::Max(0, SavedSetIndex + 1 - VisibleSavedSetRows);
-        for (int32 Index = FirstSavedSetIndex; Index < FirstSavedSetIndex + VisibleSavedSetRows && Index <= SavedSetNames.Num(); ++Index)
+        for (int32 Index = FirstSavedSetIndex; Index < FirstSavedSetIndex + VisibleSavedSetRows && Index <= SavedSets.Num(); ++Index)
         {
             auto* Tile = NewObject<UCFTile>(SavedSetsGrid.Get());
             Tile->Theme = &Theme;
             auto* Label = NewObject<UTextBlock>(Tile);
-            Label->SetText(SavedSetNames.IsValidIndex(Index) ? FText::AsCultureInvariant(SavedSetNames[Index])
+            Label->SetText(SavedSets.IsValidIndex(Index) ? FText::AsCultureInvariant(SavedSets[Index].Name)
                 : NSLOCTEXT("Inventory", "NewGearSet", "Create"));
             Label->SetFont(Theme.LabelFont);
             Label->SetColorAndOpacity(FSlateColor(Theme.TextTint));
@@ -722,7 +725,7 @@ private:
     static constexpr int32 VisibleSavedSetRows = 6;
     float SavedSetsReveal = 0.f;
     bool bSavedSetsOpen = false;
-    TArray<FString> SavedSetNames;
+    TArray<FCIInventorySavedSet> SavedSets;
     int32 SavedSetIndex = 0;
     int32 RenderedSavedSetIndex = INDEX_NONE;
     int32 FirstSavedSetIndex = 0;
@@ -748,18 +751,23 @@ void UCIInventoryShell::SetActionSection(FName Section)
     ActionSection = Section;
 }
 
-void UCIInventoryShell::SetSavedSetNames(TArray<FString> Names)
+void UCIInventoryShell::SetSavedSets(TArray<FCIInventorySavedSet> Sets)
 {
-    SavedSetNames = MoveTemp(Names);
+    SavedSets = MoveTemp(Sets);
     if (Shell)
     {
-        Shell->SetSavedSetNames(SavedSetNames);
+        Shell->SetSavedSets(SavedSets);
     }
 }
 
 void UCIInventoryShell::SetCreateSavedSetAction(TFunction<void(bool)> Action)
 {
     CreateSavedSet = MoveTemp(Action);
+}
+
+void UCIInventoryShell::SetEquipSavedSetAction(TFunction<void(FString)> Action)
+{
+    EquipSavedSet = MoveTemp(Action);
 }
 
 void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
@@ -804,19 +812,31 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
         .InventoryTheme_Lambda([this] {
             return LayoutTheme ? LayoutTheme.Get() : GetMutableDefault<UCIInventoryTileTheme>();
         })
-        .ConfirmEquips_Lambda([this] { return bConfirmEquips || (Shell && Shell->IsExistingSavedSetSelected()); })
+        .ConfirmEquips_Lambda([this] { return bConfirmEquips || (Shell && Shell->SelectedSavedSet()); })
         .ConfirmAvailable_Lambda([this] {
-            return SavedSetConfirm.IsBound() || (CreateSavedSet && !bConfirmEquips && Shell
-                && !Shell->IsExistingSavedSetSelected() && SavedSetNames.Num() < 32);
+            if (SavedSetConfirm.IsBound() || bConfirmEquips || !Shell)
+            {
+                return SavedSetConfirm.IsBound();
+            }
+            const auto* Selected = Shell->SelectedSavedSet();
+            return Selected ? EquipSavedSet && !Selected->Identifier.IsEmpty() : CreateSavedSet && SavedSets.Num() < 32;
         })
         .OnConfirmSavedSet(FSimpleDelegate::CreateWeakLambda(this, [this] {
-            if (!SavedSetConfirm.ExecuteIfBound() && CreateSavedSet)
+            if (SavedSetConfirm.ExecuteIfBound())
+            {
+                return;
+            }
+            if (const auto* Selected = Shell->SelectedSavedSet())
+            {
+                EquipSavedSet(Selected->Identifier);
+            }
+            else
             {
                 CreateSavedSet(ActionSection == ApparelSection);
             }
         }));
     UpdateContent();
-    Shell->SetSavedSetNames(SavedSetNames);
+    Shell->SetSavedSets(SavedSets);
     Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
     return Shell.ToSharedRef();
 }

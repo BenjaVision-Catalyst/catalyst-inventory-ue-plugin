@@ -9,12 +9,14 @@
 #include "Widgets/SWidget.h"
 
 void UCIInventorySessionView::BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> InSource,
-    TSubclassOf<UCIInventoryView> InViewClass, TFunction<void(bool)> InCreateSavedSet)
+    TSubclassOf<UCIInventoryView> InViewClass, TFunction<void(bool)> InCreateSavedSet,
+    TFunction<void(FString)> InEquipSavedSet)
 {
     Unsubscribe();
     Source = MoveTemp(InSource);
     ViewClass = InViewClass;
     CreateSavedSet = MoveTemp(InCreateSavedSet);
+    EquipSavedSet = MoveTemp(InEquipSavedSet);
     ViewState.Reset();
     if (Panel && Source)
     {
@@ -102,6 +104,15 @@ void UCIInventorySessionView::Refresh()
                 if (auto* Self = WeakThis.Get(); Self && Self->CreateSavedSet)
                 {
                     Self->CreateSavedSet(bOutfit);
+                }
+            });
+        }
+        if (EquipSavedSet)
+        {
+            Shell->SetEquipSavedSetAction([WeakThis = TWeakObjectPtr<UCIInventorySessionView>(this)](FString Identifier) {
+                if (auto* Self = WeakThis.Get(); Self && Self->EquipSavedSet)
+                {
+                    Self->EquipSavedSet(MoveTemp(Identifier));
                 }
             });
         }
