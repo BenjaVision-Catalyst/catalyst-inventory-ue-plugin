@@ -2,6 +2,13 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 #include "../CIInventoryNavigation.h"
+#include "CIInventoryShell.h"
+#include "CIInventoryTile.h"
+#include "Components/WidgetSwitcher.h"
+#include "Input/Events.h"
+#include "Presentation/CFMenu.h"
+#include "Presentation/CFSpanGrid.h"
+#include "UObject/StrongObjectPtr.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCIInventoryNavigationTest, "Catalyst.Inventory.Navigation",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -24,6 +31,22 @@ bool FCIInventoryNavigationTest::RunTest(const FString&)
         StepInventoryGrid(Grid, {1, 1}, {0, 1}), FIntPoint(0, 2));
     TestEqual(TEXT("The first column of a partial row keeps its position when stepping up"),
         StepInventoryGrid(Grid, {0, 2}, {0, -1}), FIntPoint(0, 1));
+
+    TStrongObjectPtr<UCIInventoryShell> Shell(NewObject<UCIInventoryShell>());
+    Shell->SetActionSection(TEXT("gear"));
+    Shell->AddChild(NewObject<UCFMenu>(Shell.Get()));
+    auto* Panel = NewObject<UWidgetSwitcher>(Shell.Get());
+    Shell->AddChild(Panel);
+    auto* UnpaintedGrid = NewObject<UCFSpanGrid>(Panel);
+    UnpaintedGrid->Configure(2, 30.f, 0.f, 0.f, 0.f, 0.f, FMargin(), FSlateFontInfo(), FLinearColor::White);
+    UnpaintedGrid->AddItem(*NewObject<UCIInventoryTile>(UnpaintedGrid), 1);
+    UnpaintedGrid->AddItem(*NewObject<UCIInventoryTile>(UnpaintedGrid), 1);
+    Panel->AddChild(UnpaintedGrid);
+    const auto Widget = Shell->TakeWidget();
+    TestFalse(TEXT("The grid is still unpainted"), UnpaintedGrid->GetCachedWidget().IsValid());
+    Widget->OnKeyDown(Widget->GetCachedGeometry(), FKeyEvent(EKeys::Right, FModifierKeysState(), 0, false, 0, 0));
+    TestEqual(TEXT("The first navigation input finds tiles before Slate has built them"),
+        Shell->GetFocusedGridCellForTest(), FIntPoint(1, 0));
 
     FCIInventoryNavigationInput Input;
     Input.SetStickAxis(true, .9);

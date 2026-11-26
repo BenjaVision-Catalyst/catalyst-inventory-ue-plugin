@@ -1004,11 +1004,15 @@ private:
             return;
         }
 
+        // The active panel can receive navigation before its Slate widgets are built.
+        const auto IsVisible = [](const UWidget& Widget) {
+            return UWidget::ConvertSerializedVisibilityToRuntime(Widget.GetVisibility()).IsVisible();
+        };
         for (const auto* Child : Grid->GetAllChildren())
         {
             const auto* Box = Cast<USizeBox>(Child);
             const auto* Cells = Box ? Cast<UHorizontalBox>(Box->GetContent()) : nullptr;
-            if (!Cells || !Cells->IsVisible())
+            if (!Cells || !IsVisible(*Cells))
             {
                 continue;
             }
@@ -1022,7 +1026,7 @@ private:
                     {
                         Row.Columns -= Tile->GridColumnSpan;
                     }
-                    else if (Tile->IsVisible())
+                    else if (IsVisible(*Tile))
                     {
                         Row.Cells.Add({Tile->GridColumnSpan, Tile});
                     }
@@ -1057,14 +1061,15 @@ private:
 
     void UpdateGridFocus(float DeltaTime)
     {
+        const bool bSidebarVisible = bSavedSetsOpen || SavedSetsPresentation.Reveal.GetProgress() > 0.0;
         for (int32 Row = 0; Row < NavigationRows.Num(); ++Row)
         {
             auto& Cells = NavigationRows[Row].Cells;
             for (int32 Column = 0; Column < Cells.Num(); ++Column)
             {
                 auto& Cell = Cells[Column];
-                const float Target = !bSavedSetsOpen && GridFocus == FIntPoint(Column, Row) ? 1.f : 0.f;
-                const float Progress = bSavedSetsOpen ? 0.f
+                const float Target = !bSidebarVisible && GridFocus == FIntPoint(Column, Row) ? 1.f : 0.f;
+                const float Progress = bSidebarVisible ? 0.f
                     : FMath::FInterpConstantTo(Cell.FocusProgress, Target, DeltaTime, 7.f);
                 if (auto* Tile = Cell.Tile.Get(); Tile && Progress != Cell.FocusProgress)
                 {
