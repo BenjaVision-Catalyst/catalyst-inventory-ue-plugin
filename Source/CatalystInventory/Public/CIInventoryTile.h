@@ -1,10 +1,10 @@
 #pragma once
 
 #include "Presentation/CFTile.h"
+#include "Presentation/CFMagritteBinding.h"
 
 #include "CIInventoryTile.generated.h"
 
-class FCFMagritteBinding;
 class UTexture;
 
 /** Shared tier-band geometry for compact tiles and rows. */
@@ -173,6 +173,8 @@ public:
     virtual const UCFTileTheme& GetTileTheme() const override;
 
     virtual void BindItem(const FCFMagritteBinding& Item);
+    UTexture* GetInspectorIcon() const { return ResolveTileIcon(); }
+    const TOptional<FCFMagritteBinding>& GetInspectorItem() const { return InspectorItem; }
     const FText& GetItemLabel() const { return ItemLabel.IsEmpty() ? Label : ItemLabel; }
     virtual const FString& GetArtDefinitionIdentifier() const { return DefinitionIdentifier; }
 
@@ -195,6 +197,7 @@ protected:
 
 private:
     UTexture* ResolveTileIcon() const;
+    TOptional<FCFMagritteBinding> InspectorItem;
     FText ItemLabel;
     FName EmptySlotIdentifier;
     FString DefinitionIdentifier;

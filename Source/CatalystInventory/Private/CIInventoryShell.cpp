@@ -32,9 +32,12 @@
 #include "UObject/StrongObjectPtr.h"
 #include "Widgets/Layout/SBackgroundBlur.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/SLeafWidget.h"
+#include "Widgets/SBoxPanel.h"
+#include "Widgets/Images/SImage.h"
 #include "Widgets/SWindow.h"
 #include "Widgets/Text/STextBlock.h"
 
@@ -461,18 +464,20 @@ public:
 
     FIntPoint GetGridFocus() const { return GridFocus; }
 
-    FText GetInspectorLabel() const
+    const UCIInventoryTile* GetSelectedTile() const
     {
         if (HasSavedSets(ActionSection.Get()) && NavigationRows.IsValidIndex(GridFocus.Y))
         {
             const auto& Cells = NavigationRows[GridFocus.Y].Cells;
-            const auto* Tile = Cells.IsValidIndex(GridFocus.X) ? Cells[GridFocus.X].Tile.Get() : nullptr;
-            if (Tile)
-            {
-                return Tile->GetItemLabel();
-            }
+            return Cells.IsValidIndex(GridFocus.X) ? Cells[GridFocus.X].Tile.Get() : nullptr;
         }
-        return FText::GetEmpty();
+        return nullptr;
+    }
+
+    FText GetInspectorLabel() const
+    {
+        const auto* Tile = GetSelectedTile();
+        return Tile ? Tile->GetItemLabel() : FText::GetEmpty();
     }
     const FCIInventoryNavigationInput& GetNavigationInput() const { return NavigationInput; }
 
@@ -549,6 +554,11 @@ public:
             return FReply::Handled();
         }
         const FKey Key = Event.GetKey();
+        if (InspectorScroll && !bSavedSetsOpen && (Key == EKeys::PageUp || Key == EKeys::PageDown))
+        {
+            ScrollInspector(Key == EKeys::PageUp ? -140.f : 140.f);
+            return FReply::Handled();
+        }
         if (Key == EKeys::Tab || Key == EKeys::Gamepad_Special_Right
             || (!bSavedSetsOpen && (Key == EKeys::BackSpace || Key == EKeys::Gamepad_FaceButton_Right)))
         {
@@ -679,6 +689,23 @@ public:
             Hold(Action).Inputs.Reset();
         }
         CancelSavedSetHolds();
+    }
+
+    FReply OnMouseWheel(const FGeometry& Geometry, const FPointerEvent& Event) override
+    {
+        if (InspectorScroll && InspectorTexture.IsValid() && !OptionsWindow.IsValid())
+        {
+            const auto Layout = GetLayout(Geometry.GetLocalSize());
+            const auto Point = Layout.Right.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()))
+                - Layout.InspectorOrigin;
+            if (Point.X >= 0.0 && Point.Y >= 0.0
+                && Point.X < Layout.InspectorExtent.X && Point.Y < Layout.InspectorExtent.Y)
+            {
+                ScrollInspector(-Event.GetWheelDelta() * 48.f);
+                return FReply::Handled();
+            }
+        }
+        return FReply::Unhandled();
     }
 
     FReply OnMouseButtonDown(const FGeometry& Geometry, const FPointerEvent& Event) override
@@ -1108,41 +1135,176 @@ private:
         }
     }
 
+    void ScrollInspector(float Amount)
+    {
+        const float Offset = FMath::Clamp(InspectorScroll->GetScrollOffset() + Amount, 0.f,
+            InspectorScroll->GetScrollOffsetOfEnd());
+        InspectorScroll->SetScrollOffset(Offset);
+        bInspectorScrollDirty = true;
+    }
+
+    static bool IsInspectorFieldVisible(const magritte::Description& Field)
+    {
+        const auto Visible = Field.property("visible");
+        const auto* Flag = std::get_if<bool>(&Visible.data);
+        return !Flag || *Flag;
+    }
+
+    TSharedRef<STextBlock> InspectorText(const FText& Text, const FSlateFontInfo& Font, bool bWrap = false) const
+    {
+        return SNew(STextBlock).Text(Text).Font(Font)
+            .AutoWrapText(bWrap).ColorAndOpacity(FSlateColor(InventoryTheme.Get()->TextTint));
+    }
+
+    static FText InspectorValue(const magritte::Value& Value)
+    {
+        if (const auto* Text = std::get_if<std::string>(&Value.data))
+        {
+            return FText::FromString(UTF8_TO_TCHAR(Text->c_str()));
+        }
+        if (const auto* Number = std::get_if<std::int64_t>(&Value.data))
+        {
+            return FText::AsNumber(*Number);
+        }
+        if (const auto* Number = std::get_if<double>(&Value.data))
+        {
+            return FText::AsNumber(*Number);
+        }
+        return FText::GetEmpty();
+    }
+
+    TSharedRef<SWidget> BuildInspectorCard(const magritte::Description& Field, const FCFMagritteBinding& Section) const
+    {
+        const auto* Theme = InventoryTheme.Get();
+        const auto KindValue = Field.property("metadata:ciCard");
+        const auto* Kind = std::get_if<std::string>(&KindValue.data);
+        const bool bSlots = Kind && *Kind == "slots";
+        const bool bTier = Kind && *Kind == "tier";
+        auto Content = SNew(SVerticalBox);
+        Content->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
+        [
+            InspectorText(InspectorValue(Field.property("label")), Theme->GroupLabelFont, true)
+        ];
+        for (const auto& Row : Section.Describe().orderedChildren())
+        {
+            const auto Label = InspectorValue(Row->property("label"));
+            const auto Value = InspectorValue(Section.Read(*Row));
+            if (!IsInspectorFieldVisible(*Row) || Value.IsEmpty())
+            {
+                continue;
+            }
+
+            const auto LabelWidget = InspectorText(Label, Theme->LabelFont, true);
+            const auto ValueWidget = InspectorText(Value, bTier ? Theme->GroupLabelFont : Theme->LabelFont, bSlots);
+            if (bSlots)
+            {
+                Content->AddSlot().AutoHeight().Padding(0.f, 3.f)
+                [
+                    SNew(SBorder).BorderImage(&InspectorBrush).Padding(6.f)
+                    [
+                        SNew(SVerticalBox)
+                        + SVerticalBox::Slot().AutoHeight()[LabelWidget]
+                        + SVerticalBox::Slot().AutoHeight()[ValueWidget]
+                    ]
+                ];
+            }
+            else
+            {
+                Content->AddSlot().AutoHeight().Padding(0.f, 2.f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().FillWidth(1.f).Padding(0.f, 0.f, 8.f, 0.f)[LabelWidget]
+                    + SHorizontalBox::Slot().AutoWidth()[ValueWidget]
+                ];
+            }
+        }
+        return SNew(SBorder).BorderImage(&InspectorBrush).Padding(8.f)[Content];
+    }
+
     void RenderInspector(const FInventoryShellLayout& Layout, float DeltaTime)
     {
-        const FText Label = GetInspectorLabel();
-        if (Label.IsEmpty() || Layout.InspectorExtent.GetMin() < 1.0)
+        const auto* Tile = GetSelectedTile();
+        if (!Tile || Tile->GetItemLabel().IsEmpty() || Layout.InspectorExtent.GetMin() < 1.0)
         {
             InspectorTexture.Reset();
             return;
         }
 
         const auto* Theme = InventoryTheme.Get();
-        const bool bThemeChanged = !InspectorWidget || InspectorTheme.Get() != Theme;
-        if (bThemeChanged)
-        {
-            InspectorBrush = FSlateRoundedBoxBrush(Theme->Style.Background, 0.f, Theme->Style.Border, Theme->Style.Stroke);
-            InspectorWidget = SNew(SBorder)
-                .BorderImage(&InspectorBrush)
-                .Padding(FMargin(Theme->InspectorPadding))
-                .VAlign(VAlign_Top)
-                [
-                    SAssignNew(InspectorTitle, STextBlock)
-                    .Font(Theme->InspectorTitleFont)
-                    .ColorAndOpacity(FSlateColor(Theme->TextTint))
-                ];
-            InspectorTheme = Theme;
-        }
         const float Scale = Layout.Scale * ProjectionRasterScale;
         const FIntPoint Size(FMath::CeilToInt(Layout.InspectorExtent.X * ProjectionRasterScale),
             FMath::CeilToInt(Layout.InspectorExtent.Y * ProjectionRasterScale));
-        if (bThemeChanged || !InspectorTexture.IsValid() || InspectorTexture->SizeX != Size.X
-            || InspectorTexture->SizeY != Size.Y || InspectorScale != Scale || !InspectorTitle->GetText().EqualTo(Label))
+        const auto& Item = Tile->GetInspectorItem();
+        const auto* Description = Item ? &Item->Describe() : nullptr;
+        if (!InspectorTexture.IsValid() || InspectorTheme.Get() != Theme || InspectorTile.Get() != Tile
+            || (InspectorItem ? &InspectorItem->Describe() : nullptr) != Description || InspectorTexture->SizeX != Size.X
+            || InspectorTexture->SizeY != Size.Y || InspectorScale != Scale)
         {
-            InspectorTitle->SetText(Label);
-            InspectorTitle->SetWrapTextAt(FMath::Max(1.f, Size.X / Scale - 2.f * Theme->InspectorPadding));
-            DrawToTexture(InspectorTexture, InspectorWidget.ToSharedRef(), FVector2D(Size), DeltaTime, Scale);
+            InspectorBrush = FSlateRoundedBoxBrush(Theme->Style.Background, 0.f, Theme->Style.Border, Theme->Style.Stroke);
+            auto Identity = SNew(SVerticalBox);
+            Identity->AddSlot().AutoHeight()[InspectorText(Tile->GetItemLabel(), Theme->InspectorTitleFont, true)];
+            auto Header = SNew(SHorizontalBox);
+            if (auto* Icon = Tile->GetInspectorIcon())
+            {
+                InspectorIconBrush.DrawAs = ESlateBrushDrawType::Image;
+                InspectorIconBrush.SetResourceObject(Icon);
+                Header->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 8.f, 0.f)
+                [
+                    SNew(SBox).WidthOverride(Theme->IconSize).HeightOverride(Theme->IconSize)
+                    [SNew(SImage).Image(&InspectorIconBrush)]
+                ];
+            }
+            Header->AddSlot().FillWidth(1.f)[Identity];
+            auto Content = SNew(SVerticalBox);
+            Content->AddSlot().AutoHeight()
+            [
+                SNew(SBorder).BorderImage(&InspectorBrush).Padding(8.f)[Header]
+            ];
+            if (Item)
+            {
+                for (const auto& Field : Item->Describe().orderedChildren())
+                {
+                    if (Field->id == "inspectorCategory")
+                    {
+                        Identity->AddSlot().AutoHeight()[InspectorText(InspectorValue(Item->Read(*Field)), Theme->LabelFont, true)];
+                    }
+                }
+                if (const auto Inspector = Item->Follow("inspector"))
+                {
+                    for (const auto& Field : Inspector->Describe().orderedChildren())
+                    {
+                        if (!IsInspectorFieldVisible(*Field))
+                        {
+                            continue;
+                        }
+                        if (const auto Section = Inspector->Follow(*Field))
+                        {
+                            Content->AddSlot().AutoHeight().Padding(0.f, 6.f, 0.f, 0.f)[BuildInspectorCard(*Field, *Section)];
+                        }
+                        else if (const auto Text = InspectorValue(Inspector->Read(*Field)); !Text.IsEmpty())
+                        {
+                            Content->AddSlot().AutoHeight().Padding(0.f, 6.f, 0.f, 0.f)
+                            [InspectorText(Text, Theme->LabelFont, true)];
+                        }
+                    }
+                }
+            }
+            InspectorWidget = SNew(SBorder).BorderImage(&InspectorBrush)
+                .Padding(FMargin(Theme->InspectorPadding)).Clipping(EWidgetClipping::ClipToBounds)
+                [
+                    SAssignNew(InspectorScroll, SScrollBox)
+                    + SScrollBox::Slot()[Content]
+                ];
+            InspectorTheme = Theme;
+            InspectorTile = Tile;
+            InspectorItem = Item;
             InspectorScale = Scale;
+            bInspectorScrollDirty = true;
+        }
+        if (bInspectorScrollDirty)
+        {
+            bInspectorScrollDirty = false;
+            DrawToTexture(InspectorTexture, InspectorWidget.ToSharedRef(), FVector2D(Size), DeltaTime, Scale);
         }
     }
 
@@ -1625,7 +1787,11 @@ private:
     TStrongObjectPtr<UTextureRenderTarget2D> MainTexture;
     FSlateRoundedBoxBrush InspectorBrush{FLinearColor::Transparent, 0.f};
     TSharedPtr<SBorder> InspectorWidget;
-    TSharedPtr<STextBlock> InspectorTitle;
+    TWeakObjectPtr<const UCIInventoryTile> InspectorTile;
+    TOptional<FCFMagritteBinding> InspectorItem;
+    TSharedPtr<SScrollBox> InspectorScroll;
+    bool bInspectorScrollDirty = false;
+    FSlateBrush InspectorIconBrush;
     TStrongObjectPtr<UTextureRenderTarget2D> InspectorTexture;
     TWeakObjectPtr<const UCIInventoryTileTheme> InspectorTheme;
     float InspectorScale = 0.f;

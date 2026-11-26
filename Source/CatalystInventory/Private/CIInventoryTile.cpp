@@ -70,6 +70,7 @@ UCIInventoryTile::UCIInventoryTile()
 
 void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
 {
+    InspectorItem = Item;
     const FString PreviousDefinition = DefinitionIdentifier;
     FString EquippedDefinition;
     FName CategoryIdentifier;
