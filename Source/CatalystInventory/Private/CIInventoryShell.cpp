@@ -29,7 +29,7 @@ constexpr int32 MainRightGuardPixels = 4;
 constexpr int32 MainBottomGuardPixels = 2;
 constexpr int32 ProjectionStrips = 32;
 constexpr float FooterHeight = 51.f;
-constexpr float ActionPromptGap = 24.f;
+constexpr float ActionPromptGap = 36.f;
 const FName GearSection(TEXT("gear"));
 const FName ApparelSection(TEXT("apparel"));
 const FName ResourcesSection(TEXT("resources"));
