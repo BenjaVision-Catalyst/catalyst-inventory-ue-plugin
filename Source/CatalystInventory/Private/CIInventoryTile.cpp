@@ -96,9 +96,9 @@ const UCFTileTheme& UCIInventoryTile::GetTileTheme() const
     return Theme ? static_cast<const UCFTileTheme&>(*Theme) : *GetDefault<UCIInventoryTileTheme>();
 }
 
-bool UCIInventoryTile::HasTierBand() const
+float UCIInventoryTile::GetVisibleTierBandWidth() const
 {
-    return bShowTier && !bShowCount && GetInventoryTheme().GetTierStyle().BandWidth > 0.f;
+    return bShowTier && !bShowCount ? FMath::Max(0.f, GetInventoryTheme().GetTierStyle().BandWidth) : 0.f;
 }
 
 TSharedRef<SWidget> UCIInventoryTile::BuildTileContent()
@@ -110,7 +110,7 @@ TSharedRef<SWidget> UCIInventoryTile::BuildTileContent()
         SNew(SHorizontalBox)
         + SHorizontalBox::Slot().AutoWidth()
         [
-            SNew(SBox).WidthOverride_Lambda([this] { return FOptionalSize(GetInventoryTheme().GetTierStyle().BandWidth); })
+            SNew(SBox).WidthOverride_Lambda([this] { return FOptionalSize(GetVisibleTierBandWidth()); })
             .Visibility_Lambda([this] { return HasTierBand() ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
             [
                 SNew(SBorder).Padding(0).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
@@ -138,28 +138,12 @@ TSharedRef<SWidget> UCIInventoryTile::BuildInventoryContent()
                 .Padding_Lambda([this] { return FMargin(0, 0, 0, GetInventoryTheme().Spacing); })
                 .Visibility_Lambda([this] { return TileLabel().IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible; })
                 [
-                    SNew(STextBlock).Text_Lambda([this] { return TileLabel(); })
-                    .Font_Lambda([this] { return TileLabelFont(); })
-                    .OverflowPolicy(ETextOverflowPolicy::Ellipsis)
-                    .ToolTipText_Lambda([this] { return TileLabel(); })
-                    .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
+                    BuildTileLabel()
                 ]
             ]
             + SVerticalBox::Slot().FillHeight(1.f).Padding(TAttribute<FMargin>::CreateLambda([this] { return GetIconPadding(); }))
             [
-                SNew(SScaleBox).Stretch(EStretch::ScaleToFit).HAlign(HAlign_Center).VAlign(VAlign_Center)
-                [
-                    SNew(SImage).Image_Lambda([this]() -> const FSlateBrush* {
-                        UTexture* Texture = ShowsItemIcon() ? GetTileIcon() : nullptr;
-                        IconBrush.SetResourceObject(Texture);
-                        if (Texture)
-                        {
-                            IconBrush.SetImageSize(FVector2D(Texture->GetSurfaceWidth(), Texture->GetSurfaceHeight()));
-                            return &IconBrush;
-                        }
-                        return FCoreStyle::Get().GetBrush("NoBrush");
-                    }).ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().IconTint); })
-                ]
+                BuildTileIcon()
             ]
             + SVerticalBox::Slot().AutoHeight()
             [
@@ -176,5 +160,31 @@ TSharedRef<SWidget> UCIInventoryTile::BuildInventoryContent()
                     ]
                 ]
             ]
+        ];
+}
+
+TSharedRef<SWidget> UCIInventoryTile::BuildTileLabel()
+{
+    return SNew(STextBlock).Text_Lambda([this] { return TileLabel(); })
+        .Font_Lambda([this] { return TileLabelFont(); })
+        .OverflowPolicy(ETextOverflowPolicy::Ellipsis)
+        .ToolTipText_Lambda([this] { return TileLabel(); })
+        .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); });
+}
+
+TSharedRef<SWidget> UCIInventoryTile::BuildTileIcon()
+{
+    return SNew(SScaleBox).Stretch(EStretch::ScaleToFit).HAlign(HAlign_Center).VAlign(VAlign_Center)
+        [
+            SNew(SImage).Image_Lambda([this]() -> const FSlateBrush* {
+                UTexture* Texture = ShowsItemIcon() ? GetTileIcon() : nullptr;
+                IconBrush.SetResourceObject(Texture);
+                if (Texture)
+                {
+                    IconBrush.SetImageSize(FVector2D(Texture->GetSurfaceWidth(), Texture->GetSurfaceHeight()));
+                    return &IconBrush;
+                }
+                return FCoreStyle::Get().GetBrush("NoBrush");
+            }).ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().IconTint); })
         ];
 }

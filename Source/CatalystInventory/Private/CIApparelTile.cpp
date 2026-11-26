@@ -2,6 +2,7 @@
 
 #include "Engine/Texture.h"
 #include "Presentation/CFMagritteBinding.h"
+#include "Widgets/SOverlay.h"
 
 void UCIApparelTile::BindItem(const FCFMagritteBinding& Item)
 {
@@ -66,4 +67,19 @@ UTexture* UCIApparelTile::GetTileIcon() const
         return Style->FallbackCategoryIcon;
     }
     return nullptr;
+}
+
+TSharedRef<SWidget> UCIApparelTile::BuildInventoryContent()
+{
+    return SNew(SOverlay)
+        + SOverlay::Slot().Padding(TAttribute<FMargin>::CreateLambda([this] {
+            const float Spacing = GetInventoryTheme().Spacing;
+            const auto* Style = Cast<UCIApparelTileTheme>(&GetTileTheme());
+            const float VerticalInset = Style ? Style->IconVerticalInset : GetDefault<UCIApparelTileTheme>()->IconVerticalInset;
+            return FMargin(Spacing, VerticalInset, Spacing + GetVisibleTierBandWidth(), VerticalInset);
+        }))
+        [BuildTileIcon()]
+        + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top)
+        .Padding(TAttribute<FMargin>::CreateLambda([this] { return FMargin(GetInventoryTheme().Spacing); }))
+        [BuildTileLabel()];
 }

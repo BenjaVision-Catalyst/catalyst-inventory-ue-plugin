@@ -90,7 +90,10 @@ protected:
     virtual TSharedRef<SWidget> BuildTileContent() override final;
     virtual TSharedRef<SWidget> BuildInventoryContent();
 
-    bool HasTierBand() const;
+    TSharedRef<SWidget> BuildTileIcon();
+    TSharedRef<SWidget> BuildTileLabel();
+    bool HasTierBand() const { return GetVisibleTierBandWidth() > 0.f; }
+    float GetVisibleTierBandWidth() const;
 
     const UCIInventoryTileTheme& GetInventoryTheme() const;
     virtual UTexture* GetTileIcon() const { return Icon; }

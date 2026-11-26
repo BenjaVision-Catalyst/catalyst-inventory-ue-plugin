@@ -14,6 +14,9 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Apparel Tile")
     TObjectPtr<UTexture> FallbackCategoryIcon;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Apparel Tile", meta = (ClampMin = "0.0"))
+    float IconVerticalInset = 24.f;
 };
 
 /** One apparel category with an optional equipped item and a count of owned items. */
@@ -37,6 +40,7 @@ public:
     int64 InventoryTypeCount = 0;
 
 protected:
+    virtual TSharedRef<SWidget> BuildInventoryContent() override;
     virtual UTexture* GetTileIcon() const override;
     virtual FText TileLabel() const override;
     virtual const FSlateFontInfo& TileLabelFont() const override { return GetInventoryTheme().CountFont; }
