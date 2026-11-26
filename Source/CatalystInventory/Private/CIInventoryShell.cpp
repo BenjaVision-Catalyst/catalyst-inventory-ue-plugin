@@ -29,6 +29,7 @@ constexpr int32 MainRightGuardPixels = 4;
 constexpr int32 MainBottomGuardPixels = 2;
 constexpr int32 ProjectionStrips = 32;
 constexpr float FooterHeight = 51.f;
+constexpr float ActionPromptGap = 24.f;
 const FName GearSection(TEXT("gear"));
 const FName ApparelSection(TEXT("apparel"));
 const FName ResourcesSection(TEXT("resources"));
@@ -195,7 +196,7 @@ public:
                 const FVector2D KeySize = Measure->Measure(Key, KeyFont);
                 DrawText(Key, KeyFont, Origin + (CapSize - KeySize) * .5, KeySize, Style.ShoulderInk);
             }
-            Right -= 14.0;
+            Right -= ActionPromptGap;
         };
 
         DrawPrompt(NSLOCTEXT("Inventory", "CloseActionLabel", "Close"),
