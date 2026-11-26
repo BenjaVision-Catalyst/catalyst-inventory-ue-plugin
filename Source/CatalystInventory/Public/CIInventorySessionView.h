@@ -18,7 +18,8 @@ public:
     /** Saved-set actions use the same authorized game profile connection as the presentation source. */
     void BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> InSource,
         TSubclassOf<UCIInventoryView> InViewClass = {}, TFunction<void(bool bOutfit)> InCreateSavedSet = {},
-        TFunction<void(FString SetIdentifier)> InEquipSavedSet = {});
+        TFunction<void(FString SetIdentifier)> InEquipSavedSet = {},
+        TFunction<void(FString SetIdentifier)> InOverwriteSavedSet = {});
 
     UFUNCTION(BlueprintPure, Category = "Catalyst|Inventory")
     UCIInventoryView* GetInventoryView() const;
@@ -43,4 +44,5 @@ private:
     FDelegateHandle Changed;
     TFunction<void(bool)> CreateSavedSet;
     TFunction<void(FString)> EquipSavedSet;
+    TFunction<void(FString)> OverwriteSavedSet;
 };

@@ -10,13 +10,14 @@
 
 void UCIInventorySessionView::BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> InSource,
     TSubclassOf<UCIInventoryView> InViewClass, TFunction<void(bool)> InCreateSavedSet,
-    TFunction<void(FString)> InEquipSavedSet)
+    TFunction<void(FString)> InEquipSavedSet, TFunction<void(FString)> InOverwriteSavedSet)
 {
     Unsubscribe();
     Source = MoveTemp(InSource);
     ViewClass = InViewClass;
     CreateSavedSet = MoveTemp(InCreateSavedSet);
     EquipSavedSet = MoveTemp(InEquipSavedSet);
+    OverwriteSavedSet = MoveTemp(InOverwriteSavedSet);
     ViewState.Reset();
     if (Panel && Source)
     {
@@ -113,6 +114,15 @@ void UCIInventorySessionView::Refresh()
                 if (auto* Self = WeakThis.Get(); Self && Self->EquipSavedSet)
                 {
                     Self->EquipSavedSet(MoveTemp(Identifier));
+                }
+            });
+        }
+        if (OverwriteSavedSet)
+        {
+            Shell->SetOverwriteSavedSetAction([WeakThis = TWeakObjectPtr<UCIInventorySessionView>(this)](FString Identifier) {
+                if (auto* Self = WeakThis.Get(); Self && Self->OverwriteSavedSet)
+                {
+                    Self->OverwriteSavedSet(MoveTemp(Identifier));
                 }
             });
         }

@@ -34,6 +34,11 @@ payload of operation 105 through `RequestProfileUpdate`. The gateway looks
 up the set for the authenticated player, applies its eligible slots and
 returns the updated equipment in the same profile graph.
 
+Bind Overwrite through the same session. A one-second hold on a saved row
+uses the Foundation controller button ring and sends its `itemIdentifier`
+to operation 106. Overwrite uses T on keyboard and the top face button on
+controllers. Releasing the input or moving to another row cancels the hold.
+
 An independently authored Widget Blueprint can still use the named
 `InventoryTile` binding and the game session's `ICFPlayerMagritteSource`
 through `BindToPlayer`. Publish graph replacements and sign-out through

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Components/PanelWidget.h"
+#include "Presentation/CFControllerHold.h"
 #include "CIInventoryShell.generated.h"
 
 class UCFMenu;
@@ -26,6 +27,7 @@ public:
     void SetSavedSets(TArray<FCIInventorySavedSet> Sets);
     void SetCreateSavedSetAction(TFunction<void(bool)> Action);
     void SetEquipSavedSetAction(TFunction<void(FString)> Action);
+    void SetOverwriteSavedSetAction(TFunction<void(FString)> Action);
     void RestoreSavedSetsState(const UCIInventoryShell& Previous);
     /** Bind Create or Equip for the selected row. An unbound action is disabled. */
     void SetSavedSetConfirmAction(bool bEquip, FSimpleDelegate Action);
@@ -57,10 +59,12 @@ private:
     TArray<FCIInventorySavedSet> SavedSets;
     TFunction<void(bool)> CreateSavedSet;
     TFunction<void(FString)> EquipSavedSet;
+    TFunction<void(FString)> OverwriteSavedSet;
     FSimpleDelegate SavedSetConfirm;
     bool bConfirmEquips = false;
     bool bRestoreSavedSetsOpen = false;
     int32 RestoredSavedSetIndex = 0;
+    TOptional<FCFControllerHold> RestoredOverwriteConfirmation;
 
     TSharedPtr<class SCIInventoryShell> Shell;
 };

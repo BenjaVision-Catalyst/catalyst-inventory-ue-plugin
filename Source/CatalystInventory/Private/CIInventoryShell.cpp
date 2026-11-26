@@ -10,6 +10,7 @@
 #include "Components/WidgetSwitcher.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Framework/Application/SlateApplication.h"
+#include "HAL/PlatformTime.h"
 #include "InputCoreTypes.h"
 #include "Misc/App.h"
 #include "Presentation/CFMenu.h"
@@ -155,6 +156,8 @@ public:
         SLATE_ATTRIBUTE(bool, SavedSetsOpen)
         SLATE_ATTRIBUTE(bool, ConfirmEquips)
         SLATE_ATTRIBUTE(bool, ConfirmAvailable)
+        SLATE_ATTRIBUTE(bool, OverwriteAvailable)
+        SLATE_ATTRIBUTE(FCFControllerHoldIndicator, OverwriteIndicator)
         SLATE_ARGUMENT(UCFMenu*, Menu)
     SLATE_END_ARGS()
 
@@ -164,6 +167,8 @@ public:
         SavedSetsOpen = Args._SavedSetsOpen;
         ConfirmEquips = Args._ConfirmEquips;
         ConfirmAvailable = Args._ConfirmAvailable;
+        OverwriteAvailable = Args._OverwriteAvailable;
+        OverwriteIndicator = Args._OverwriteIndicator;
         Menu = Args._Menu;
     }
 
@@ -171,12 +176,14 @@ public:
 
     bool IsOverSavedSets(const FVector2D& Position) const { return SavedSetsBounds.ContainsPoint(Position); }
     bool IsOverConfirm(const FVector2D& Position) const { return ConfirmBounds.ContainsPoint(Position); }
+    bool IsOverOverwrite(const FVector2D& Position) const { return OverwriteBounds.ContainsPoint(Position); }
 
     int32 OnPaint(const FPaintArgs&, const FGeometry& Geometry, const FSlateRect&,
         FSlateWindowElementList& Elements, int32 Layer, const FWidgetStyle&, bool) const override
     {
         SavedSetsBounds = FSlateRect(0, 0, 0, 0);
         ConfirmBounds = FSlateRect(0, 0, 0, 0);
+        OverwriteBounds = FSlateRect(0, 0, 0, 0);
         const auto* CurrentMenu = Menu.Get();
         if (!CurrentMenu)
         {
@@ -196,13 +203,13 @@ public:
         double Y = 2.0;
 
         const auto DrawPrompt = [&](const FText& Label, const FKey& KeyboardKey, const FKey& ControllerKey,
-            bool bAvailable = true, bool bHold = false)
+            bool bAvailable = true, bool bHold = false, const FCFControllerHoldIndicator& Indicator = {})
         {
             const FKey& Key = bKeyboard ? KeyboardKey : ControllerKey;
             const auto Size = SCFControllerButton::Measure(Label, Key, Platform, ButtonStyle, bHold);
             Right -= Size.X;
             SCFControllerButton::Draw(Geometry, Elements, Layer, {Right, Y}, Label, Key, Platform,
-                ButtonStyle, bAvailable, bHold);
+                ButtonStyle, bAvailable, bHold, Indicator);
             Right -= ActionPromptGap;
         };
 
@@ -233,7 +240,10 @@ public:
                 EKeys::Enter, EKeys::Gamepad_FaceButton_Bottom, ConfirmAvailable.Get());
             ConfirmBounds = FSlateRect(Right + ActionPromptGap, 25.0, Geometry.GetLocalSize().X, FooterHeight);
             DrawPrompt(NSLOCTEXT("Inventory", "GearSetOptionsLabel", "Options"), EKeys::F2, EKeys::Gamepad_FaceButton_Left, false);
-            DrawPrompt(NSLOCTEXT("Inventory", "OverwriteGearSetLabel", "Overwrite"), EKeys::T, EKeys::Gamepad_FaceButton_Top, false, true);
+            const double OverwriteRight = Right;
+            DrawPrompt(NSLOCTEXT("Inventory", "OverwriteGearSetLabel", "Overwrite"), EKeys::T, EKeys::Gamepad_FaceButton_Top,
+                OverwriteAvailable.Get(), true, OverwriteIndicator.Get());
+            OverwriteBounds = FSlateRect(Right + ActionPromptGap, 25.0, OverwriteRight, FooterHeight);
             DrawPrompt(NSLOCTEXT("Inventory", "DeleteGearSetLabel", "Delete"), EKeys::Delete, EKeys::Gamepad_RightThumbstick, false, true);
         }
         return Layer + 2;
@@ -244,9 +254,12 @@ private:
     TAttribute<bool> SavedSetsOpen;
     TAttribute<bool> ConfirmEquips;
     TAttribute<bool> ConfirmAvailable;
+    TAttribute<bool> OverwriteAvailable;
+    TAttribute<FCFControllerHoldIndicator> OverwriteIndicator;
     TWeakObjectPtr<UCFMenu> Menu;
     mutable FSlateRect SavedSetsBounds{0, 0, 0, 0};
     mutable FSlateRect ConfirmBounds{0, 0, 0, 0};
+    mutable FSlateRect OverwriteBounds{0, 0, 0, 0};
 };
 
 class SCIInventoryShell final : public SLeafWidget
@@ -261,6 +274,8 @@ public:
         SLATE_ATTRIBUTE(bool, ConfirmEquips)
         SLATE_ATTRIBUTE(bool, ConfirmAvailable)
         SLATE_EVENT(FSimpleDelegate, OnConfirmSavedSet)
+        SLATE_ATTRIBUTE(bool, CanOverwrite)
+        SLATE_EVENT(TDelegate<void(FString)>, OnOverwriteSavedSet)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& Args)
@@ -273,6 +288,8 @@ public:
         ConfirmEquips = Args._ConfirmEquips;
         ConfirmAvailable = Args._ConfirmAvailable;
         OnConfirmSavedSet = Args._OnConfirmSavedSet;
+        CanOverwrite = Args._CanOverwrite;
+        OnOverwriteSavedSet = Args._OnOverwriteSavedSet;
     }
 
     ~SCIInventoryShell()
@@ -297,7 +314,9 @@ public:
                 .Section(ActionSection)
                 .SavedSetsOpen_Lambda([this] { return bSavedSetsOpen; })
                 .ConfirmEquips(ConfirmEquips)
-                .ConfirmAvailable(ConfirmAvailable);
+                .ConfirmAvailable(ConfirmAvailable)
+                .OverwriteAvailable_Lambda([this] { return OverwriteTarget().IsValid(); })
+                .OverwriteIndicator_Lambda([this] { return OverwriteHold.GetIndicator(FPlatformTime::Seconds()); });
         }
         MenuTexture.Reset();
         if (MenuWidget && FApp::CanEverRender() && FSlateApplication::IsInitialized())
@@ -321,15 +340,24 @@ public:
 
     void SetSavedSets(const TArray<FCIInventorySavedSet>& Sets)
     {
+        const FGuid PreviousTarget = OverwriteTarget();
         SavedSets = Sets;
         SavedSetIndex = FMath::Min(SavedSetIndex, SavedSets.Num());
+        if (PreviousTarget != OverwriteTarget())
+        {
+            CancelOverwriteHold();
+        }
         SavedSetsGrid.Reset();
     }
 
     void SetSavedSetsState(bool bOpen, int32 Index)
     {
+        if (bSavedSetsOpen != bOpen)
+        {
+            CancelOverwriteHold();
+        }
         bSavedSetsOpen = bOpen;
-        SavedSetIndex = FMath::Clamp(Index, 0, SavedSets.Num());
+        SelectSavedSet(Index);
     }
 
     bool IsSavedSetsOpen() const { return bSavedSetsOpen; }
@@ -339,12 +367,50 @@ public:
         return SavedSets.IsValidIndex(SavedSetIndex) ? &SavedSets[SavedSetIndex] : nullptr;
     }
 
+    void CancelOverwriteHold()
+    {
+        OverwriteHold.Update(!OverwriteInputs.IsEmpty(), FGuid(), FPlatformTime::Seconds());
+    }
+
+    TOptional<FCFControllerHold> CompletedOverwrite() const
+    {
+        return bOverwriteConfirmed && OverwriteHold.GetIndicator(FPlatformTime::Seconds()).bAnimating
+            ? TOptional<FCFControllerHold>(OverwriteHold) : TOptional<FCFControllerHold>();
+    }
+
+    void RestoreOverwriteConfirmation(const TOptional<FCFControllerHold>& Confirmation)
+    {
+        if (Confirmation)
+        {
+            OverwriteHold = *Confirmation;
+            bOverwriteConfirmed = true;
+        }
+    }
+
     virtual bool SupportsKeyboardFocus() const override { return true; }
     virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D::ZeroVector; }
 
     virtual FReply OnKeyDown(const FGeometry& Geometry, const FKeyEvent& Event) override
     {
         const FKey Key = Event.GetKey();
+        if (bSavedSetsOpen && HasSavedSets(ActionSection.Get()))
+        {
+            if (Key == EKeys::T || Key == EKeys::Gamepad_FaceButton_Top)
+            {
+                BeginOverwrite(Key, Event.IsRepeat());
+                return FReply::Handled();
+            }
+            if (Key == EKeys::Delete || Key == EKeys::Gamepad_RightThumbstick)
+            {
+                DeleteInputs.Add(Key);
+                CancelOverwriteHold();
+                return FReply::Handled();
+            }
+            if (Key == EKeys::F2 || Key == EKeys::Gamepad_FaceButton_Left)
+            {
+                CancelOverwriteHold();
+            }
+        }
         if (HasSavedSets(ActionSection.Get()) && (Key == EKeys::G || Key == EKeys::Gamepad_LeftTrigger))
         {
             if (!Event.IsRepeat())
@@ -357,7 +423,7 @@ public:
             && (Key == EKeys::Up || Key == EKeys::Down || Key == EKeys::Gamepad_DPad_Up || Key == EKeys::Gamepad_DPad_Down))
         {
             const bool bUp = Key == EKeys::Up || Key == EKeys::Gamepad_DPad_Up;
-            SavedSetIndex = FMath::Clamp(SavedSetIndex + (bUp ? -1 : 1), 0, SavedSets.Num());
+            SelectSavedSet(SavedSetIndex + (bUp ? -1 : 1));
             return FReply::Handled();
         }
         if (bSavedSetsOpen && HasSavedSets(ActionSection.Get())
@@ -371,10 +437,30 @@ public:
         }
         if (bSavedSetsOpen && (Key == EKeys::BackSpace || Key == EKeys::Gamepad_FaceButton_Right))
         {
-            bSavedSetsOpen = false;
+            SetSavedSetsState(false, SavedSetIndex);
             return FReply::Handled();
         }
         return MenuWidget ? MenuWidget->OnKeyDown(Geometry, Event) : FReply::Unhandled();
+    }
+
+    FReply OnKeyUp(const FGeometry&, const FKeyEvent& Event) override
+    {
+        if (OverwriteInputs.Remove(Event.GetKey()) > 0)
+        {
+            if (OverwriteInputs.IsEmpty())
+            {
+                CancelOverwriteHold();
+            }
+            return FReply::Handled();
+        }
+        return DeleteInputs.Remove(Event.GetKey()) > 0 ? FReply::Handled() : FReply::Unhandled();
+    }
+
+    void OnFocusLost(const FFocusEvent&) override
+    {
+        OverwriteInputs.Reset();
+        DeleteInputs.Reset();
+        CancelOverwriteHold();
     }
 
     FReply OnMouseButtonDown(const FGeometry& Geometry, const FPointerEvent& Event) override
@@ -385,6 +471,15 @@ public:
             const auto Layout = GetLayout(Geometry.GetLocalSize());
             const FVector2D PlanePoint = Layout.Left.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()));
             const FVector2D FooterPoint = (PlanePoint - Layout.FooterOrigin) / Layout.Scale;
+            if (bSavedSetsOpen && FooterWidget->IsOverOverwrite(FooterPoint))
+            {
+                if (OverwriteTarget().IsValid())
+                {
+                    BeginOverwrite(EKeys::LeftMouseButton, false);
+                    return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse).CaptureMouse(SharedThis(this));
+                }
+                return FReply::Handled();
+            }
             if (bSavedSetsOpen && FooterWidget->IsOverConfirm(FooterPoint))
             {
                 if (ConfirmAvailable.Get())
@@ -411,7 +506,7 @@ public:
                     const int32 Index = FirstSavedSetIndex + Row;
                     if (Row < VisibleSavedSetRows && Index <= SavedSets.Num())
                     {
-                        SavedSetIndex = Index;
+                        SelectSavedSet(Index);
                         return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
                     }
                 }
@@ -420,8 +515,44 @@ public:
         return FReply::Unhandled();
     }
 
+    FReply OnMouseButtonUp(const FGeometry&, const FPointerEvent& Event) override
+    {
+        if (Event.GetEffectingButton() != EKeys::LeftMouseButton || !HasMouseCapture())
+        {
+            return FReply::Unhandled();
+        }
+        ReleaseOverwritePointer();
+        return FReply::Handled().ReleaseMouseCapture();
+    }
+
+    FReply OnMouseMove(const FGeometry& Geometry, const FPointerEvent& Event) override
+    {
+        if (FooterWidget && OverwriteInputs.Contains(EKeys::LeftMouseButton))
+        {
+            const auto Layout = GetLayout(Geometry.GetLocalSize());
+            const auto PlanePoint = Layout.Left.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()));
+            if (!FooterWidget->IsOverOverwrite((PlanePoint - Layout.FooterOrigin) / Layout.Scale))
+            {
+                ReleaseOverwritePointer();
+            }
+            return FReply::Handled();
+        }
+        return FReply::Unhandled();
+    }
+
+    void OnMouseCaptureLost(const FCaptureLostEvent&) override
+    {
+        ReleaseOverwritePointer();
+    }
+
     virtual void Tick(const FGeometry& Geometry, double, float DeltaTime) override
     {
+        const auto Target = DeleteInputs.IsEmpty() ? OverwriteTarget() : FGuid();
+        if (OverwriteHold.Update(!OverwriteInputs.IsEmpty(), Target, FPlatformTime::Seconds()))
+        {
+            bOverwriteConfirmed = true;
+            OnOverwriteSavedSet.ExecuteIfBound(SelectedSavedSet()->Identifier);
+        }
         if (Renderer && Menu.IsValid() && Menu->GetSelectedIndex() != RenderedSelection)
         {
             RedrawMenu();
@@ -576,13 +707,53 @@ public:
     }
 
 private:
+    FGuid OverwriteTarget() const
+    {
+        const auto* Selected = SelectedSavedSet();
+        FGuid Target;
+        if (bSavedSetsOpen && HasSavedSets(ActionSection.Get()) && CanOverwrite.Get() && Selected)
+        {
+            FGuid::ParseExact(Selected->Identifier, EGuidFormats::DigitsWithHyphens, Target);
+        }
+        return Target;
+    }
+
+    void BeginOverwrite(const FKey& Key, bool bRepeat)
+    {
+        if (!bRepeat && !OverwriteInputs.Contains(Key))
+        {
+            const bool bFirst = OverwriteInputs.IsEmpty();
+            OverwriteInputs.Add(Key);
+            if (bFirst)
+            {
+                const double Now = FPlatformTime::Seconds();
+                bOverwriteConfirmed = bOverwriteConfirmed && OverwriteHold.GetIndicator(Now).bAnimating;
+                OverwriteHold.Update(true, DeleteInputs.IsEmpty() ? OverwriteTarget() : FGuid(), Now);
+            }
+        }
+    }
+
+    void ReleaseOverwritePointer()
+    {
+        if (OverwriteInputs.Remove(EKeys::LeftMouseButton) > 0 && OverwriteInputs.IsEmpty())
+        {
+            CancelOverwriteHold();
+        }
+    }
+
+    void SelectSavedSet(int32 Index)
+    {
+        const int32 Selection = FMath::Clamp(Index, 0, SavedSets.Num());
+        if (SavedSetIndex != Selection)
+        {
+            CancelOverwriteHold();
+            SavedSetIndex = Selection;
+        }
+    }
+
     void ToggleSavedSets()
     {
-        bSavedSetsOpen = !bSavedSetsOpen;
-        if (bSavedSetsOpen)
-        {
-            SavedSetIndex = 0;
-        }
+        SetSavedSetsState(!bSavedSetsOpen, bSavedSetsOpen ? SavedSetIndex : 0);
     }
 
     void BuildSavedSetsGrid(FName Section, UCIInventoryTileTheme& Theme, double PanelExtent)
@@ -707,6 +878,12 @@ private:
     TAttribute<bool> ConfirmEquips;
     TAttribute<bool> ConfirmAvailable;
     FSimpleDelegate OnConfirmSavedSet;
+    TAttribute<bool> CanOverwrite;
+    TDelegate<void(FString)> OnOverwriteSavedSet;
+    FCFControllerHold OverwriteHold{1000};
+    TSet<FKey> OverwriteInputs;
+    TSet<FKey> DeleteInputs;
+    bool bOverwriteConfirmed = false;
     TWeakObjectPtr<UCFMenu> Menu;
     TWeakObjectPtr<UWidgetSwitcher> MainPanel;
     TWeakObjectPtr<UWidget> MainContent;
@@ -745,6 +922,7 @@ void UCIInventoryShell::SetActionSection(FName Section)
         bConfirmEquips = false;
         if (Shell)
         {
+            Shell->CancelOverwriteHold();
             Shell->SetSavedSetsState(Shell->IsSavedSetsOpen() && HasSavedSets(Section), 0);
         }
     }
@@ -770,6 +948,11 @@ void UCIInventoryShell::SetEquipSavedSetAction(TFunction<void(FString)> Action)
     EquipSavedSet = MoveTemp(Action);
 }
 
+void UCIInventoryShell::SetOverwriteSavedSetAction(TFunction<void(FString)> Action)
+{
+    OverwriteSavedSet = MoveTemp(Action);
+}
+
 void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
 {
     if (ActionSection != Previous.ActionSection)
@@ -778,9 +961,17 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
     }
     bRestoreSavedSetsOpen = Previous.Shell ? Previous.Shell->IsSavedSetsOpen() : Previous.bRestoreSavedSetsOpen;
     RestoredSavedSetIndex = Previous.Shell ? Previous.Shell->GetSavedSetIndex() : Previous.RestoredSavedSetIndex;
+    RestoredOverwriteConfirmation.Reset();
+    if (bRestoreSavedSetsOpen && Previous.Shell && SavedSets.IsValidIndex(RestoredSavedSetIndex)
+        && Previous.Shell->SelectedSavedSet()
+        && SavedSets[RestoredSavedSetIndex].Identifier == Previous.Shell->SelectedSavedSet()->Identifier)
+    {
+        RestoredOverwriteConfirmation = Previous.Shell->CompletedOverwrite();
+    }
     if (Shell)
     {
         Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
+        Shell->RestoreOverwriteConfirmation(RestoredOverwriteConfirmation);
     }
 }
 
@@ -813,6 +1004,13 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
             return LayoutTheme ? LayoutTheme.Get() : GetMutableDefault<UCIInventoryTileTheme>();
         })
         .ConfirmEquips_Lambda([this] { return bConfirmEquips || (Shell && Shell->SelectedSavedSet()); })
+        .CanOverwrite_Lambda([this] { return static_cast<bool>(OverwriteSavedSet); })
+        .OnOverwriteSavedSet(TDelegate<void(FString)>::CreateWeakLambda(this, [this](FString Identifier) {
+            if (OverwriteSavedSet)
+            {
+                OverwriteSavedSet(MoveTemp(Identifier));
+            }
+        }))
         .ConfirmAvailable_Lambda([this] {
             if (SavedSetConfirm.IsBound() || bConfirmEquips || !Shell)
             {
@@ -838,6 +1036,7 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
     UpdateContent();
     Shell->SetSavedSets(SavedSets);
     Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
+    Shell->RestoreOverwriteConfirmation(RestoredOverwriteConfirmation);
     return Shell.ToSharedRef();
 }
 
