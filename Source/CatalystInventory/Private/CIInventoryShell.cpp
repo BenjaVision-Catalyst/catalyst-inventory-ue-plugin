@@ -153,12 +153,14 @@ class SCIInventoryActionFooter final : public SLeafWidget
 public:
     SLATE_BEGIN_ARGS(SCIInventoryActionFooter) {}
         SLATE_ATTRIBUTE(FName, Section)
+        SLATE_ATTRIBUTE(bool, SavedSetsOpen)
         SLATE_ARGUMENT(UCFMenu*, Menu)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& Args)
     {
         Section = Args._Section;
+        SavedSetsOpen = Args._SavedSetsOpen;
         Menu = Args._Menu;
     }
 
@@ -180,6 +182,7 @@ public:
         const FString Input = CurrentMenu->PreviousPrompt.ToString();
         const bool bKeyboard = Input == TEXT("Q");
         const bool bPlayStation = Input == TEXT("L1");
+        const TCHAR* ConfirmGlyph = bKeyboard ? TEXT("Enter") : (bPlayStation ? TEXT("×") : TEXT("A"));
         const FName CurrentSection = Section.Get();
         const bool bResources = CurrentSection == ResourcesSection;
         const auto Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
@@ -241,14 +244,21 @@ public:
             Right = Geometry.GetLocalSize().X;
             Y += 28.0;
             DrawPrompt(NSLOCTEXT("Inventory", "SelectResourceStack", "Select"),
-                bKeyboard ? TEXT("Enter") : (bPlayStation ? TEXT("×") : TEXT("A")), true, .35f);
+                ConfirmGlyph, true, .35f);
             DrawPrompt(NSLOCTEXT("Inventory", "ResourceDrop", "Drop"), TEXT("R3"), true, .35f);
+        }
+        else if (HasSavedSets(CurrentSection) && SavedSetsOpen.Get())
+        {
+            Right = Geometry.GetLocalSize().X;
+            Y += 28.0;
+            DrawPrompt(NSLOCTEXT("Inventory", "CreateGearSetActionLabel", "Create"), ConfirmGlyph, true);
         }
         return Layer + 1;
     }
 
 private:
     TAttribute<FName> Section;
+    TAttribute<bool> SavedSetsOpen;
     TWeakObjectPtr<UCFMenu> Menu;
     mutable FSlateRect SavedSetsBounds{0, 0, 0, 0};
     const FSlateRoundedBoxBrush RoundCap{FLinearColor::White, 10.5f};
@@ -292,7 +302,10 @@ public:
         SavedSetsTexture.Reset();
         if (InMenu)
         {
-            SAssignNew(FooterWidget, SCIInventoryActionFooter).Menu(InMenu).Section(ActionSection);
+            SAssignNew(FooterWidget, SCIInventoryActionFooter)
+                .Menu(InMenu)
+                .Section(ActionSection)
+                .SavedSetsOpen_Lambda([this] { return bSavedSetsOpen; });
         }
         MenuTexture.Reset();
         if (MenuWidget && FApp::CanEverRender() && FSlateApplication::IsInitialized())
