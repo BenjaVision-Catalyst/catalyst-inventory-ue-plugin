@@ -1,6 +1,9 @@
 #include "CIInventoryTile.h"
 
 #include "Engine/Texture.h"
+#include "Fonts/CompositeFont.h"
+#include "Interfaces/IPluginManager.h"
+#include "Misc/Paths.h"
 #include "Presentation/CFMagritteBinding.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Images/SImage.h"
@@ -8,6 +11,7 @@
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScaleBox.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/SOverlay.h"
 #include "Widgets/Text/STextBlock.h"
 
 UCIInventoryTileTheme::UCIInventoryTileTheme()
@@ -25,8 +29,25 @@ UCIInventoryTileTheme::UCIInventoryTileTheme()
         {5, FLinearColor(0.02f, 0.24f, 0.10f)},
         {6, FLinearColor(0.49f, 0.16f, 0.76f)}
     };
+    GroupLabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 16);
     LabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 14);
     CountFont = FCoreStyle::GetDefaultFontStyle("Regular", 16);
+    if (const auto Foundation = IPluginManager::Get().FindPlugin(TEXT("CatalystFoundation")))
+    {
+        static const auto DefaultFont = MakeShared<FCompositeFont>(NAME_None, Foundation->GetBaseDir()
+            / TEXT("Resources/Fonts/Font Awesome 5 Pro-Light-300.otf"), EFontHinting::Default, EFontLoadingPolicy::LazyLoad);
+        SlotIconFont = FSlateFontInfo(DefaultFont, 28.f);
+    }
+    SlotIconGlyphs = {
+        {TEXT("MeleeWeapon"), 0xf6cb}, {TEXT("LeftHandWeapon"), 0xf140}, {TEXT("RangedWeapon"), 0xf05b},
+        {TEXT("Mask"), 0xf6ee}, {TEXT("Backpack"), 0xf5d4}, {TEXT("Chest"), 0xe085},
+        {TEXT("Gloves"), 0xf438}, {TEXT("KneePads"), 0xf3ed}, {TEXT("ModStorage"), 0xf552},
+        {TEXT("GadgetLeft"), 0xf2db}, {TEXT("GadgetRight"), 0xf2db},
+        {TEXT("Hat"), 0xf7a8}, {TEXT("Neck"), 0xf7c1}, {TEXT("Shirt"), 0xf553},
+        {TEXT("Pants"), 0xf554}, {TEXT("Shoes"), 0xf782}, {TEXT("Glasses"), 0xf530},
+        {TEXT("BackpackTrophy"), 0xf559}, {TEXT("Patches"), 0xf335}, {TEXT("Watch"), 0xf2e1},
+        {TEXT("Emotes"), 0xf630}, {TEXT("Uniforms"), 0xe086}
+    };
 }
 
 const UCIInventoryTierStyle& UCIInventoryTileTheme::GetTierStyle() const
@@ -41,12 +62,19 @@ UCIInventoryTile::UCIInventoryTile()
 
 void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
 {
+    const FString PreviousDefinition = DefinitionIdentifier;
+    FString EquippedDefinition;
+    FName CategoryIdentifier;
+    bool bHasCategory = false;
+    bool bEmptyEquipmentSlot = false;
+    EmptySlotIdentifier = NAME_None;
     TierId = 1;
     bShowTier = false;
     Label = FText::GetEmpty();
     DefinitionIdentifier.Reset();
     bShowCount = false;
     Count = 0;
+    InventoryTypeCount = 0;
     for (const auto& Field : Item.Describe().orderedChildren())
     {
         const auto Value = Item.Read(*Field);
@@ -65,6 +93,33 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
                 DefinitionIdentifier = UTF8_TO_TCHAR(Definition->c_str());
             }
         }
+        else if (Field->id == "categoryIdentifier")
+        {
+            bHasCategory = true;
+            if (const auto* Category = std::get_if<std::string>(&Value.data))
+            {
+                CategoryIdentifier = FName(UTF8_TO_TCHAR(Category->c_str()));
+            }
+        }
+        else if (Field->id == "equippedDefinitionIdentifier")
+        {
+            if (const auto* Equipped = std::get_if<std::string>(&Value.data))
+            {
+                EquippedDefinition = UTF8_TO_TCHAR(Equipped->c_str());
+            }
+        }
+        else if (Field->id == "isEmptySlot")
+        {
+            const auto* Empty = std::get_if<bool>(&Value.data);
+            bEmptyEquipmentSlot = Empty && *Empty;
+        }
+        else if (Field->id == "inventoryTypeCount")
+        {
+            if (const auto* Quantity = std::get_if<std::int64_t>(&Value.data); Quantity && *Quantity > 0)
+            {
+                InventoryTypeCount = *Quantity;
+            }
+        }
         else if (Field->id == "displayName")
         {
             if (const auto* Name = std::get_if<std::string>(&Value.data))
@@ -80,6 +135,22 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
                 bShowCount = true;
             }
         }
+    }
+    if (bHasCategory)
+    {
+        Label = FText::GetEmpty();
+        DefinitionIdentifier = MoveTemp(EquippedDefinition);
+        EmptySlotIdentifier = DefinitionIdentifier.IsEmpty() ? CategoryIdentifier : NAME_None;
+        if (PreviousDefinition != DefinitionIdentifier)
+        {
+            Icon = nullptr;
+        }
+        SetVisibility(CategoryIdentifier.IsNone() ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+    }
+    else if (bEmptyEquipmentSlot)
+    {
+        EmptySlotIdentifier = FName(*DefinitionIdentifier);
+        DefinitionIdentifier.Reset();
     }
     bShowTier = bShowTier && !bShowCount;
     InvalidateLayoutAndVolatility();
@@ -128,37 +199,50 @@ TSharedRef<SWidget> UCIInventoryTile::BuildTileContent()
 
 TSharedRef<SWidget> UCIInventoryTile::BuildInventoryContent()
 {
+    auto Content = SNew(SVerticalBox)
+        + SVerticalBox::Slot().AutoHeight()
+        [
+            SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
+            .Padding_Lambda([this] { return FMargin(0, 0, 0, GetInventoryTheme().Spacing); })
+            .Visibility_Lambda([this] { return TileLabel().IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible; })
+            [BuildTileLabel()]
+        ];
+
+    Content->AddSlot().FillHeight(1.f).Padding(TAttribute<FMargin>::CreateLambda([this] { return GetIconPadding(); }))
+    [BuildTileIcon()];
+    Content->AddSlot().AutoHeight()
+    [
+        SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
+        .Padding_Lambda([this] { return FMargin(0, GetInventoryTheme().Spacing, 0, 0); })
+        .Visibility_Lambda([this] { return bShowCount && Count > 0 ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
+        [
+            SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
+            .HAlign(HAlign_Center)
+            [
+                SNew(STextBlock).Text_Lambda([this] { return Count > 0 ? FText::AsNumber(Count) : FText::GetEmpty(); })
+                .Font_Lambda([this] { return GetInventoryTheme().CountFont; })
+                .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
+            ]
+        ]
+    ];
+
     return SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
         .Padding_Lambda([this] { return FMargin(GetInventoryTheme().Spacing); })
         [
-            SNew(SVerticalBox)
-            + SVerticalBox::Slot().AutoHeight()
+            SNew(SOverlay)
+            + SOverlay::Slot()[Content]
+            + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top)
             [
-                SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
-                .Padding_Lambda([this] { return FMargin(0, 0, 0, GetInventoryTheme().Spacing); })
-                .Visibility_Lambda([this] { return TileLabel().IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible; })
-                [
-                    BuildTileLabel()
-                ]
-            ]
-            + SVerticalBox::Slot().FillHeight(1.f).Padding(TAttribute<FMargin>::CreateLambda([this] { return GetIconPadding(); }))
-            [
-                BuildTileIcon()
-            ]
-            + SVerticalBox::Slot().AutoHeight()
-            [
-                SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
-                .Padding_Lambda([this] { return FMargin(0, GetInventoryTheme().Spacing, 0, 0); })
-                .Visibility_Lambda([this] { return bShowCount ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
-                [
-                    SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
-                    .HAlign(HAlign_Center)
-                    [
-                        SNew(STextBlock).Text_Lambda([this] { return FText::AsNumber(Count); })
-                        .Font_Lambda([this] { return GetInventoryTheme().CountFont; })
-                        .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
-                    ]
-                ]
+                SNew(STextBlock).Tag(TEXT("InventoryTileTypeCount"))
+                .Text_Lambda([this] {
+                    return InventoryTypeCount > 0 && ShowsTypeCount() ? FText::AsNumber(InventoryTypeCount) : FText::GetEmpty();
+                })
+                .Font_Lambda([this] { return GetInventoryTheme().CountFont; })
+                .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
+                .ToolTipText(NSLOCTEXT("CatalystInventory", "TypeCount", "Items of this type in Inventory"))
+                .Visibility_Lambda([this] {
+                    return InventoryTypeCount > 0 && ShowsTypeCount() ? EVisibility::HitTestInvisible : EVisibility::Collapsed;
+                })
             ]
         ];
 }
@@ -172,19 +256,57 @@ TSharedRef<SWidget> UCIInventoryTile::BuildTileLabel()
         .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); });
 }
 
+UTexture* UCIInventoryTile::ResolveTileIcon() const
+{
+    return EmptySlotIdentifier.IsNone() ? GetTileIcon() : GetInventoryTheme().SlotIcons.FindRef(EmptySlotIdentifier).Get();
+}
+
 TSharedRef<SWidget> UCIInventoryTile::BuildTileIcon()
 {
-    return SNew(SScaleBox).Stretch(EStretch::ScaleToFit).HAlign(HAlign_Center).VAlign(VAlign_Center)
+    const auto IconSize = [this] { return FOptionalSize(FMath::Max(1.f, GetInventoryTheme().IconSize)); };
+    return SNew(SScaleBox)
+        .Stretch(EStretch::ScaleToFit)
+        .StretchDirection(EStretchDirection::DownOnly)
+        .HAlign(HAlign_Center).VAlign(VAlign_Center)
         [
-            SNew(SImage).Image_Lambda([this]() -> const FSlateBrush* {
-                UTexture* Texture = ShowsItemIcon() ? GetTileIcon() : nullptr;
-                IconBrush.SetResourceObject(Texture);
-                if (Texture)
-                {
-                    IconBrush.SetImageSize(FVector2D(Texture->GetSurfaceWidth(), Texture->GetSurfaceHeight()));
-                    return &IconBrush;
-                }
-                return FCoreStyle::Get().GetBrush("NoBrush");
-            }).ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().IconTint); })
+            SNew(SBox).Tag(TEXT("InventoryTileIcon"))
+            .WidthOverride_Lambda(IconSize)
+            .HeightOverride_Lambda(IconSize)
+            [
+                SNew(SScaleBox).Stretch(EStretch::ScaleToFit).HAlign(HAlign_Center).VAlign(VAlign_Center)
+                [
+                    SNew(SOverlay)
+                    + SOverlay::Slot()
+                    [
+                        SNew(SImage).Image_Lambda([this]() -> const FSlateBrush* {
+                            UTexture* Texture = ShowsItemIcon() ? ResolveTileIcon() : nullptr;
+                            IconBrush.SetResourceObject(Texture);
+                            if (Texture)
+                            {
+                                IconBrush.SetImageSize(FVector2D(Texture->GetSurfaceWidth(), Texture->GetSurfaceHeight()));
+                                return &IconBrush;
+                            }
+                            return FCoreStyle::Get().GetBrush("NoBrush");
+                        }).ColorAndOpacity_Lambda([this] {
+                            const auto& Style = GetInventoryTheme();
+                            return FSlateColor(EmptySlotIdentifier.IsNone() ? Style.IconTint : Style.EmptySlotIconTint);
+                        })
+                    ]
+                    + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+                    [
+                        SNew(STextBlock)
+                        .Visibility_Lambda([this] {
+                            return ShowsItemIcon() && !EmptySlotIdentifier.IsNone() && !ResolveTileIcon()
+                                ? EVisibility::HitTestInvisible : EVisibility::Collapsed;
+                        })
+                        .Text_Lambda([this] {
+                            const int32* Glyph = GetInventoryTheme().SlotIconGlyphs.Find(EmptySlotIdentifier);
+                            return FText::AsCultureInvariant(FString::Chr(Glyph ? *Glyph : 0xf12e));
+                        })
+                        .Font_Lambda([this] { return GetInventoryTheme().SlotIconFont; })
+                        .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().EmptySlotIconTint); })
+                    ]
+                ]
+            ]
         ];
 }

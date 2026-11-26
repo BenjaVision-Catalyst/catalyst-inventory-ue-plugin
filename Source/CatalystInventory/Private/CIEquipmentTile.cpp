@@ -61,8 +61,6 @@ void UCIEquipmentTile::BindItem(const FCFMagritteBinding& Item)
 {
     Super::BindItem(Item);
     PresentationKind.Reset();
-    InventoryTypeCount = 0;
-    bHasTypeCount = false;
     ExpertiseLevel.Reset();
     ModSlots.Reset();
     OffensiveAttributes.Reset();
@@ -79,19 +77,11 @@ void UCIEquipmentTile::BindItem(const FCFMagritteBinding& Item)
         else if (Field->id == "offensiveAttributes") { ReadIdentifiers(Value, OffensiveAttributes); }
         else if (Field->id == "defensiveAttributes") { ReadIdentifiers(Value, DefensiveAttributes); }
         else if (Field->id == "utilityAttributes") { ReadIdentifiers(Value, UtilityAttributes); }
-        else if (Field->id == "inventoryTypeCount" || Field->id == "expertiseLevel")
+        else if (Field->id == "expertiseLevel")
         {
             if (const auto* Number = std::get_if<std::int64_t>(&Value.data); Number && *Number >= 0)
             {
-                if (Field->id == "inventoryTypeCount")
-                {
-                    InventoryTypeCount = *Number;
-                    bHasTypeCount = true;
-                }
-                else
-                {
-                    ExpertiseLevel = *Number;
-                }
+                ExpertiseLevel = *Number;
             }
         }
     }
@@ -269,12 +259,6 @@ TSharedRef<SWidget> UCIEquipmentTile::BuildInventoryContent()
             .Visibility_Lambda(EquipmentVisibility)
             [
                 SNew(SOverlay)
-                + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Top)
-                [
-                    SNew(STextBlock).Text_Lambda([this] { return bHasTypeCount && !IsRowPresentation() ? FText::AsNumber(InventoryTypeCount) : FText::GetEmpty(); })
-                    .Font_Lambda([this] { return GetInventoryTheme().CountFont; })
-                    .ToolTipText(NSLOCTEXT("CatalystInventory", "TypeCount", "Items of this type in Inventory"))
-                ]
                 + SOverlay::Slot().VAlign(VAlign_Bottom)
                 [
                     SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))

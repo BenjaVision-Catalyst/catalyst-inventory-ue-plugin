@@ -77,12 +77,10 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "Equipment Tile")
     FString PresentationKind;
 
-    UPROPERTY(BlueprintReadOnly, Category = "Equipment Tile")
-    int64 InventoryTypeCount = 0;
-
 protected:
     virtual TSharedRef<SWidget> BuildInventoryContent() override;
     virtual FText TileLabel() const override { return PresentationKind.IsEmpty() ? Label : FText::GetEmpty(); }
+    virtual bool ShowsTypeCount() const override { return !PresentationKind.IsEmpty() && !IsRowPresentation(); }
     virtual void ReleaseSlateResources(bool bReleaseChildren) override;
 
     const UCIEquipmentTileTheme& GetEquipmentTheme() const;
@@ -103,6 +101,5 @@ private:
     TArray<TPair<FString, FString>> ModSlots;
     TArray<FString> OffensiveAttributes, DefensiveAttributes, UtilityAttributes;
     FString BrandId, TalentId;
-    bool bHasTypeCount = false;
     FSlateBrush BrandBrush, TalentBrush;
 };

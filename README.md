@@ -12,6 +12,13 @@ when reopening the view to restore the selected description for that Inventory.
 The selected description reads the section object whose view fills the shared
 panel.
 
+For signed-in play, mount a CIInventorySessionView and bind the current local
+player's Users presentation source. The session view follows User, game
+profile, and Inventory, opens the Inventory through AsView, and clears it when
+the source has no authorized profile. The three item sections share Foundation's
+CFSpanGrid. Apparel and Gear start at six columns and Resources at four.
+SetHalfSize doubles the column count while keeping each item's span.
+
 An independently authored Widget Blueprint can still use the named
 `InventoryTile` binding and the game session's `ICFPlayerMagritteSource`
 through `BindToPlayer`. Publish graph replacements and sign-out through
@@ -23,7 +30,7 @@ Create a `CIInventoryTileTheme` Data Asset and assign it to the view's
 `TileTheme` or a standalone tile's `Theme`. It controls the frame, focus
 fill, backdrop blur, tier palette, text fonts, tints, minimum size and spacing. One spacing value controls the outer inset and the gaps
 between the icon and visible labels. The icon preserves its aspect ratio
-while filling the available area.
+inside the theme's `IconSize` box.
 
 Compact tiles and rows use the same 4-unit tier band by default. To change the
 width for a presentation, assign the same `CIInventoryTierStyle` Data Asset to
@@ -65,13 +72,12 @@ talent indicators use the shared Equipment Row rendering.
 `isJunk` is a read-only state for gear presentation. The row displays that
 state when supplied by the model.
 
-Use `CIApparelTile` for a category in the apparel grid. Bind a category
-identifier, owned count, tier and optional equipped definition identifier.
-The count appears in the top left. Resolve equipped art by that definition
-identifier, and assign category fallback art on `CIApparelTileTheme`.
-The view resolves art through `ItemIcons`. A standalone presenter can assign
-`Icon` after binding, including a render target if the game renders a model
-preview. Without equipped art the shared tile uses the category icon.
+The apparel grid uses `CIInventoryTile` with the category identifier, owned
+count, tier and optional equipped definition identifier. Positive owned counts
+appear in the top left. The view resolves equipped art by definition identifier
+through `ItemIcons`. A standalone presenter can assign `Icon` after binding,
+including a render target for a model preview. Empty slots use the theme's
+`SlotIcons` or its default category glyph.
 
 Use `CIResourceTile` for a stack. Bind the resource definition identifier,
 optional display name and stack count. The same icon slot accepts a model

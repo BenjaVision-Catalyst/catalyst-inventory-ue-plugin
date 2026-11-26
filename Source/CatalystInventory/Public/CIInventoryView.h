@@ -29,6 +29,9 @@ public:
     UFUNCTION(BlueprintPure, Category = "Catalyst|Inventory")
     bool HasInventory() const { return Inventory.IsSet(); }
 
+    UFUNCTION(BlueprintCallable, Category = "Catalyst|Inventory|Layout")
+    void SetHalfSize(bool bEnabled);
+
 protected:
     UPROPERTY(EditDefaultsOnly, Category = "Catalyst|Inventory")
     TObjectPtr<UCIInventoryTileTheme> TileTheme;
@@ -72,4 +75,5 @@ private:
     std::string ProfileFieldId;
     std::string InventoryFieldId;
     bool bConstructed = false;
+    bool bHalfSize = false;
 };

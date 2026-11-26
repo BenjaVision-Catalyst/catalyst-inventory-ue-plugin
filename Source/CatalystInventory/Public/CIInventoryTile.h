@@ -27,6 +27,40 @@ class CATALYSTINVENTORY_API UCIInventoryTileTheme : public UCFTileTheme
 public:
     UCIInventoryTileTheme();
 
+    /** Space below the menu on the shared Inventory plane. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Layout", meta = (ClampMin = "0.0"))
+    float MenuPanelGap = 16.f;
+
+    // Grid dimensions use the same unscaled units as the Inventory scaffold.
+    /** Horizontal distance between tiles in viewport pixels. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Grid", meta = (ClampMin = "0.0"))
+    float TileGap = 8.f;
+
+    /** Vertical distance between rows in unscaled Inventory layout units. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Grid", meta = (ClampMin = "0.0"))
+    float RowGap = 8.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Grid", meta = (ClampMin = "1.0"))
+    float EquipmentTileHeight = 76.5f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Grid", meta = (ClampMin = "1.0"))
+    float ResourceTileHeight = 94.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Grid")
+    FSlateFontInfo GroupLabelFont;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Grid")
+    FLinearColor GroupLabelTint = FLinearColor(0.9f, 0.96f, 0.92f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Grid", meta = (ClampMin = "1.0"))
+    float GroupLabelHeight = 21.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Grid")
+    FMargin GroupLabelPadding = FMargin(0.f, 0.f, 0.f, 4.f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Grid", meta = (ClampMin = "0.0"))
+    float GroupGap = 4.f;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile")
     TMap<int32, FLinearColor> TierColors;
 
@@ -47,11 +81,29 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile")
     FLinearColor IconTint = FLinearColor::White;
 
+    /** Size of the square centered icon box in tile layout units. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile", meta = (ClampMin = "1.0"))
+    float IconSize = 28.5f;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile")
     FSlateFontInfo LabelFont;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile")
     FSlateFontInfo CountFont;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Empty Slots")
+    TMap<FName, TObjectPtr<UTexture>> SlotIcons;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Empty Slots")
+    FSlateFontInfo SlotIconFont;
+
+    /** Glyph code points in the slot icon font, indexed by slot or category ID. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Empty Slots")
+    TMap<FName, int32> SlotIconGlyphs;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Empty Slots")
+    FLinearColor EmptySlotIconTint = FLinearColor(.7f, .76f, .8f);
+
 };
 
 /** A themed tile bound to a described Inventory item. Icons are resolved locally. */
@@ -81,6 +133,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory Tile", meta = (EditCondition = "bShowCount"))
     int64 Count = 0;
 
+    UPROPERTY(BlueprintReadOnly, Category = "Inventory Tile")
+    int64 InventoryTypeCount = 0;
+
     virtual const UCFTileTheme& GetTileTheme() const override;
 
     virtual void BindItem(const FCFMagritteBinding& Item);
@@ -98,11 +153,14 @@ protected:
     const UCIInventoryTileTheme& GetInventoryTheme() const;
     virtual UTexture* GetTileIcon() const { return Icon; }
     virtual bool ShowsItemIcon() const { return true; }
-    virtual FMargin GetIconPadding() const { return FMargin(0.f); }
+    virtual FMargin GetIconPadding() const { return FMargin(0.f, 0.f, GetVisibleTierBandWidth(), 0.f); }
+    virtual bool ShowsTypeCount() const { return true; }
     virtual FText TileLabel() const { return Label; }
     virtual const FSlateFontInfo& TileLabelFont() const { return GetInventoryTheme().LabelFont; }
 
 private:
+    UTexture* ResolveTileIcon() const;
+    FName EmptySlotIdentifier;
     FString DefinitionIdentifier;
     FSlateBrush IconBrush;
 };

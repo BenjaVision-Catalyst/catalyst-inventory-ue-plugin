@@ -31,6 +31,7 @@ public:
         View->ViewState = Context.State;
         auto& Tree = *View->WidgetTree;
         auto* Shell = Tree.ConstructWidget<UCIInventoryShell>();
+        Shell->SetLayoutTheme(View->TileTheme);
 
         const auto& Selection = Context.State->SelectionByObject;
         const auto SavedSelection = Selection.find(Inventory.Binding.ObjectId());

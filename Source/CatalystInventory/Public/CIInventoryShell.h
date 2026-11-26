@@ -5,26 +5,17 @@
 
 class UCFMenu;
 class UCFMenuItem;
+class UCIInventoryTileTheme;
 class UWidgetSwitcher;
 
-/** Projects the Inventory menu, tab panels and inspector outline into viewport space. */
+/** Projects the Inventory menu and active tab panel into viewport space. */
 UCLASS(BlueprintType, Blueprintable)
 class CATALYSTINVENTORY_API UCIInventoryShell : public UPanelWidget
 {
     GENERATED_BODY()
 
 public:
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory|Layout")
-    FLinearColor PanelOutline = FLinearColor(.45f, .78f, 1.f);
-
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory|Layout", meta = (ClampMin = "0.0"))
-    float PanelOutlineThickness = 4.f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory|Layout")
-    FLinearColor MainPanelOutline = FLinearColor(1.f, .72f, .33f);
-
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory|Layout", meta = (ClampMin = "0.0"))
-    float MainPanelOutlineThickness = 3.f;
+    void SetLayoutTheme(UCIInventoryTileTheme* InTheme);
 
     UFUNCTION(BlueprintPure, Category = "Inventory|Layout")
     UCFMenu* GetMenu() const;
@@ -44,6 +35,9 @@ private:
 
     UFUNCTION()
     void OnMenuSelectionChanged(int32 Index, UCFMenuItem* Item);
+
+    UPROPERTY(Transient)
+    TObjectPtr<UCIInventoryTileTheme> LayoutTheme;
 
     TWeakObjectPtr<UCFMenu> BoundMenu;
 

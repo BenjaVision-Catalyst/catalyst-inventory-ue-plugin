@@ -1,20 +1,30 @@
 #include "CIInventoryShell.h"
 
+#include "CIInventoryTile.h"
+
+#include "Algo/BinarySearch.h"
 #include "Components/NamedSlot.h"
+#include "Containers/StaticArray.h"
 #include "Components/WidgetSwitcher.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Misc/App.h"
 #include "Presentation/CFMenu.h"
+#include "Presentation/CFSpanGrid.h"
 #include "Rendering/DrawElements.h"
 #include "Rendering/SlateRenderer.h"
 #include "RenderingThread.h"
 #include "Slate/WidgetRenderer.h"
 #include "UObject/StrongObjectPtr.h"
+#include "Widgets/Layout/SBox.h"
 #include "Widgets/SLeafWidget.h"
 
 namespace
 {
+constexpr float ProjectionRasterScale = 2.f;
+constexpr int32 MainRightGuardPixels = 4;
+constexpr int32 ProjectionStrips = 32;
+
 struct FInventoryPlane
 {
     FVector2D Extent = FVector2D::ZeroVector;
@@ -34,13 +44,15 @@ struct FInventoryPlane
 struct FInventoryShellLayout
 {
     FInventoryPlane Left, Right;
-    FVector2D MenuBounds = FVector2D::ZeroVector;
+    FVector2D MenuExtent = FVector2D::ZeroVector;
+    double MenuInset = 0.0;
+    double MenuFit = 0.0;
     FVector2D MainOrigin = FVector2D::ZeroVector;
     FVector2D MainExtent = FVector2D::ZeroVector;
     double Scale = 0.0;
 };
 
-FInventoryShellLayout LayoutFor(const FVector2D& Size)
+FInventoryShellLayout LayoutFor(const FVector2D& Size, const FVector2D& MenuSize, float MenuPanelGap)
 {
     FInventoryShellLayout Layout;
     const double CharacterX = Size.X * .61803398875;
@@ -53,13 +65,17 @@ FInventoryShellLayout LayoutFor(const FVector2D& Size)
     Layout.Scale = Scale;
     const double TabWidth = FMath::Min(Size.X * .47, 512.0 * Scale);
     const double TabHeight = 51.0 * Scale;
-    const double GridTop = TabHeight + 10.0 * Scale;
-    const double GridHeight = 1.5 * TabHeight;
+    Layout.MenuInset = 8.0 * Scale;
+    if (MenuSize.GetMin() > 0.0)
+    {
+        Layout.MenuFit = FMath::Min((TabWidth - Layout.MenuInset * 2.0) / MenuSize.X, TabHeight / MenuSize.Y);
+        Layout.MenuExtent = MenuSize * Layout.MenuFit;
+    }
+    const double GridTop = Layout.MenuInset + Layout.MenuExtent.Y + FMath::Max(0.f, MenuPanelGap) * Scale;
     const double GridWidth = TabWidth - 16.0 * Scale;
     const double GridInset = FMath::Min(44.0 * Scale, TabWidth * .105);
-    const double GridBottom = GridTop + 3.0 * 21.0 * Scale + 5.0 * GridHeight + 4.0 * 8.0 * Scale;
     const double Top = Size.Y * .055;
-    const double Bottom = FMath::Max(Top + GridBottom + 59.0 * Scale, Size.Y * .80 + 56.0 * Scale);
+    const double Bottom = Size.Y * .80 + 56.0 * Scale;
     const auto MakePlane = [&](double Width, double Yaw)
     {
         const double Radians = FMath::DegreesToRadians(Yaw);
@@ -91,9 +107,8 @@ FInventoryShellLayout LayoutFor(const FVector2D& Size)
         / (Layout.Left.CosYaw + FMath::Sqrt(FMath::Square(Layout.Left.CosYaw) + 4.0 * FMath::Square(DepthFactor)));
     Layout.Left = MakePlane(PlaneWidth, 9.0);
     Layout.Left.Center.X = InnerEdge - Layout.Left.Project({PlaneWidth, 0.0}).X;
-    Layout.MenuBounds = FVector2D(TabWidth, TabHeight);
     const double MainRightInset = 8.0 * Scale;
-    Layout.MainOrigin = {Layout.Left.Extent.X - MainRightInset - GridWidth, GridTop + 10.0 * Scale};
+    Layout.MainOrigin = {Layout.Left.Extent.X - MainRightInset - GridWidth, GridTop};
     Layout.MainExtent = {GridWidth, Layout.Left.Extent.Y - Layout.MainOrigin.Y - 59.0 * Scale};
     return Layout;
 }
@@ -102,20 +117,11 @@ FInventoryShellLayout LayoutFor(const FVector2D& Size)
 class SCIInventoryShell final : public SLeafWidget
 {
 public:
-    SLATE_BEGIN_ARGS(SCIInventoryShell) : _Outline(FLinearColor::White), _OutlineThickness(4.f) {}
-        SLATE_ATTRIBUTE(FLinearColor, Outline)
-        SLATE_ATTRIBUTE(float, OutlineThickness)
-        SLATE_ATTRIBUTE(FLinearColor, MainOutline)
-        SLATE_ATTRIBUTE(float, MainOutlineThickness)
+    SLATE_BEGIN_ARGS(SCIInventoryShell) {}
+        SLATE_ATTRIBUTE(float, MenuPanelGap)
     SLATE_END_ARGS()
 
-    void Construct(const FArguments& Args)
-    {
-        Outline = Args._Outline;
-        OutlineThickness = Args._OutlineThickness;
-        MainOutline = Args._MainOutline;
-        MainOutlineThickness = Args._MainOutlineThickness;
-    }
+    void Construct(const FArguments& Args) { MenuPanelGap = Args._MenuPanelGap; }
 
     ~SCIInventoryShell()
     {
@@ -145,6 +151,8 @@ public:
     {
         MainPanel = InPanel;
         MainTexture.Reset();
+        MainContent.Reset();
+        MainRenderRoot.Reset();
     }
 
     virtual bool SupportsKeyboardFocus() const override { return true; }
@@ -164,8 +172,16 @@ public:
 
         UWidget* ActivePanel = MainPanel.IsValid() ? MainPanel->GetActiveWidget() : nullptr;
         const auto* NamedSlot = Cast<UNamedSlot>(ActivePanel);
+        UWidget* Content = NamedSlot ? NamedSlot->GetContent() : ActivePanel;
+        if (MainContent.Get() != Content)
+        {
+            MainContent = Content;
+            MainTexture.Reset();
+            MainRenderRoot.Reset();
+            Invalidate(EInvalidateWidgetReason::Paint);
+        }
         const auto Size = Geometry.GetLocalSize();
-        if (!Renderer || !ActivePanel || (NamedSlot && !NamedSlot->GetContent()) || Size.GetMin() < 32.0)
+        if (!Renderer || !Content || Size.GetMin() < 32.0)
         {
             if (MainTexture.IsValid())
             {
@@ -175,11 +191,55 @@ public:
             return;
         }
 
-        const auto Extent = LayoutFor(Size).MainExtent;
+        const auto Layout = GetLayout(Size);
+        const auto Extent = Layout.MainExtent;
         if (Extent.GetMin() >= 1.0)
         {
-            DrawToTexture(MainTexture, ActivePanel->TakeWidget(),
-                {FMath::CeilToInt(Extent.X), FMath::CeilToInt(Extent.Y)}, DeltaTime);
+            const float PaintScale = Layout.Scale * ProjectionRasterScale;
+            if (!MainRenderRoot)
+            {
+                SAssignNew(MainRenderRoot, SBox)[ActivePanel->TakeWidget()];
+                LastGridViewport = FVector2D::ZeroVector;
+            }
+            // Keep the last tile's stroke and its filtered edge away from the render-target boundary.
+            MainRenderRoot->SetPadding(FMargin(0.f, 0.f, MainRightGuardPixels / PaintScale, 0.f));
+            const FVector2D TargetSize(
+                FMath::CeilToInt(Extent.X * ProjectionRasterScale) + MainRightGuardPixels,
+                FMath::CeilToInt(Extent.Y * ProjectionRasterScale));
+            const double PixelScale = (Geometry.LocalToAbsolute({1.0, 0.0})
+                - Geometry.LocalToAbsolute(FVector2D::ZeroVector)).Length();
+            if ((Size != LastGridViewport || PixelScale != LastGridPixelScale) && PixelScale > 0.0)
+            {
+                if (auto* Grid = Cast<UCFSpanGrid>(Content))
+                {
+                    const double RasterWidth = TargetSize.X / ProjectionRasterScale;
+                    const double GridWidth = (TargetSize.X - MainRightGuardPixels) / ProjectionRasterScale;
+                    const double StripWidth = RasterWidth / ProjectionStrips;
+                    TStaticArray<double, ProjectionStrips + 1> ProjectedEdges;
+                    for (int32 Index = 0; Index <= ProjectionStrips; ++Index)
+                    {
+                        ProjectedEdges[Index] = Layout.Left.Project(
+                            Layout.MainOrigin + FVector2D(Index * StripWidth, 0.0)).X;
+                    }
+                    const double ContentEndStrip = GridWidth / StripWidth;
+                    const int32 EndIndex = FMath::FloorToInt(ContentEndStrip);
+                    const double EndX = FMath::Lerp(ProjectedEdges[EndIndex], ProjectedEdges[EndIndex + 1],
+                        ContentEndStrip - EndIndex);
+                    const double StartX = ProjectedEdges[0];
+                    Grid->ApplyHorizontalProjection((EndX - StartX) * PixelScale, [&](double OutputX) {
+                        const double ScreenX = StartX + OutputX / PixelScale;
+                        // Invert the same piecewise-linear mapping used by the surface mesh.
+                        const int32 Strip = FMath::Clamp(Algo::UpperBound(ProjectedEdges, ScreenX) - 1,
+                            0, ProjectionStrips - 1);
+                        const double Alpha = (ScreenX - ProjectedEdges[Strip])
+                            / (ProjectedEdges[Strip + 1] - ProjectedEdges[Strip]);
+                        return (Strip + Alpha) * StripWidth / Layout.Scale;
+                    });
+                }
+                LastGridViewport = Size;
+                LastGridPixelScale = PixelScale;
+            }
+            DrawToTexture(MainTexture, MainRenderRoot.ToSharedRef(), TargetSize, DeltaTime, PaintScale);
             Invalidate(EInvalidateWidgetReason::Paint);
         }
     }
@@ -193,44 +253,30 @@ public:
             return Layer;
         }
 
-        const auto Layout = LayoutFor(Size);
-        const auto DrawOutline = [&](const FInventoryPlane& Plane, const FVector2D& Origin,
-            const FVector2D& Extent, const FLinearColor& Color, float Thickness, int32 OutlineLayer)
-        {
-            if (Extent.GetMin() <= 0.0 || Thickness <= 0.f)
-            {
-                return;
-            }
-            const TArray<FVector2D> Corners{
-                Plane.Project(Origin), Plane.Project(Origin + FVector2D(Extent.X, 0.0)),
-                Plane.Project(Origin + Extent), Plane.Project(Origin + FVector2D(0.0, Extent.Y)),
-                Plane.Project(Origin)
-            };
-            FSlateDrawElement::MakeLines(Elements, OutlineLayer, Geometry.ToPaintGeometry(), Corners,
-                ESlateDrawEffect::None, Color, true, Thickness);
-        };
-        DrawOutline(Layout.Left, FVector2D::ZeroVector, Layout.Left.Extent, Outline.Get(), OutlineThickness.Get(), Layer);
-        DrawOutline(Layout.Right, FVector2D::ZeroVector, Layout.Right.Extent, Outline.Get(), OutlineThickness.Get(), Layer);
-
+        const auto Layout = GetLayout(Size);
         if (MainTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
         {
-            DrawSurface(Geometry, Elements, Layer + 1, Layout.Left, MainTexture.Get(), Layout.MainOrigin, Layout.MainExtent);
+            const FVector2D RasterExtent(MainTexture->SizeX / ProjectionRasterScale,
+                MainTexture->SizeY / ProjectionRasterScale);
+            DrawSurface(Geometry, Elements, Layer + 1, Layout.Left, MainTexture.Get(), Layout.MainOrigin, RasterExtent);
         }
-        DrawOutline(Layout.Left, Layout.MainOrigin, Layout.MainExtent, MainOutline.Get(), MainOutlineThickness.Get(), Layer + 2);
 
-        if (MenuTexture.IsValid() && Layout.MenuBounds.GetMin() > 0.0)
+        if (MenuTexture.IsValid() && Layout.MenuExtent.GetMin() > 0.0)
         {
-            const FVector2D SourceSize(MenuTexture->SizeX, MenuTexture->SizeY);
-            const double Inset = 8.0 * Layout.Scale;
-            const FVector2D Bounds = Layout.MenuBounds - FVector2D(Inset * 2.0, 0.0);
-            const double Fit = FMath::Min(Bounds.X / SourceSize.X, Bounds.Y / SourceSize.Y);
             DrawSurface(Geometry, Elements, Layer + 2, Layout.Left, MenuTexture.Get(),
-                FVector2D(Layout.MainOrigin.X - FirstMenuItemX * Fit, Inset), SourceSize * Fit);
+                FVector2D(Layout.MainOrigin.X - FirstMenuItemX * Layout.MenuFit, Layout.MenuInset), Layout.MenuExtent);
         }
         return Layer + 2;
     }
 
 private:
+    FInventoryShellLayout GetLayout(const FVector2D& Size) const
+    {
+        const FVector2D MenuSize = MenuTexture.IsValid()
+            ? FVector2D(MenuTexture->SizeX, MenuTexture->SizeY) : FVector2D::ZeroVector;
+        return LayoutFor(Size, MenuSize, MenuPanelGap.Get());
+    }
+
     void RedrawMenu()
     {
         MenuWidget->SlatePrepass(1.f);
@@ -260,27 +306,26 @@ private:
     }
 
     void DrawToTexture(TStrongObjectPtr<UTextureRenderTarget2D>& Texture, const TSharedRef<SWidget>& Widget,
-        const FVector2D& Size, float DeltaTime)
+        const FVector2D& Size, float DeltaTime, float Scale = 1.f)
     {
         if (!Texture.IsValid() || Texture->SizeX != Size.X || Texture->SizeY != Size.Y)
         {
             Texture.Reset(FWidgetRenderer::CreateTargetFor(Size, TF_Bilinear, false));
         }
-        Renderer->DrawWidget(Texture.Get(), Widget, Size, DeltaTime);
+        Renderer->DrawWidget(Texture.Get(), Widget, Scale, Size, DeltaTime);
     }
 
     void DrawSurface(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
         const FInventoryPlane& Plane, UTextureRenderTarget2D* Texture, const FVector2D& Origin,
         const FVector2D& Extent) const
     {
-        constexpr int32 Strips = 32;
         TArray<FSlateVertex> Vertices;
         TArray<SlateIndex> Indices;
-        Vertices.Reserve((Strips + 1) * 2);
-        Indices.Reserve(Strips * 6);
-        for (int32 Strip = 0; Strip <= Strips; ++Strip)
+        Vertices.Reserve((ProjectionStrips + 1) * 2);
+        Indices.Reserve(ProjectionStrips * 6);
+        for (int32 Strip = 0; Strip <= ProjectionStrips; ++Strip)
         {
-            const float U = float(Strip) / Strips;
+            const float U = float(Strip) / ProjectionStrips;
             for (const float V : {0.f, 1.f})
             {
                 const auto Point = Plane.Project(Origin + FVector2D(U * Extent.X, V * Extent.Y));
@@ -300,27 +345,32 @@ private:
             ESlateDrawEffect::PreMultipliedAlpha | ESlateDrawEffect::NoGamma);
     }
 
-    TAttribute<FLinearColor> Outline;
-    TAttribute<float> OutlineThickness;
-    TAttribute<FLinearColor> MainOutline;
-    TAttribute<float> MainOutlineThickness;
+    TAttribute<float> MenuPanelGap;
     TWeakObjectPtr<UCFMenu> Menu;
     TWeakObjectPtr<UWidgetSwitcher> MainPanel;
+    TWeakObjectPtr<UWidget> MainContent;
     TSharedPtr<SWidget> MenuWidget;
+    TSharedPtr<SBox> MainRenderRoot;
     TStrongObjectPtr<UTextureRenderTarget2D> MenuTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> MainTexture;
     FWidgetRenderer* Renderer = nullptr;
+    FVector2D LastGridViewport = FVector2D::ZeroVector;
+    double LastGridPixelScale = 0.0;
     double FirstMenuItemX = 0.0;
     int32 RenderedSelection = INDEX_NONE;
 };
 
+void UCIInventoryShell::SetLayoutTheme(UCIInventoryTileTheme* InTheme)
+{
+    LayoutTheme = InTheme;
+}
+
 TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
 {
     SAssignNew(Shell, SCIInventoryShell)
-        .Outline_Lambda([this] { return PanelOutline; })
-        .OutlineThickness_Lambda([this] { return PanelOutlineThickness; })
-        .MainOutline_Lambda([this] { return MainPanelOutline; })
-        .MainOutlineThickness_Lambda([this] { return MainPanelOutlineThickness; });
+        .MenuPanelGap_Lambda([this] {
+            return (LayoutTheme ? LayoutTheme.Get() : GetDefault<UCIInventoryTileTheme>())->MenuPanelGap;
+        });
     UpdateContent();
     return Shell.ToSharedRef();
 }
