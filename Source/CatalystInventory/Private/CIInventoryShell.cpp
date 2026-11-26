@@ -23,6 +23,7 @@ namespace
 {
 constexpr float ProjectionRasterScale = 2.f;
 constexpr int32 MainRightGuardPixels = 4;
+constexpr int32 MainBottomGuardPixels = 2;
 constexpr int32 ProjectionStrips = 32;
 
 struct FInventoryPlane
@@ -52,7 +53,7 @@ struct FInventoryShellLayout
     double Scale = 0.0;
 };
 
-FInventoryShellLayout LayoutFor(const FVector2D& Size, const FVector2D& MenuSize, float MenuPanelGap)
+FInventoryShellLayout LayoutFor(const FVector2D& Size, const FVector2D& MenuSize, float MenuPanelGap, float PanelHeight)
 {
     FInventoryShellLayout Layout;
     const double CharacterX = Size.X * .61803398875;
@@ -109,7 +110,8 @@ FInventoryShellLayout LayoutFor(const FVector2D& Size, const FVector2D& MenuSize
     Layout.Left.Center.X = InnerEdge - Layout.Left.Project({PlaneWidth, 0.0}).X;
     const double MainRightInset = 8.0 * Scale;
     Layout.MainOrigin = {Layout.Left.Extent.X - MainRightInset - GridWidth, GridTop};
-    Layout.MainExtent = {GridWidth, Layout.Left.Extent.Y - Layout.MainOrigin.Y - 59.0 * Scale};
+    const double AvailableHeight = Layout.Left.Extent.Y - Layout.MainOrigin.Y - 59.0 * Scale;
+    Layout.MainExtent = {GridWidth, FMath::Min(AvailableHeight, FMath::Max(1.f, PanelHeight) * Scale)};
     return Layout;
 }
 }
@@ -119,9 +121,14 @@ class SCIInventoryShell final : public SLeafWidget
 public:
     SLATE_BEGIN_ARGS(SCIInventoryShell) {}
         SLATE_ATTRIBUTE(float, MenuPanelGap)
+        SLATE_ATTRIBUTE(float, PanelHeight)
     SLATE_END_ARGS()
 
-    void Construct(const FArguments& Args) { MenuPanelGap = Args._MenuPanelGap; }
+    void Construct(const FArguments& Args)
+    {
+        MenuPanelGap = Args._MenuPanelGap;
+        PanelHeight = Args._PanelHeight;
+    }
 
     ~SCIInventoryShell()
     {
@@ -202,10 +209,15 @@ public:
                 LastGridViewport = FVector2D::ZeroVector;
             }
             // Keep the last tile's stroke and its filtered edge away from the render-target boundary.
-            MainRenderRoot->SetPadding(FMargin(0.f, 0.f, MainRightGuardPixels / PaintScale, 0.f));
+            MainRenderRoot->SetPadding(FMargin(0.f, 0.f, MainRightGuardPixels / PaintScale,
+                MainBottomGuardPixels / PaintScale));
             const FVector2D TargetSize(
                 FMath::CeilToInt(Extent.X * ProjectionRasterScale) + MainRightGuardPixels,
-                FMath::CeilToInt(Extent.Y * ProjectionRasterScale));
+                FMath::CeilToInt(Extent.Y * ProjectionRasterScale) + MainBottomGuardPixels);
+            if (auto* Grid = Cast<UCFSpanGrid>(Content))
+            {
+                Grid->FitLastRowBottom(Extent.Y / Layout.Scale);
+            }
             const double PixelScale = (Geometry.LocalToAbsolute({1.0, 0.0})
                 - Geometry.LocalToAbsolute(FVector2D::ZeroVector)).Length();
             if ((Size != LastGridViewport || PixelScale != LastGridPixelScale) && PixelScale > 0.0)
@@ -274,7 +286,7 @@ private:
     {
         const FVector2D MenuSize = MenuTexture.IsValid()
             ? FVector2D(MenuTexture->SizeX, MenuTexture->SizeY) : FVector2D::ZeroVector;
-        return LayoutFor(Size, MenuSize, MenuPanelGap.Get());
+        return LayoutFor(Size, MenuSize, MenuPanelGap.Get(), PanelHeight.Get());
     }
 
     void RedrawMenu()
@@ -346,6 +358,7 @@ private:
     }
 
     TAttribute<float> MenuPanelGap;
+    TAttribute<float> PanelHeight;
     TWeakObjectPtr<UCFMenu> Menu;
     TWeakObjectPtr<UWidgetSwitcher> MainPanel;
     TWeakObjectPtr<UWidget> MainContent;
@@ -370,6 +383,9 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
     SAssignNew(Shell, SCIInventoryShell)
         .MenuPanelGap_Lambda([this] {
             return (LayoutTheme ? LayoutTheme.Get() : GetDefault<UCIInventoryTileTheme>())->MenuPanelGap;
+        })
+        .PanelHeight_Lambda([this] {
+            return (LayoutTheme ? LayoutTheme.Get() : GetDefault<UCIInventoryTileTheme>())->PanelHeight;
         });
     UpdateContent();
     return Shell.ToSharedRef();

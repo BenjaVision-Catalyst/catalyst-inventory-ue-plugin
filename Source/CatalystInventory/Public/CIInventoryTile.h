@@ -31,6 +31,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Layout", meta = (ClampMin = "0.0"))
     float MenuPanelGap = 16.f;
 
+    /** Height of the shared section panel in unscaled Inventory layout units. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Layout", meta = (ClampMin = "1.0"))
+    float PanelHeight = 481.5f;
+
     // Grid dimensions use the same unscaled units as the Inventory scaffold.
     /** Horizontal distance between tiles in viewport pixels. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory Grid", meta = (ClampMin = "0.0"))

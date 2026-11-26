@@ -74,6 +74,7 @@ private:
         auto* Grid = NewObject<UCFSpanGrid>(&Context.Owner);
         const float TileHeight = bResources ? GridTheme->ResourceTileHeight : GridTheme->EquipmentTileHeight;
         Grid->SetScrollBarVisibility(ESlateVisibility::Collapsed);
+        Grid->SetFillPanelHeight(!bResources);
         Grid->Configure(Columns, TileHeight * (bHalfSize ? .5f : 1.f), GridTheme->TileGap,
             GridTheme->RowGap, GridTheme->GroupGap,
             GridTheme->GroupLabelHeight, GridTheme->GroupLabelPadding, GridTheme->GroupLabelFont,
