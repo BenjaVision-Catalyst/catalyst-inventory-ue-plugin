@@ -16,7 +16,9 @@ class CATALYSTINVENTORY_API UCIInventoryShell : public UPanelWidget
 
 public:
     void SetLayoutTheme(UCIInventoryTileTheme* InTheme);
-    void SetActionSection(FName Section) { ActionSection = Section; }
+    void SetActionSection(FName Section);
+    /** Bind Create or Equip for the selected row. An unbound action is disabled. */
+    void SetSavedSetConfirmAction(bool bEquip, FSimpleDelegate Action);
 
     UFUNCTION(BlueprintPure, Category = "Inventory|Layout")
     UCFMenu* GetMenu() const;
@@ -42,6 +44,8 @@ private:
 
     TWeakObjectPtr<UCFMenu> BoundMenu;
     FName ActionSection;
+    FSimpleDelegate SavedSetConfirm;
+    bool bConfirmEquips = false;
 
     TSharedPtr<class SCIInventoryShell> Shell;
 };

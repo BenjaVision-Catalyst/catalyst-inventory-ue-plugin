@@ -3,19 +3,18 @@
 #include "CIInventoryTile.h"
 
 #include "Algo/BinarySearch.h"
-#include "Brushes/SlateRoundedBoxBrush.h"
 #include "Components/Border.h"
 #include "Components/NamedSlot.h"
 #include "Components/TextBlock.h"
 #include "Containers/StaticArray.h"
 #include "Components/WidgetSwitcher.h"
 #include "Engine/TextureRenderTarget2D.h"
-#include "Fonts/FontMeasure.h"
 #include "Framework/Application/SlateApplication.h"
 #include "InputCoreTypes.h"
 #include "Misc/App.h"
 #include "Presentation/CFMenu.h"
 #include "Presentation/CFSpanGrid.h"
+#include "Presentation/SCFControllerButton.h"
 #include "Rendering/DrawElements.h"
 #include "Rendering/SlateRenderer.h"
 #include "RenderingThread.h"
@@ -31,7 +30,7 @@ constexpr float ProjectionRasterScale = 2.f;
 constexpr int32 MainRightGuardPixels = 4;
 constexpr int32 MainBottomGuardPixels = 2;
 constexpr int32 ProjectionStrips = 32;
-constexpr float FooterHeight = 51.f;
+constexpr float FooterHeight = 56.f;
 constexpr float ActionPromptGap = 36.f;
 const FName GearSection(TEXT("gear"));
 const FName ApparelSection(TEXT("apparel"));
@@ -154,6 +153,8 @@ public:
     SLATE_BEGIN_ARGS(SCIInventoryActionFooter) {}
         SLATE_ATTRIBUTE(FName, Section)
         SLATE_ATTRIBUTE(bool, SavedSetsOpen)
+        SLATE_ATTRIBUTE(bool, ConfirmEquips)
+        SLATE_ATTRIBUTE(bool, ConfirmAvailable)
         SLATE_ARGUMENT(UCFMenu*, Menu)
     SLATE_END_ARGS()
 
@@ -161,17 +162,21 @@ public:
     {
         Section = Args._Section;
         SavedSetsOpen = Args._SavedSetsOpen;
+        ConfirmEquips = Args._ConfirmEquips;
+        ConfirmAvailable = Args._ConfirmAvailable;
         Menu = Args._Menu;
     }
 
     FVector2D ComputeDesiredSize(float) const override { return FVector2D(0.f, FooterHeight); }
 
     bool IsOverSavedSets(const FVector2D& Position) const { return SavedSetsBounds.ContainsPoint(Position); }
+    bool IsOverConfirm(const FVector2D& Position) const { return ConfirmBounds.ContainsPoint(Position); }
 
     int32 OnPaint(const FPaintArgs&, const FGeometry& Geometry, const FSlateRect&,
         FSlateWindowElementList& Elements, int32 Layer, const FWidgetStyle&, bool) const override
     {
         SavedSetsBounds = FSlateRect(0, 0, 0, 0);
+        ConfirmBounds = FSlateRect(0, 0, 0, 0);
         const auto* CurrentMenu = Menu.Get();
         if (!CurrentMenu)
         {
@@ -181,96 +186,67 @@ public:
         const auto& Style = CurrentMenu->GetMenuTheme();
         const FString Input = CurrentMenu->PreviousPrompt.ToString();
         const bool bKeyboard = Input == TEXT("Q");
-        const bool bPlayStation = Input == TEXT("L1");
-        const TCHAR* ConfirmGlyph = bKeyboard ? TEXT("Enter") : (bPlayStation ? TEXT("×") : TEXT("A"));
-        const TCHAR* OptionsGlyph = bKeyboard ? TEXT("F2") : (bPlayStation ? TEXT("□") : TEXT("X"));
+        const auto Platform = bKeyboard ? ECFControllerPlatform::Keyboard
+            : Input == TEXT("L1") ? ECFControllerPlatform::PlayStation : ECFControllerPlatform::Xbox;
         const FName CurrentSection = Section.Get();
         const bool bResources = CurrentSection == ResourcesSection;
-        const auto Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
-        const auto Font = FCoreStyle::GetDefaultFontStyle("Regular", 15);
-        const auto CapFont = FCoreStyle::GetDefaultFontStyle("Regular", 10);
+        const FCFControllerButtonStyle ButtonStyle{
+            Style.ActionLabelFont, Style.ActionGlyphFont, Style.Ink, Style.ShoulderFill, Style.ShoulderInk};
         double Right = Geometry.GetLocalSize().X;
         double Y = 2.0;
 
-        const auto DrawPrompt = [&](const FText& Label, const TCHAR* Glyph, bool bRound, float Opacity = 1.f)
+        const auto DrawPrompt = [&](const FText& Label, const FKey& KeyboardKey, const FKey& ControllerKey,
+            bool bAvailable = true, bool bHold = false)
         {
-            const FText Key = FText::FromString(Glyph);
-            const FText Text = bKeyboard
-                ? FText::Format(NSLOCTEXT("Inventory", "GearActionKeyLabel", "{0}  {1}"), Key, Label)
-                : Label;
-            const FVector2D TextSize = Measure->Measure(Text, Font);
-            Right -= TextSize.X;
-            const auto DrawText = [&](const FText& Value, const FSlateFontInfo& TextFont,
-                const FVector2D& Position, const FVector2D& Size, FLinearColor Ink)
-            {
-                Ink.A *= Opacity;
-                FSlateDrawElement::MakeText(Elements, Layer + 1,
-                    Geometry.ToPaintGeometry(Size, FSlateLayoutTransform(Position)),
-                    Value, TextFont, ESlateDrawEffect::NoPixelSnapping, Ink);
-            };
-            DrawText(Text, Font, {Right, Y}, TextSize, Style.Ink);
-            if (!bKeyboard)
-            {
-                const FVector2D CapSize = bRound ? FVector2D(21, 21) : FVector2D(23, 18);
-                Right -= CapSize.X + 5.0;
-                const FVector2D Origin(Right, Y + (TextSize.Y - CapSize.Y) * .5);
-                const auto& Brush = bRound ? RoundCap : ShoulderCap;
-                FLinearColor Fill = Style.ShoulderFill;
-                Fill.A *= Opacity;
-                FSlateDrawElement::MakeBox(Elements, Layer,
-                    Geometry.ToPaintGeometry(CapSize, FSlateLayoutTransform(Origin)),
-                    &Brush, ESlateDrawEffect::NoPixelSnapping, Fill);
-                const auto& KeyFont = bRound && Glyph[1] == 0 ? Font : CapFont;
-                const FVector2D KeySize = Measure->Measure(Key, KeyFont);
-                DrawText(Key, KeyFont, Origin + (CapSize - KeySize) * .5, KeySize, Style.ShoulderInk);
-            }
+            const FKey& Key = bKeyboard ? KeyboardKey : ControllerKey;
+            const auto Size = SCFControllerButton::Measure(Label, Key, Platform, ButtonStyle, bHold);
+            Right -= Size.X;
+            SCFControllerButton::Draw(Geometry, Elements, Layer, {Right, Y}, Label, Key, Platform,
+                ButtonStyle, bAvailable, bHold);
             Right -= ActionPromptGap;
         };
 
-        DrawPrompt(NSLOCTEXT("Inventory", "CloseActionLabel", "Close"),
-            bKeyboard ? TEXT("Backspace") : (bPlayStation ? TEXT("○") : TEXT("B")), true);
+        DrawPrompt(NSLOCTEXT("Inventory", "CloseActionLabel", "Close"), EKeys::BackSpace, EKeys::Gamepad_FaceButton_Right);
         const FText SectionAction = bResources
             ? NSLOCTEXT("Inventory", "OpenResourceCategories", "Categories") : SavedSetsLabel(CurrentSection);
         const double ActionRight = Right;
-        DrawPrompt(SectionAction, bKeyboard ? (bResources ? TEXT("C") : TEXT("G"))
-            : (bPlayStation ? TEXT("L2") : TEXT("LT")), false);
+        DrawPrompt(SectionAction, bResources ? EKeys::C : EKeys::G, EKeys::Gamepad_LeftTrigger);
         if (HasSavedSets(CurrentSection))
         {
             SavedSetsBounds = FSlateRect(Right + ActionPromptGap, 0.0, ActionRight, 25.0);
         }
         if (bResources)
         {
-            DrawPrompt(NSLOCTEXT("Inventory", "ResourceRadials", "Radials"),
-                OptionsGlyph, true);
+            DrawPrompt(NSLOCTEXT("Inventory", "ResourceRadials", "Radials"), EKeys::F2, EKeys::Gamepad_FaceButton_Left);
             Right = Geometry.GetLocalSize().X;
             Y += 28.0;
-            DrawPrompt(NSLOCTEXT("Inventory", "SelectResourceStack", "Select"),
-                ConfirmGlyph, true, .35f);
-            DrawPrompt(NSLOCTEXT("Inventory", "ResourceDrop", "Drop"), TEXT("R3"), true, .35f);
+            DrawPrompt(NSLOCTEXT("Inventory", "SelectResourceStack", "Select"), EKeys::Enter, EKeys::Gamepad_FaceButton_Bottom, false);
+            DrawPrompt(NSLOCTEXT("Inventory", "ResourceDrop", "Drop"), EKeys::Delete, EKeys::Gamepad_RightThumbstick,
+                false, !bKeyboard);
         }
         else if (HasSavedSets(CurrentSection) && SavedSetsOpen.Get())
         {
             Right = Geometry.GetLocalSize().X;
             Y += 28.0;
-            // These actions need a selected saved entry. The sidebar currently contains only Create.
-            constexpr float UnavailableOpacity = .35f;
-            DrawPrompt(NSLOCTEXT("Inventory", "DeleteGearSetLabel", "Delete"),
-                bKeyboard ? TEXT("Del") : TEXT("R3"), true, UnavailableOpacity);
-            DrawPrompt(NSLOCTEXT("Inventory", "OverwriteGearSetLabel", "Overwrite"),
-                bKeyboard ? TEXT("T") : (bPlayStation ? TEXT("△") : TEXT("Y")), true, UnavailableOpacity);
-            DrawPrompt(NSLOCTEXT("Inventory", "GearSetOptionsLabel", "Options"), OptionsGlyph, true, UnavailableOpacity);
-            DrawPrompt(NSLOCTEXT("Inventory", "CreateGearSetActionLabel", "Create"), ConfirmGlyph, true);
+            DrawPrompt(ConfirmEquips.Get() ? NSLOCTEXT("Inventory", "EquipActionLabel", "Equip")
+                : NSLOCTEXT("Inventory", "CreateGearSetActionLabel", "Create"),
+                EKeys::Enter, EKeys::Gamepad_FaceButton_Bottom, ConfirmAvailable.Get());
+            ConfirmBounds = FSlateRect(Right + ActionPromptGap, 25.0, Geometry.GetLocalSize().X, FooterHeight);
+            DrawPrompt(NSLOCTEXT("Inventory", "GearSetOptionsLabel", "Options"), EKeys::F2, EKeys::Gamepad_FaceButton_Left, false);
+            DrawPrompt(NSLOCTEXT("Inventory", "OverwriteGearSetLabel", "Overwrite"), EKeys::T, EKeys::Gamepad_FaceButton_Top, false, true);
+            DrawPrompt(NSLOCTEXT("Inventory", "DeleteGearSetLabel", "Delete"), EKeys::Delete, EKeys::Gamepad_RightThumbstick, false, true);
         }
-        return Layer + 1;
+        return Layer + 2;
     }
 
 private:
     TAttribute<FName> Section;
     TAttribute<bool> SavedSetsOpen;
+    TAttribute<bool> ConfirmEquips;
+    TAttribute<bool> ConfirmAvailable;
     TWeakObjectPtr<UCFMenu> Menu;
     mutable FSlateRect SavedSetsBounds{0, 0, 0, 0};
-    const FSlateRoundedBoxBrush RoundCap{FLinearColor::White, 10.5f};
-    const FSlateRoundedBoxBrush ShoulderCap{FLinearColor::White, 4.f};
+    mutable FSlateRect ConfirmBounds{0, 0, 0, 0};
 };
 
 class SCIInventoryShell final : public SLeafWidget
@@ -282,6 +258,9 @@ public:
         SLATE_ATTRIBUTE(float, FooterGap)
         SLATE_ATTRIBUTE(FName, ActionSection)
         SLATE_ATTRIBUTE(UCIInventoryTileTheme*, InventoryTheme)
+        SLATE_ATTRIBUTE(bool, ConfirmEquips)
+        SLATE_ATTRIBUTE(bool, ConfirmAvailable)
+        SLATE_EVENT(FSimpleDelegate, OnConfirmSavedSet)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& Args)
@@ -291,6 +270,9 @@ public:
         FooterGap = Args._FooterGap;
         ActionSection = Args._ActionSection;
         InventoryTheme = Args._InventoryTheme;
+        ConfirmEquips = Args._ConfirmEquips;
+        ConfirmAvailable = Args._ConfirmAvailable;
+        OnConfirmSavedSet = Args._OnConfirmSavedSet;
     }
 
     ~SCIInventoryShell()
@@ -313,7 +295,9 @@ public:
             SAssignNew(FooterWidget, SCIInventoryActionFooter)
                 .Menu(InMenu)
                 .Section(ActionSection)
-                .SavedSetsOpen_Lambda([this] { return bSavedSetsOpen; });
+                .SavedSetsOpen_Lambda([this] { return bSavedSetsOpen; })
+                .ConfirmEquips(ConfirmEquips)
+                .ConfirmAvailable(ConfirmAvailable);
         }
         MenuTexture.Reset();
         if (MenuWidget && FApp::CanEverRender() && FSlateApplication::IsInitialized())
@@ -349,6 +333,15 @@ public:
             }
             return FReply::Handled();
         }
+        if (bSavedSetsOpen && HasSavedSets(ActionSection.Get())
+            && (Key == EKeys::Enter || Key == EKeys::Gamepad_FaceButton_Bottom))
+        {
+            if (!Event.IsRepeat() && ConfirmAvailable.Get())
+            {
+                OnConfirmSavedSet.ExecuteIfBound();
+            }
+            return FReply::Handled();
+        }
         if (bSavedSetsOpen && (Key == EKeys::BackSpace || Key == EKeys::Gamepad_FaceButton_Right))
         {
             bSavedSetsOpen = false;
@@ -364,7 +357,16 @@ public:
         {
             const auto Layout = GetLayout(Geometry.GetLocalSize());
             const FVector2D PlanePoint = Layout.Left.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()));
-            if (FooterWidget->IsOverSavedSets((PlanePoint - Layout.FooterOrigin) / Layout.Scale))
+            const FVector2D FooterPoint = (PlanePoint - Layout.FooterOrigin) / Layout.Scale;
+            if (bSavedSetsOpen && FooterWidget->IsOverConfirm(FooterPoint))
+            {
+                if (ConfirmAvailable.Get())
+                {
+                    OnConfirmSavedSet.ExecuteIfBound();
+                }
+                return FReply::Handled();
+            }
+            if (FooterWidget->IsOverSavedSets(FooterPoint))
             {
                 bSavedSetsOpen = !bSavedSetsOpen;
                 return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
@@ -534,6 +536,7 @@ private:
         constexpr int32 VisibleRows = 6;
         const double Heading = Theme.GroupLabelHeight + Theme.GroupLabelPadding.GetTotalSpaceAlong<Orient_Vertical>();
         const float RowHeight = FMath::Max(1.0, (PanelExtent - Heading - (VisibleRows - 1) * Theme.RowGap) / VisibleRows);
+        SavedSetsTexture.Reset();
         SavedSetsGrid.Reset(NewObject<UCFSpanGrid>());
         SavedSetsGrid->SetScrollBarVisibility(ESlateVisibility::Collapsed);
         SavedSetsGrid->Configure(1, RowHeight, 0.f, Theme.RowGap, Theme.GroupGap,
@@ -641,6 +644,9 @@ private:
     TAttribute<float> FooterGap;
     TAttribute<FName> ActionSection;
     TAttribute<UCIInventoryTileTheme*> InventoryTheme;
+    TAttribute<bool> ConfirmEquips;
+    TAttribute<bool> ConfirmAvailable;
+    FSimpleDelegate OnConfirmSavedSet;
     TWeakObjectPtr<UCFMenu> Menu;
     TWeakObjectPtr<UWidgetSwitcher> MainPanel;
     TWeakObjectPtr<UWidget> MainContent;
@@ -665,6 +671,22 @@ private:
     int32 RenderedSelection = INDEX_NONE;
 };
 
+void UCIInventoryShell::SetActionSection(FName Section)
+{
+    if (ActionSection != Section)
+    {
+        SavedSetConfirm.Unbind();
+        bConfirmEquips = false;
+    }
+    ActionSection = Section;
+}
+
+void UCIInventoryShell::SetSavedSetConfirmAction(bool bEquip, FSimpleDelegate Action)
+{
+    bConfirmEquips = bEquip;
+    SavedSetConfirm = MoveTemp(Action);
+}
+
 void UCIInventoryShell::SetLayoutTheme(UCIInventoryTileTheme* InTheme)
 {
     LayoutTheme = InTheme;
@@ -686,7 +708,10 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
         .ActionSection_Lambda([this] { return ActionSection; })
         .InventoryTheme_Lambda([this] {
             return LayoutTheme ? LayoutTheme.Get() : GetMutableDefault<UCIInventoryTileTheme>();
-        });
+        })
+        .ConfirmEquips_Lambda([this] { return bConfirmEquips; })
+        .ConfirmAvailable_Lambda([this] { return SavedSetConfirm.IsBound(); })
+        .OnConfirmSavedSet(FSimpleDelegate::CreateWeakLambda(this, [this] { SavedSetConfirm.ExecuteIfBound(); }));
     UpdateContent();
     return Shell.ToSharedRef();
 }
