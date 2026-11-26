@@ -28,7 +28,6 @@ constexpr float ProjectionRasterScale = 2.f;
 constexpr int32 MainRightGuardPixels = 4;
 constexpr int32 MainBottomGuardPixels = 2;
 constexpr int32 ProjectionStrips = 32;
-constexpr float FooterGap = 8.f;
 constexpr float FooterHeight = 51.f;
 const FName GearSection(TEXT("gear"));
 const FName ApparelSection(TEXT("apparel"));
@@ -58,10 +57,12 @@ struct FInventoryShellLayout
     double MenuFit = 0.0;
     FVector2D MainOrigin = FVector2D::ZeroVector;
     FVector2D MainExtent = FVector2D::ZeroVector;
+    FVector2D FooterOrigin = FVector2D::ZeroVector;
     double Scale = 0.0;
 };
 
-FInventoryShellLayout LayoutFor(const FVector2D& Size, const FVector2D& MenuSize, float MenuPanelGap, float PanelHeight)
+FInventoryShellLayout LayoutFor(const FVector2D& Size, const FVector2D& MenuSize, float MenuPanelGap, float PanelHeight,
+    float FooterGap)
 {
     FInventoryShellLayout Layout;
     const double CharacterX = Size.X * .61803398875;
@@ -120,6 +121,7 @@ FInventoryShellLayout LayoutFor(const FVector2D& Size, const FVector2D& MenuSize
     Layout.MainOrigin = {Layout.Left.Extent.X - MainRightInset - GridWidth, GridTop};
     const double AvailableHeight = Layout.Left.Extent.Y - Layout.MainOrigin.Y - (FooterGap + FooterHeight) * Scale;
     Layout.MainExtent = {GridWidth, FMath::Min(AvailableHeight, FMath::Max(1.f, PanelHeight) * Scale)};
+    Layout.FooterOrigin = Layout.MainOrigin + FVector2D(0.0, Layout.MainExtent.Y + FooterGap * Scale);
     return Layout;
 }
 }
@@ -235,6 +237,7 @@ public:
     SLATE_BEGIN_ARGS(SCIInventoryShell) {}
         SLATE_ATTRIBUTE(float, MenuPanelGap)
         SLATE_ATTRIBUTE(float, PanelHeight)
+        SLATE_ATTRIBUTE(float, FooterGap)
         SLATE_ATTRIBUTE(FName, ActionSection)
     SLATE_END_ARGS()
 
@@ -242,6 +245,7 @@ public:
     {
         MenuPanelGap = Args._MenuPanelGap;
         PanelHeight = Args._PanelHeight;
+        FooterGap = Args._FooterGap;
         ActionSection = Args._ActionSection;
     }
 
@@ -415,8 +419,7 @@ public:
         {
             const FVector2D FooterExtent(FooterTexture->SizeX / ProjectionRasterScale,
                 FooterTexture->SizeY / ProjectionRasterScale);
-            DrawSurface(Geometry, Elements, Layer + 2, Layout.Left, FooterTexture.Get(),
-                Layout.MainOrigin + FVector2D(0.0, Layout.MainExtent.Y + FooterGap * Layout.Scale), FooterExtent);
+            DrawSurface(Geometry, Elements, Layer + 2, Layout.Left, FooterTexture.Get(), Layout.FooterOrigin, FooterExtent);
         }
         return Layer + 2;
     }
@@ -426,7 +429,7 @@ private:
     {
         const FVector2D MenuSize = MenuTexture.IsValid()
             ? FVector2D(MenuTexture->SizeX, MenuTexture->SizeY) : FVector2D::ZeroVector;
-        return LayoutFor(Size, MenuSize, MenuPanelGap.Get(), PanelHeight.Get());
+        return LayoutFor(Size, MenuSize, MenuPanelGap.Get(), PanelHeight.Get(), FooterGap.Get());
     }
 
     void RedrawMenu()
@@ -499,6 +502,7 @@ private:
 
     TAttribute<float> MenuPanelGap;
     TAttribute<float> PanelHeight;
+    TAttribute<float> FooterGap;
     TAttribute<FName> ActionSection;
     TWeakObjectPtr<UCFMenu> Menu;
     TWeakObjectPtr<UWidgetSwitcher> MainPanel;
@@ -529,6 +533,10 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
         })
         .PanelHeight_Lambda([this] {
             return (LayoutTheme ? LayoutTheme.Get() : GetDefault<UCIInventoryTileTheme>())->PanelHeight;
+        })
+        .FooterGap_Lambda([this] {
+            const auto& Theme = LayoutTheme ? *LayoutTheme : *GetDefault<UCIInventoryTileTheme>();
+            return FMath::Max(0.f, Theme.GroupLabelHeight + Theme.GroupLabelPadding.GetTotalSpaceAlong<Orient_Vertical>());
         })
         .ActionSection_Lambda([this] { return ActionSection; });
     UpdateContent();
