@@ -19,7 +19,8 @@ public:
     void BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> InSource,
         TSubclassOf<UCIInventoryView> InViewClass = {}, TFunction<void(bool bOutfit)> InCreateSavedSet = {},
         TFunction<void(FString SetIdentifier)> InEquipSavedSet = {},
-        TFunction<void(FString SetIdentifier)> InOverwriteSavedSet = {});
+        TFunction<void(FString SetIdentifier)> InOverwriteSavedSet = {},
+        TFunction<void(FString SetIdentifier)> InDeleteSavedSet = {});
 
     UFUNCTION(BlueprintPure, Category = "Catalyst|Inventory")
     UCIInventoryView* GetInventoryView() const;
@@ -45,4 +46,5 @@ private:
     TFunction<void(bool)> CreateSavedSet;
     TFunction<void(FString)> EquipSavedSet;
     TFunction<void(FString)> OverwriteSavedSet;
+    TFunction<void(FString)> DeleteSavedSet;
 };

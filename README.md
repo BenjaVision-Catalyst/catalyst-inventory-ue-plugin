@@ -39,6 +39,12 @@ uses the Foundation controller button ring and sends its `itemIdentifier`
 to operation 106. Overwrite uses T on keyboard and the top face button on
 controllers. Releasing the input or moving to another row cancels the hold.
 
+Bind Delete through the same session on operation 107. Hold Delete on the
+keyboard or press and hold the right stick button on a controller. Delete
+and Overwrite use the same one-second confirmation and cancel each other
+when pressed together. After deletion, the sidebar keeps the row position
+so the next saved set or Create becomes selected.
+
 An independently authored Widget Blueprint can still use the named
 `InventoryTile` binding and the game session's `ICFPlayerMagritteSource`
 through `BindToPlayer`. Publish graph replacements and sign-out through
