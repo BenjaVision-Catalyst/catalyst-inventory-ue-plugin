@@ -2,15 +2,19 @@
 
 #include "Blueprint/WidgetTree.h"
 #include "CIInventoryModel.h"
+#include "CIInventoryShell.h"
 #include "CIInventoryView.h"
 #include "Components/SizeBox.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Widgets/SWidget.h"
 
 void UCIInventorySessionView::BindToPlayer(TSharedPtr<ICFPlayerMagritteSource> InSource,
-    TSubclassOf<UCIInventoryView> InViewClass)
+    TSubclassOf<UCIInventoryView> InViewClass, TFunction<void(bool)> InCreateSavedSet)
 {
     Unsubscribe();
     Source = MoveTemp(InSource);
     ViewClass = InViewClass;
+    CreateSavedSet = MoveTemp(InCreateSavedSet);
     ViewState.Reset();
     if (Panel && Source)
     {
@@ -67,22 +71,51 @@ void UCIInventorySessionView::Refresh()
     {
         return;
     }
-    Panel->ClearChildren();
     const auto* Player = GetOwningLocalPlayer();
     const auto User = Player && Source ? Source->SignedInUser(*Player) : TOptional<FCFMagritteBinding>();
     const auto Profile = User ? User->Follow("profile") : TOptional<FCFMagritteBinding>();
     auto Inventory = Profile ? Profile->Follow("inventory") : TOptional<FCFMagritteBinding>();
     if (!Inventory)
     {
+        Panel->ClearChildren();
         ViewState.Reset();
         return;
     }
+    const auto* Previous = ViewState ? GetInventoryView() : nullptr;
     if (!ViewState)
     {
         ViewState = MakeShared<FCFViewState>();
     }
+    const auto* PreviousShell = Previous && Previous->GetInventoryBinding()
+        && Previous->GetInventoryBinding()->ObjectId() == Inventory->ObjectId() ? Previous->GetInventoryShell() : nullptr;
+    const auto PreviousWidget = PreviousShell ? PreviousShell->GetCachedWidget() : TSharedPtr<SWidget>();
+    const bool bRestoreFocus = PreviousWidget && PreviousWidget->HasKeyboardFocus();
     FCIInventoryModel Model(MoveTemp(*Inventory), ViewClass);
     auto* Owner = GetOwningPlayer();
-    Panel->SetContent(Model.AsView({Owner ? static_cast<UObject&>(*Owner) : static_cast<UObject&>(*this),
+    auto* Content = Cast<UCIInventoryView>(Model.AsView({Owner ? static_cast<UObject&>(*Owner) : static_cast<UObject&>(*this),
         ViewState.ToSharedRef()}));
+    if (auto* Shell = Content ? Content->GetInventoryShell() : nullptr)
+    {
+        if (CreateSavedSet)
+        {
+            Shell->SetCreateSavedSetAction([WeakThis = TWeakObjectPtr<UCIInventorySessionView>(this)](bool bOutfit) {
+                if (auto* Self = WeakThis.Get(); Self && Self->CreateSavedSet)
+                {
+                    Self->CreateSavedSet(bOutfit);
+                }
+            });
+        }
+        if (PreviousShell)
+        {
+            Shell->RestoreSavedSetsState(*PreviousShell);
+        }
+    }
+    Panel->SetContent(Content);
+    if (bRestoreFocus && Content && FSlateApplication::IsInitialized())
+    {
+        if (auto* Shell = Content->GetInventoryShell())
+        {
+            FSlateApplication::Get().SetKeyboardFocus(Shell->TakeWidget(), EFocusCause::SetDirectly);
+        }
+    }
 }

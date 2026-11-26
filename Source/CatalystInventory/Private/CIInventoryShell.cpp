@@ -319,6 +319,23 @@ public:
         MainRenderRoot.Reset();
     }
 
+    void SetSavedSetNames(const TArray<FString>& Names)
+    {
+        SavedSetNames = Names;
+        SavedSetIndex = FMath::Min(SavedSetIndex, SavedSetNames.Num());
+        SavedSetsGrid.Reset();
+    }
+
+    void SetSavedSetsState(bool bOpen, int32 Index)
+    {
+        bSavedSetsOpen = bOpen;
+        SavedSetIndex = FMath::Clamp(Index, 0, SavedSetNames.Num());
+    }
+
+    bool IsSavedSetsOpen() const { return bSavedSetsOpen; }
+    int32 GetSavedSetIndex() const { return SavedSetIndex; }
+    bool IsExistingSavedSetSelected() const { return SavedSetIndex < SavedSetNames.Num(); }
+
     virtual bool SupportsKeyboardFocus() const override { return true; }
     virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D::ZeroVector; }
 
@@ -329,8 +346,15 @@ public:
         {
             if (!Event.IsRepeat())
             {
-                bSavedSetsOpen = !bSavedSetsOpen;
+                ToggleSavedSets();
             }
+            return FReply::Handled();
+        }
+        if (bSavedSetsOpen && HasSavedSets(ActionSection.Get())
+            && (Key == EKeys::Up || Key == EKeys::Down || Key == EKeys::Gamepad_DPad_Up || Key == EKeys::Gamepad_DPad_Down))
+        {
+            const bool bUp = Key == EKeys::Up || Key == EKeys::Gamepad_DPad_Up;
+            SavedSetIndex = FMath::Clamp(SavedSetIndex + (bUp ? -1 : 1), 0, SavedSetNames.Num());
             return FReply::Handled();
         }
         if (bSavedSetsOpen && HasSavedSets(ActionSection.Get())
@@ -368,8 +392,26 @@ public:
             }
             if (FooterWidget->IsOverSavedSets(FooterPoint))
             {
-                bSavedSetsOpen = !bSavedSetsOpen;
+                ToggleSavedSets();
                 return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
+            }
+            if (bSavedSetsOpen && SavedSetsTexture.IsValid() && SavedSetsReveal == 1.f)
+            {
+                const double Width = SavedSetsTexture->SizeX / ProjectionRasterScale;
+                const auto Point = (PlanePoint - Layout.MainOrigin + FVector2D(Width + 16.0 * Layout.Scale, 0))
+                    / Layout.Scale;
+                const auto& Theme = *InventoryTheme.Get();
+                const double Heading = Theme.GroupLabelHeight + Theme.GroupLabelPadding.GetTotalSpaceAlong<Orient_Vertical>();
+                if (Point.X >= 0 && Point.X < Width / Layout.Scale && Point.Y >= Heading && Point.Y < SavedSetsHeight)
+                {
+                    const int32 Row = FMath::FloorToInt((Point.Y - Heading) / (SavedSetsRowHeight + Theme.RowGap));
+                    const int32 Index = FirstSavedSetIndex + Row;
+                    if (Row < VisibleSavedSetRows && Index <= SavedSetNames.Num())
+                    {
+                        SavedSetIndex = Index;
+                        return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
+                    }
+                }
             }
         }
         return FReply::Unhandled();
@@ -480,7 +522,7 @@ public:
                 const double Height = Extent.Y / Layout.Scale;
                 auto* Theme = InventoryTheme.Get();
                 if (!SavedSetsGrid.IsValid() || SavedSetsSection != Section
-                    || SavedSetsTheme.Get() != Theme || SavedSetsHeight != Height)
+                    || SavedSetsTheme.Get() != Theme || SavedSetsHeight != Height || RenderedSavedSetIndex != SavedSetIndex)
                 {
                     BuildSavedSetsGrid(Section, *Theme, Height);
                 }
@@ -531,37 +573,52 @@ public:
     }
 
 private:
+    void ToggleSavedSets()
+    {
+        bSavedSetsOpen = !bSavedSetsOpen;
+        if (bSavedSetsOpen)
+        {
+            SavedSetIndex = 0;
+        }
+    }
+
     void BuildSavedSetsGrid(FName Section, UCIInventoryTileTheme& Theme, double PanelExtent)
     {
-        constexpr int32 VisibleRows = 6;
         const double Heading = Theme.GroupLabelHeight + Theme.GroupLabelPadding.GetTotalSpaceAlong<Orient_Vertical>();
-        const float RowHeight = FMath::Max(1.0, (PanelExtent - Heading - (VisibleRows - 1) * Theme.RowGap) / VisibleRows);
+        SavedSetsRowHeight = FMath::Max(1.0, (PanelExtent - Heading - (VisibleSavedSetRows - 1) * Theme.RowGap) / VisibleSavedSetRows);
         SavedSetsTexture.Reset();
         SavedSetsGrid.Reset(NewObject<UCFSpanGrid>());
         SavedSetsGrid->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-        SavedSetsGrid->Configure(1, RowHeight, 0.f, Theme.RowGap, Theme.GroupGap,
+        SavedSetsGrid->Configure(1, SavedSetsRowHeight, 0.f, Theme.RowGap, Theme.GroupGap,
             Theme.GroupLabelHeight, Theme.GroupLabelPadding, Theme.GroupLabelFont, Theme.GroupLabelTint);
         SavedSetsGrid->AddHeading(SavedSetsLabel(Section));
 
-        auto* Tile = NewObject<UCFTile>(SavedSetsGrid.Get());
-        Tile->Theme = &Theme;
-        auto* Label = NewObject<UTextBlock>(Tile);
-        Label->SetText(NSLOCTEXT("Inventory", "NewGearSet", "Create"));
-        Label->SetFont(Theme.LabelFont);
-        Label->SetColorAndOpacity(FSlateColor(Theme.TextTint));
-        auto* Inset = NewObject<UBorder>(Tile);
-        Inset->SetBrushColor(FLinearColor::Transparent);
-        Inset->SetPadding(FMargin(Theme.Spacing, 0.f));
-        Inset->SetVerticalAlignment(VAlign_Center);
-        Inset->SetContent(Label);
-        Tile->SetContent(Inset);
-        SavedSetsGrid->AddItem(*Tile, 1);
-        Tile->TakeWidget();
-        Tile->SetVisualState(1.f, 1.f);
+        FirstSavedSetIndex = FMath::Max(0, SavedSetIndex + 1 - VisibleSavedSetRows);
+        for (int32 Index = FirstSavedSetIndex; Index < FirstSavedSetIndex + VisibleSavedSetRows && Index <= SavedSetNames.Num(); ++Index)
+        {
+            auto* Tile = NewObject<UCFTile>(SavedSetsGrid.Get());
+            Tile->Theme = &Theme;
+            auto* Label = NewObject<UTextBlock>(Tile);
+            Label->SetText(SavedSetNames.IsValidIndex(Index) ? FText::AsCultureInvariant(SavedSetNames[Index])
+                : NSLOCTEXT("Inventory", "NewGearSet", "Create"));
+            Label->SetFont(Theme.LabelFont);
+            Label->SetColorAndOpacity(FSlateColor(Theme.TextTint));
+            auto* Inset = NewObject<UBorder>(Tile);
+            Inset->SetBrushColor(FLinearColor::Transparent);
+            Inset->SetPadding(FMargin(Theme.Spacing, 0.f));
+            Inset->SetVerticalAlignment(VAlign_Center);
+            Inset->SetContent(Label);
+            Tile->SetContent(Inset);
+            SavedSetsGrid->AddItem(*Tile, 1);
+            Tile->TakeWidget();
+            const float Selection = Index == SavedSetIndex ? 1.f : 0.f;
+            Tile->SetVisualState(Selection, Selection);
+        }
 
         SavedSetsSection = Section;
         SavedSetsTheme = &Theme;
         SavedSetsHeight = PanelExtent;
+        RenderedSavedSetIndex = SavedSetIndex;
     }
 
     FInventoryShellLayout GetLayout(const FVector2D& Size) const
@@ -662,8 +719,14 @@ private:
     TStrongObjectPtr<UTextureRenderTarget2D> FooterTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> SavedSetsTexture;
     static constexpr double SavedSetsWidthRatio = .49 * (2.0 / 3.0);
+    static constexpr int32 VisibleSavedSetRows = 6;
     float SavedSetsReveal = 0.f;
     bool bSavedSetsOpen = false;
+    TArray<FString> SavedSetNames;
+    int32 SavedSetIndex = 0;
+    int32 RenderedSavedSetIndex = INDEX_NONE;
+    int32 FirstSavedSetIndex = 0;
+    float SavedSetsRowHeight = 0.f;
     FWidgetRenderer* Renderer = nullptr;
     FVector2D LastGridViewport = FVector2D::ZeroVector;
     double LastGridPixelScale = 0.0;
@@ -677,8 +740,40 @@ void UCIInventoryShell::SetActionSection(FName Section)
     {
         SavedSetConfirm.Unbind();
         bConfirmEquips = false;
+        if (Shell)
+        {
+            Shell->SetSavedSetsState(Shell->IsSavedSetsOpen() && HasSavedSets(Section), 0);
+        }
     }
     ActionSection = Section;
+}
+
+void UCIInventoryShell::SetSavedSetNames(TArray<FString> Names)
+{
+    SavedSetNames = MoveTemp(Names);
+    if (Shell)
+    {
+        Shell->SetSavedSetNames(SavedSetNames);
+    }
+}
+
+void UCIInventoryShell::SetCreateSavedSetAction(TFunction<void(bool)> Action)
+{
+    CreateSavedSet = MoveTemp(Action);
+}
+
+void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
+{
+    if (ActionSection != Previous.ActionSection)
+    {
+        return;
+    }
+    bRestoreSavedSetsOpen = Previous.Shell ? Previous.Shell->IsSavedSetsOpen() : Previous.bRestoreSavedSetsOpen;
+    RestoredSavedSetIndex = Previous.Shell ? Previous.Shell->GetSavedSetIndex() : Previous.RestoredSavedSetIndex;
+    if (Shell)
+    {
+        Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
+    }
 }
 
 void UCIInventoryShell::SetSavedSetConfirmAction(bool bEquip, FSimpleDelegate Action)
@@ -709,10 +804,20 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
         .InventoryTheme_Lambda([this] {
             return LayoutTheme ? LayoutTheme.Get() : GetMutableDefault<UCIInventoryTileTheme>();
         })
-        .ConfirmEquips_Lambda([this] { return bConfirmEquips; })
-        .ConfirmAvailable_Lambda([this] { return SavedSetConfirm.IsBound(); })
-        .OnConfirmSavedSet(FSimpleDelegate::CreateWeakLambda(this, [this] { SavedSetConfirm.ExecuteIfBound(); }));
+        .ConfirmEquips_Lambda([this] { return bConfirmEquips || (Shell && Shell->IsExistingSavedSetSelected()); })
+        .ConfirmAvailable_Lambda([this] {
+            return SavedSetConfirm.IsBound() || (CreateSavedSet && !bConfirmEquips && Shell
+                && !Shell->IsExistingSavedSetSelected() && SavedSetNames.Num() < 32);
+        })
+        .OnConfirmSavedSet(FSimpleDelegate::CreateWeakLambda(this, [this] {
+            if (!SavedSetConfirm.ExecuteIfBound() && CreateSavedSet)
+            {
+                CreateSavedSet(ActionSection == ApparelSection);
+            }
+        }));
     UpdateContent();
+    Shell->SetSavedSetNames(SavedSetNames);
+    Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
     return Shell.ToSharedRef();
 }
 

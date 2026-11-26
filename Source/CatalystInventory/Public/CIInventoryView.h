@@ -31,6 +31,7 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Catalyst|Inventory|Layout")
     void SetHalfSize(bool bEnabled);
+    class UCIInventoryShell* GetInventoryShell() const;
 
 protected:
     UPROPERTY(EditDefaultsOnly, Category = "Catalyst|Inventory")

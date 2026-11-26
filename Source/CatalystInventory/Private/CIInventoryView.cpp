@@ -155,12 +155,37 @@ void UCIInventoryView::PresentSection(int32 Index, UCFMenuItem*)
         const auto Layout = Section ? Section->Describe().property("metadata:ciGrid") : magritte::Value();
         const auto* Kind = std::get_if<magritte::Value::Symbol>(&Layout.data);
         Shell->SetActionSection(Kind ? FName(UTF8_TO_TCHAR(Kind->utf8.c_str())) : NAME_None);
+        TArray<FString> Names;
+        if (Section && Kind && (Kind->utf8 == "gear" || Kind->utf8 == "apparel"))
+        {
+            for (const auto& Entry : Section->Related(Kind->utf8 + "SavedSets", 32))
+            {
+                for (const auto& Field : Entry.Describe().orderedChildren())
+                {
+                    if (Field->id == "displayName")
+                    {
+                        const auto Value = Entry.Read(*Field);
+                        if (const auto* Name = std::get_if<std::string>(&Value.data))
+                        {
+                            Names.Add(UTF8_TO_TCHAR(Name->c_str()));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        Shell->SetSavedSetNames(MoveTemp(Names));
     }
     auto* Slot = CastChecked<UNamedSlot>(MainPanel->GetChildAt(Index));
     if (!Slot->GetContent() && Section)
     {
         Slot->SetContent(FCIInventorySection(MoveTemp(*Section), TileTheme, ItemIcons, bHalfSize).AsView({*WidgetTree, ViewState.ToSharedRef()}));
     }
+}
+
+UCIInventoryShell* UCIInventoryView::GetInventoryShell() const
+{
+    return WidgetTree ? Cast<UCIInventoryShell>(WidgetTree->RootWidget) : nullptr;
 }
 
 void UCIInventoryView::SetHalfSize(bool bEnabled)

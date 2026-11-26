@@ -17,6 +17,9 @@ class CATALYSTINVENTORY_API UCIInventoryShell : public UPanelWidget
 public:
     void SetLayoutTheme(UCIInventoryTileTheme* InTheme);
     void SetActionSection(FName Section);
+    void SetSavedSetNames(TArray<FString> Names);
+    void SetCreateSavedSetAction(TFunction<void(bool)> Action);
+    void RestoreSavedSetsState(const UCIInventoryShell& Previous);
     /** Bind Create or Equip for the selected row. An unbound action is disabled. */
     void SetSavedSetConfirmAction(bool bEquip, FSimpleDelegate Action);
 
@@ -44,8 +47,12 @@ private:
 
     TWeakObjectPtr<UCFMenu> BoundMenu;
     FName ActionSection;
+    TArray<FString> SavedSetNames;
+    TFunction<void(bool)> CreateSavedSet;
     FSimpleDelegate SavedSetConfirm;
     bool bConfirmEquips = false;
+    bool bRestoreSavedSetsOpen = false;
+    int32 RestoredSavedSetIndex = 0;
 
     TSharedPtr<class SCIInventoryShell> Shell;
 };

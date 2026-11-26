@@ -19,6 +19,15 @@ the source has no authorized profile. The three item sections share Foundation's
 CFSpanGrid. Apparel and Gear start at six columns and Resources at four.
 SetHalfSize doubles the column count while keeping each item's span.
 
+To enable Create in both saved-set sidebars, supply the Create callback when
+binding the session view. The callback sends the selected kind through the
+same signed-in `UCUGameProfileSession` with `RequestProfileUpdate`. The
+Inventory qualification gateway registers operation 104, with a one-byte
+request of 0 for Gear Sets or 1 for Outfits. The server picks the name,
+captures the equipped slots and returns an updated profile. The view uses
+the section's `gearSavedSets` or `apparelSavedSets` relation to render the
+list and keeps the created entry selected after the refresh.
+
 An independently authored Widget Blueprint can still use the named
 `InventoryTile` binding and the game session's `ICFPlayerMagritteSource`
 through `BindToPlayer`. Publish graph replacements and sign-out through
