@@ -436,4 +436,72 @@ bool FCIInventoryCatalogGearTest::RunTest(const FString&)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCIInventoryCatalogWeaponsTest, "Catalyst.Inventory.CatalogWeapons",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
+{
+    const auto Plugin = IPluginManager::Get().FindPlugin(TEXT("CatalystInventory"));
+    FString Json;
+    if (!TestTrue(TEXT("Load the catalog weapon profile"), Plugin &&
+        FFileHelper::LoadFileToString(Json, *(Plugin->GetBaseDir() / TEXT("Tests/Fixtures/CatalogWeaponProfile.json")))))
+    {
+        return false;
+    }
+    const auto User = CIInventoryProfile::DecodeUser(Json, TEXT("inventory-fixture"));
+    if (!TestTrue(TEXT("Decode the weapon profile"), User.IsSet()))
+    {
+        return false;
+    }
+    const auto Gear = User->Follow("profile")->Follow("inventory")->Follow("gear");
+    if (!TestTrue(TEXT("The combined preview keeps the gadget and gear slots"), Gear
+        && Gear->Related("gadgets", 2).Num() == 2 && Gear->Related("equippedGear", 6).Num() == 6))
+    {
+        return false;
+    }
+    const auto Weapons = Gear ? Gear->Related("toolsWeapons", 4) : TArray<FCFMagritteBinding>();
+    if (!TestEqual(TEXT("Populate the melee, off-hand and ranged slots"), Weapons.Num(), 3))
+    {
+        return false;
+    }
+
+    const char* Damage[] = {"52.8", "34.0", "28.0"};
+    const int32 AttachmentCount[] = {0, 2, 3};
+    const int64 Accuracy[] = {0, 72, 82};
+    for (int32 Index = 0; Index < Weapons.Num(); ++Index)
+    {
+        const auto Inspector = Weapons[Index].Follow("inspector");
+        if (!TestTrue(TEXT("An occupied weapon slot has an inspector"), Inspector.IsSet()))
+        {
+            continue;
+        }
+        const auto Stats = Inspector->Follow(Inspector->ObjectId() + ":stats:section");
+        const auto Core = Inspector->Follow(Inspector->ObjectId() + ":primary:section");
+        const auto Handling = Inspector->Follow(Inspector->ObjectId() + ":meters:section");
+        const auto Attachments = Inspector->Follow(Inspector->ObjectId() + ":slots:section");
+        TestTrue(TEXT("The owned weapon exposes its core roll"), Core.IsSet());
+        TestEqual(TEXT("The attachment card uses the type's sockets"),
+            Attachments ? int32(Attachments->Describe().children.size()) : 0, AttachmentCount[Index]);
+        TestEqual(TEXT("Only ranged weapons have accuracy and stability"),
+            Handling ? int32(Handling->Describe().children.size()) : 0, Index == 0 ? 0 : 2);
+        if (Stats && !Stats->Describe().children.empty())
+        {
+            const auto Value = Stats->Read(*Stats->Describe().children.front());
+            const auto* Text = std::get_if<std::string>(&Value.data);
+            TestTrue(TEXT("Effective damage includes the weapon's own roll"), Text && *Text == Damage[Index]);
+        }
+        else
+        {
+            AddError(TEXT("Weapon stats are missing."));
+        }
+        if (Handling && !Handling->Describe().children.empty())
+        {
+            const auto Value = Handling->Read(*Handling->Describe().children.front());
+            const auto* Amount = std::get_if<std::int64_t>(&Value.data);
+            TestTrue(TEXT("Handling is a numeric value suitable for a meter"), Amount && *Amount == Accuracy[Index]);
+        }
+    }
+    return true;
+}
+
 #endif

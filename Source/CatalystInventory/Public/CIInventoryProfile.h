@@ -7,7 +7,7 @@ class UCCSubsystem;
 
 namespace CIInventoryProfile
 {
-/** Decode an inventory graph for the identity established by the caller's session. */
+/** Decode a local inventory preview for the supplied profile identity. */
 CATALYSTINVENTORY_API TOptional<FCFMagritteBinding> DecodeUser(const FString& Json, const FString& UserId);
 /** Decode a successful operation 103 reply, including the bounded ZLIB envelope. */
 CATALYSTINVENTORY_API TOptional<FCFMagritteBinding> DecodeReply(TConstArrayView<uint8> Body, const FString& UserId);

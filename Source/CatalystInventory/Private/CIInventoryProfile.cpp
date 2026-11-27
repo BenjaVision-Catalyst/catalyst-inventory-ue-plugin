@@ -8,9 +8,10 @@ namespace
 constexpr uint16 ProfileOperation = 103;
 constexpr int32 MaximumReplyBytes = 4080;
 constexpr int32 MaximumGraphBytes = 65536;
+constexpr int32 MaximumPreviewGraphBytes = 128 * 1024;
 constexpr int32 ZlibHeaderBytes = 8;
 
-TOptional<FCFMagritteBinding> DecodeUserUtf8(const std::string& Json, const FString& UserId)
+TOptional<FCFMagritteBinding> DecodeUserUtf8(const std::string& Json, const FString& UserId, int32 Limit = MaximumGraphBytes)
 {
     if (UserId.IsEmpty())
     {
@@ -19,7 +20,7 @@ TOptional<FCFMagritteBinding> DecodeUserUtf8(const std::string& Json, const FStr
     try
     {
         magritte::Limits Limits;
-        Limits.bytes = MaximumGraphBytes;
+        Limits.bytes = Limit;
         auto Graph = std::make_shared<magritte::Graph>(magritte::Graph::decode(Json, Limits));
         const auto User = FCFMagritteBinding::Find(Graph, TCHAR_TO_UTF8(*UserId));
         if (!User || Graph->root != "user" || User->Describe().id != Graph->root)
@@ -39,7 +40,7 @@ TOptional<FCFMagritteBinding> DecodeUserUtf8(const std::string& Json, const FStr
 TOptional<FCFMagritteBinding> CIInventoryProfile::DecodeUser(const FString& Json, const FString& UserId)
 {
     const auto Utf8 = StringCast<UTF8CHAR>(*Json, Json.Len());
-    return DecodeUserUtf8(std::string(reinterpret_cast<const char*>(Utf8.Get()), Utf8.Length()), UserId);
+    return DecodeUserUtf8(std::string(reinterpret_cast<const char*>(Utf8.Get()), Utf8.Length()), UserId, MaximumPreviewGraphBytes);
 }
 
 TOptional<FCFMagritteBinding> CIInventoryProfile::DecodeReply(TConstArrayView<uint8> Body, const FString& UserId)

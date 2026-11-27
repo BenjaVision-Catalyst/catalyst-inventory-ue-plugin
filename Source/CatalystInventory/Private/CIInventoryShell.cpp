@@ -37,6 +37,7 @@
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/SLeafWidget.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/Notifications/SProgressBar.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/SWindow.h"
 #include "Widgets/Text/STextBlock.h"
@@ -1357,6 +1358,7 @@ private:
         const auto* Kind = std::get_if<std::string>(&KindValue.data);
         const bool bSlots = Kind && *Kind == "slots";
         const bool bTier = Kind && *Kind == "tier";
+        const bool bMeters = Kind && *Kind == "meters";
         const bool bControls = Kind && *Kind == "controls";
         auto Content = SNew(SVerticalBox);
         Content->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
@@ -1372,6 +1374,32 @@ private:
             }
 
             const auto Data = Section.Read(*Row);
+            if (bMeters)
+            {
+                if (const auto* Percent = std::get_if<std::int64_t>(&Data.data);
+                    Percent && *Percent >= 0 && *Percent <= 100)
+                {
+                    const float Fraction = static_cast<float>(*Percent) / 100.f;
+                    Content->AddSlot().AutoHeight().Padding(0.f, 3.f)
+                    [
+                        SNew(SVerticalBox)
+                        + SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 3.f)
+                        [
+                            SNew(SHorizontalBox)
+                            + SHorizontalBox::Slot().FillWidth(1.f)
+                            [InspectorText(Label, Theme->LabelFont, true)]
+                            + SHorizontalBox::Slot().AutoWidth()
+                            [InspectorText(FText::AsPercent(Fraction), Theme->LabelFont)]
+                        ]
+                        + SVerticalBox::Slot().AutoHeight()
+                        [
+                            SNew(SBox).HeightOverride(4.f)
+                            [SNew(SProgressBar).Percent(Fraction).FillColorAndOpacity(Theme->TextTint)]
+                        ]
+                    ];
+                }
+                continue;
+            }
             const auto Value = InspectorValue(Data);
             TSharedPtr<SWidget> ValueWidget;
             if (bControls)
