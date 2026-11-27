@@ -174,7 +174,8 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
         EmptySlotIdentifier = FName(*DefinitionIdentifier);
         DefinitionIdentifier.Reset();
     }
-    bShowTier = bShowTier && !bShowCount;
+    const bool bApparelLibrary = CategoryIdentifier == TEXT("Emotes") || CategoryIdentifier == TEXT("Uniforms");
+    bShowTier = bShowTier && !bShowCount && !bApparelLibrary;
     InvalidateLayoutAndVolatility();
 }
 
