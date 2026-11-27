@@ -65,5 +65,4 @@ private:
     TArray<FStat> Stats, ComparisonStats;
     FString Consumable;
     FString ConsumableIcon;
-    FText UtilityTier;
 };

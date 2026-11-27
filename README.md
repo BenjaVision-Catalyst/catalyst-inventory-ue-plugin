@@ -87,7 +87,7 @@ identifier. Higher and lower values have distinct tints and arrows.
 Equal or unavailable comparisons keep the normal value style. When the binding
 supplies an inspector instead, the row displays its compact stats and uses
 `inspectorConsumableIcon` for cartridge or fuel. Gadget rows also read the
-current Utility Tier from the inspector.
+current Utility from the inspector and display it with the other row stats.
 
 The row accepts the compact equipment fields plus `consumableTypeIdentifier`,
 `requiredPlayerLevel`, `isProficient`, `maximumAttributes`,

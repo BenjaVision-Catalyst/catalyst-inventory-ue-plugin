@@ -1,4 +1,5 @@
 #include "CIInventoryShell.h"
+#include "CIInventoryRowData.h"
 
 #include "CIApparelRow.h"
 #include "CIEquipmentTile.h"
@@ -1503,7 +1504,7 @@ private:
             }
             if (auto* WeaponTheme = Cast<UCIWeaponToolRowTheme>(RowTheme))
             {
-                WeaponTheme->StatWidth = 66.f;
+                WeaponTheme->StatWidth = Kind == TEXT("gadget") ? 52.f : 66.f;
                 WeaponTheme->TalentAreaWidth = 36.f;
             }
             if (auto* GearTheme = Cast<UCIGearRowTheme>(RowTheme))
@@ -2073,7 +2074,7 @@ private:
         }
         for (const auto& Row : Section.Describe().orderedChildren())
         {
-            const auto Label = InspectorValue(Row->property("label"));
+            const auto Label = CIInventoryRowData::NormalizeLabel(InspectorValue(Row->property("label")));
             if (!IsInspectorFieldVisible(*Row))
             {
                 continue;
@@ -2227,7 +2228,7 @@ private:
                         }
                         if (const auto Section = Inspector->Follow(*Field))
                         {
-                            const auto Heading = InspectorValue(Field->property("label"));
+                            const auto Heading = CIInventoryRowData::NormalizeLabel(InspectorValue(Field->property("label")));
                             if (!Heading.IsEmpty())
                             {
                                 FMargin HeadingPadding = Theme->GroupLabelPadding;

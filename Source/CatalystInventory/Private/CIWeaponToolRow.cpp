@@ -39,26 +39,11 @@ void UCIWeaponToolRow::BindItem(const FCFMagritteBinding& Item)
     const bool bSupported = IsToolRowKind(PresentationKind);
     SetVisibility(bSupported ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     Stats.Reset();
-    UtilityTier = FText::GetEmpty();
     Consumable = CIInventoryRowData::Read(Item, "consumableTypeIdentifier").ToString();
     ConsumableIcon = CIInventoryRowData::Read(Item, "inspectorConsumableIcon").ToString();
     if (bSupported)
     {
         Stats = ReadStats(Item);
-        if (PresentationKind == TEXT("gadget"))
-        {
-            if (const auto TierCard = CIInventoryRowData::Card(Item, "tier"))
-            {
-                for (const auto& Field : TierCard->Describe().orderedChildren())
-                {
-                    if (ReadIdentifier(Field->property("label")) == TEXT("Current tier"))
-                    {
-                        UtilityTier = CIInventoryRowData::DisplayValue(TierCard->Read(*Field));
-                        break;
-                    }
-                }
-            }
-        }
     }
     RefreshDetails();
 }
@@ -121,6 +106,57 @@ TArray<UCIWeaponToolRow::FStat> UCIWeaponToolRow::ReadStats(const FCFMagritteBin
             }
         }
     }
+    if (CIInventoryRowData::Read(Item, "presentationKind").ToString() == TEXT("gadget"))
+    {
+        auto Utility = CIInventoryRowData::Card(Item, "utility");
+        if (!Utility)
+        {
+            Utility = CIInventoryRowData::Card(Item, "tier");
+        }
+        if (Utility)
+        {
+            const FText UtilityLabel = NSLOCTEXT("CatalystInventory", "UtilityLabel", "Utility");
+            for (const auto& Field : Utility->Describe().orderedChildren())
+            {
+                if (!CIInventoryRowData::NormalizeLabel(CIInventoryRowData::DisplayValue(Field->property("label")))
+                    .EqualTo(UtilityLabel))
+                {
+                    continue;
+                }
+                const FText Display = CIInventoryRowData::DisplayValue(Utility->Read(*Field));
+                if (!Display.IsEmpty())
+                {
+                    TOptional<double> Score;
+                    double Number;
+                    if (Display.ToString().IsNumeric() && LexTryParseString(Number, *Display.ToString()))
+                    {
+                        Score = Number;
+                    }
+                    Result.Insert({TEXT("utility"), UtilityLabel, Score, Display}, 0);
+                }
+                break;
+            }
+        }
+
+        for (FStat& Stat : Result)
+        {
+            const FString Name = Stat.Label.ToString();
+            if (Name == TEXT("Cooldown"))
+            {
+                Stat.Label = LOCTEXT("CooldownAbbreviation", "CD");
+            }
+            else if (Name == TEXT("Deployment duration") || Name == TEXT("Reveal duration"))
+            {
+                Stat.Label = LOCTEXT("DurationAbbreviation", "DUR");
+            }
+            else if (Name == TEXT("Scan range"))
+            {
+                Stat.Label = LOCTEXT("RangeAbbreviation", "RNG");
+            }
+        }
+        return Result;
+    }
+
     TOptional<double> Damage;
     bool bHasDps = false;
     for (FStat& Stat : Result)
@@ -200,15 +236,6 @@ void UCIWeaponToolRow::RefreshDetails()
         SNew(STextBlock).Text(Label).Font(Style.LabelFont).ColorAndOpacity(Style.TextTint)
         .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Label)
     ];
-    if (!UtilityTier.IsEmpty())
-    {
-        Title->AddSlot().AutoWidth().VAlign(VAlign_Center)
-        [
-            SNew(STextBlock).Text(FText::Format(LOCTEXT("UtilityTierValue", "Utility Tier {0}"), UtilityTier))
-            .Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
-        ];
-    }
-
     PopulateRowIndicators(*Indicators);
     RefreshStats();
     InvalidateLayoutAndVolatility();

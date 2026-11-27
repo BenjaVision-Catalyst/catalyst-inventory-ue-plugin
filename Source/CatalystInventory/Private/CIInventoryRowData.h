@@ -21,6 +21,17 @@ inline FText DisplayValue(const magritte::Value& Value)
     return FText::GetEmpty();
 }
 
+inline FText NormalizeLabel(const FText& Label)
+{
+    const FString Name = Label.ToString();
+    // Older profiles still send these labels for the same stat.
+    if (Name == TEXT("Utility Tier") || Name == TEXT("Current tier"))
+    {
+        return NSLOCTEXT("CatalystInventory", "UtilityLabel", "Utility");
+    }
+    return Label;
+}
+
 inline FText Read(const FCFMagritteBinding& Item, std::string_view Id)
 {
     for (const auto& Field : Item.Describe().orderedChildren())

@@ -193,13 +193,14 @@ void UCIGearRow::RefreshDetails()
             || Attribute->Id.Equals(TEXT("armour"), ESearchCase::IgnoreCase)
             || AttributeName.Equals(TEXT("armor"), ESearchCase::IgnoreCase)
             || AttributeName.Equals(TEXT("armour"), ESearchCase::IgnoreCase);
-        const FText StatLabel = bArmour ? LOCTEXT("ArmourAbbreviation", "ARM") : Attribute->Label;
+        const FText AttributeLabel = CIInventoryRowData::NormalizeLabel(Attribute->Label);
+        const FText StatLabel = bArmour ? LOCTEXT("ArmourAbbreviation", "ARM") : AttributeLabel;
         Primary->AddSlot().FillWidth(1.f).HAlign(HAlign_Left).VAlign(VAlign_Center)
         [
             SNew(SVerticalBox)
             + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.f, 0.f, 0.f, -2.f)
             [SNew(STextBlock).Text(StatLabel).Font(Style.StatLabelFont).ColorAndOpacity(Style.TextTint)
-                .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Attribute->Label)]
+                .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(AttributeLabel)]
             + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
             [SNew(STextBlock).Text(Attribute->Value).Font(Style.CountFont).ColorAndOpacity(Style.PrimaryValueTint)
                 .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Attribute->Value)]
