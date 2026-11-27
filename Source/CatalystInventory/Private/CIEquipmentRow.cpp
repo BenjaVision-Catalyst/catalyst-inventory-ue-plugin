@@ -20,7 +20,7 @@ FString UCIEquipmentRow::ReadIdentifier(const magritte::Value& Value)
 
 UCIEquipmentRowTheme::UCIEquipmentRowTheme()
 {
-    Style.Background = FLinearColor(.075f, .114f, .153f);
+    Style.Background = FLinearColor(.075f, .114f, .153f, .24f);
     Style.FocusedBackground = FLinearColor(.086f, .067f, .212f);
     IconSize = 92.f;
     IconWidth = 144.f;

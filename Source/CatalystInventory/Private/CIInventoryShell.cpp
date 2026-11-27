@@ -2341,8 +2341,25 @@ private:
         }
         if (SlotPicker && SlotPickerTexture.IsValid())
         {
-            const FBox2D Bounds(Layout.MainOrigin, Layout.MainOrigin + Layout.MainExtent);
-            PaintBackdrop(Layout.Left, Bounds.Min, Bounds.Max);
+            const int32 End = FMath::Min(FirstSlotChoice + VisibleSlotChoices(Layout), SlotPicker->Choices.Num());
+            const double RowHeight = SlotPickerRowHeight * Layout.Scale;
+            const double Pitch = (SlotPickerRowHeight + SlotPickerRowGap) * Layout.Scale;
+            const double PanelBottom = Layout.MainOrigin.Y + Layout.MainExtent.Y;
+            const double PanelRight = Layout.MainOrigin.X + Layout.MainExtent.X;
+            for (int32 Index = FirstSlotChoice; Index < End; ++Index)
+            {
+                if (Index == RenderedSlotChoice)
+                {
+                    continue;
+                }
+                const double Top = Layout.MainOrigin.Y + SlotPickerHeadingHeight * Layout.Scale
+                    + (Index - FirstSlotChoice) * Pitch;
+                const double Bottom = FMath::Min(Top + RowHeight, PanelBottom);
+                if (Bottom > Top)
+                {
+                    PaintBackdrop(Layout.Left, {Layout.MainOrigin.X, Top}, {PanelRight, Bottom});
+                }
+            }
             return;
         }
         const auto* Grid = Cast<UCFSpanGrid>(MainContent.Get());
