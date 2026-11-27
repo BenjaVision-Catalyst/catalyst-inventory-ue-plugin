@@ -1512,7 +1512,7 @@ private:
             const auto* Metres = std::get_if<std::int64_t>(&Distance.data);
             const auto* Percent = std::get_if<std::int64_t>(&Damage.data);
             if (!Metres || !Percent || *Metres < 0 || *Percent < 0 || *Percent > 100
-                || (!Points.IsEmpty() && *Metres <= Points.Last().X))
+                || (!Points.IsEmpty() && (*Metres <= Points.Last().X || *Percent > Points.Last().Y)))
             {
                 return nullptr;
             }
@@ -1530,15 +1530,18 @@ private:
         };
         const auto MaxDistance = Metres(int64(Points.Last().X));
         const double LongestRange = Points.Last().X;
+        const double InitialDamage = Points[0].Y;
+        const double DamageDrop = InitialDamage - Points.Last().Y;
         for (auto& Point : Points)
         {
-            Point = {Point.X / LongestRange, 1.0 - Point.Y / 100.0};
+            Point = {Point.X / LongestRange, DamageDrop > 0.0 ? (InitialDamage - Point.Y) / DamageDrop : 0.0};
         }
         return SNew(SVerticalBox)
             + SVerticalBox::Slot().AutoHeight()
             [
                 SNew(SCIInspectorLines)
                 .Stroke(MoveTemp(Points))
+                .Height(40.f)
                 .Tracks(TArray<TArray<FVector2D>>{{{0.0, 0.0}, {1.0, 0.0}}, {{0.0, 1.0}, {1.0, 1.0}}})
                 .Tint(Theme->TextTint)
                 .Sink(InspectorStrokeSink())
