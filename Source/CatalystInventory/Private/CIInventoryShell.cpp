@@ -1686,11 +1686,12 @@ private:
             return LabelWidget;
         }
 
+        const FLinearColor IconTint = (*Tint * .6f).CopyWithNewOpacity(.65f);
         return SNew(SHorizontalBox)
             + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 6.f, 0.f)
             [
                 SNew(SBox).WidthOverride(InspectorAttributeIconSize).HeightOverride(InspectorAttributeIconSize)
-                [SNew(SImage).Image(&InspectorAttributeIconBrush).ColorAndOpacity(*Tint)]
+                [SNew(SImage).Image(&InspectorAttributeIconBrush).ColorAndOpacity(IconTint)]
             ]
             + SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)[LabelWidget];
     }
