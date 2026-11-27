@@ -43,6 +43,7 @@ UCIInventoryTileTheme::UCIInventoryTileTheme()
         {TEXT("MeleeWeapon"), 0xf6cb}, {TEXT("LeftHandWeapon"), 0xf140}, {TEXT("RangedWeapon"), 0xf05b},
         {TEXT("Mask"), 0xf6ee}, {TEXT("Backpack"), 0xf5d4}, {TEXT("Chest"), 0xe085},
         {TEXT("Gloves"), 0xf438}, {TEXT("KneePads"), 0xf3ed}, {TEXT("ModStorage"), 0xf552},
+        {TEXT("Drone"), 0xf544}, {TEXT("Pulse"), 0xf7c0},
         {TEXT("GadgetLeft"), 0xf2db}, {TEXT("GadgetRight"), 0xf2db},
         {TEXT("Hat"), 0xf7a8}, {TEXT("Neck"), 0xf7c1}, {TEXT("Shirt"), 0xf553},
         {TEXT("Pants"), 0xf554}, {TEXT("Shoes"), 0xf782}, {TEXT("Glasses"), 0xf530},
@@ -325,15 +326,17 @@ TSharedRef<SWidget> UCIInventoryTile::BuildTileIcon()
                     [
                         SNew(STextBlock)
                         .Visibility_Lambda([this] {
-                            return ShowsItemIcon() && !EmptySlotIdentifier.IsNone() && !ResolveTileIcon()
+                            return ShowsItemIcon() && (!EmptySlotIdentifier.IsNone() || !FallbackIconIdentifier.IsNone())
+                                && !ResolveTileIcon()
                                 ? EVisibility::HitTestInvisible : EVisibility::Collapsed;
                         })
                         .Text_Lambda([this] {
-                            const int32* Glyph = GetInventoryTheme().SlotIconGlyphs.Find(EmptySlotIdentifier);
+                            const FName Identifier = EmptySlotIdentifier.IsNone() ? FallbackIconIdentifier : EmptySlotIdentifier;
+                            const int32* Glyph = GetInventoryTheme().SlotIconGlyphs.Find(Identifier);
                             return FText::AsCultureInvariant(FString::Chr(Glyph ? *Glyph : 0xf12e));
                         })
                         .Font_Lambda([this] { return GetInventoryTheme().SlotIconFont; })
-                        .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().EmptySlotIconTint); })
+                        .ColorAndOpacity_Lambda([this] { return FSlateColor(EmptySlotIdentifier.IsNone() ? GetInventoryTheme().IconTint : GetInventoryTheme().EmptySlotIconTint); })
                     ]
                 ]
             ]

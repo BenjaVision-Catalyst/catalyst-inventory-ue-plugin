@@ -1464,6 +1464,7 @@ private:
             }
             Row->Label = Choice.Label;
             Row->Icon = Choice.Icon.Get();
+            Row->FallbackIconIdentifier = Choice.FallbackIconIdentifier;
             if (auto* Weapon = Cast<UCIWeaponToolRow>(Row))
             {
                 Weapon->SetComparisonItem(Equipped);

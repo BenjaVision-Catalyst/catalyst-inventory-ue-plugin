@@ -50,7 +50,8 @@ private:
     {
         FString Id;
         FText Label;
-        double Value;
+        TOptional<double> Value;
+        FText Display;
     };
 
     static TArray<FStat> ReadStats(const FCFMagritteBinding& Item);
@@ -61,4 +62,7 @@ private:
     TSharedPtr<class SHorizontalBox> Title, StatWidgets, Indicators;
     TArray<FStat> Stats, ComparisonStats;
     FString Consumable;
+    FString ConsumableIcon;
+    FText Manufacturer;
+    FText UtilityTier;
 };

@@ -79,12 +79,15 @@ Equipment theme assets map brand, talent and attribute IDs to local art.
 A positive numeric `storageCapacity` displays `inventoryTypeCount` as used
 space over capacity, including when the used space is zero.
 
-Use `CIWeaponToolRow` in a tool or weapon list. Bind the item with
+Use `CIWeaponToolRow` in a tool, weapon or gadget list. Bind the item with
 `BindItem` and pass the list's selected item to `SetComparisonItem`.
 Update the comparison item when selection changes and clear it when the
 list has no selection. The widget matches numeric stats by Catalyst
 identifier. Higher and lower values have distinct tints and arrows.
-Equal or unavailable comparisons keep the normal value style.
+Equal or unavailable comparisons keep the normal value style. When the binding
+supplies an inspector instead, the row displays its `stats` card and uses
+`inspectorConsumableIcon` for cartridge or fuel. Gadget rows also read the
+current Utility Tier from the inspector.
 
 The row accepts the compact equipment fields plus `consumableTypeIdentifier`,
 `requiredPlayerLevel`, `isProficient`, `maximumAttributes`,
@@ -97,8 +100,9 @@ proficiency and talent art locally.
 Use `CIGearRow` for an individual gear item. It uses the same Equipment Row
 layout and Inventory tier band as tool and weapon rows. `CIGearRowTheme`
 resolves local brand, gear-slot, talent and junk art. The gear summary supplies
-the brand name, optional primary attribute, required player level and item
-state. The primary attribute specifies its identifier, display name, type,
+the manufacturer, armour contribution, optional core attribute, required
+player level and item state. The row can read the core attribute from the
+inspector's `primary` card. The primary attribute specifies its identifier, display name, type,
 numeric value, format and maximum state. Use a fractional value for
 `signedPercent` (for example, 0.15 displays as +15%). Secondary attribute and
 talent indicators use the shared Equipment Row rendering.
@@ -119,6 +123,9 @@ preview or resource icon. The resource theme can hide the label and supply a
 fallback icon when the presenter has no definition-specific art.
 
 Use `CIApparelRow` for an individual apparel item in a list. Bind the item
-summary's definition identifier, display name, tier and optional brand name.
+summary's definition identifier, display name, tier and optional manufacturer.
 The apparel row theme uses the equipment row's visual defaults with a shorter
 layout. The view resolves preview art by definition identifier.
+
+The slot picker accepts a thumbnail from the host and can use a theme glyph
+when item artwork is unavailable.

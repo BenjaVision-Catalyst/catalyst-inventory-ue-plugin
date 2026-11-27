@@ -1,4 +1,5 @@
 #include "CIApparelRow.h"
+#include "CIInventoryRowData.h"
 
 #include "Styling/CoreStyle.h"
 #include "Widgets/Layout/SBorder.h"
@@ -22,19 +23,7 @@ void UCIApparelRow::BindItem(const FCFMagritteBinding& Item)
         Icon = nullptr;
     }
 
-    BrandName = FText::GetEmpty();
-    for (const auto& Field : Item.Describe().orderedChildren())
-    {
-        if (Field->id == "brandName")
-        {
-            const auto Value = Item.Read(*Field);
-            if (const auto* Brand = std::get_if<std::string>(&Value.data))
-            {
-                BrandName = FText::FromString(UTF8_TO_TCHAR(Brand->c_str()));
-            }
-            break;
-        }
-    }
+    Manufacturer = CIInventoryRowData::Manufacturer(Item);
     InvalidateLayoutAndVolatility();
 }
 
@@ -81,12 +70,12 @@ TSharedRef<SWidget> UCIApparelRow::BuildInventoryContent()
                 [BuildTileLabel()]
                 + SVerticalBox::Slot().AutoHeight()
                 [
-                    SNew(STextBlock).Text_Lambda([this] { return BrandName; })
+                    SNew(STextBlock).Text_Lambda([this] { return Manufacturer; })
                     .Font_Lambda([this] { return GetInventoryTheme().CountFont; })
                     .ColorAndOpacity_Lambda([this] { return GetInventoryTheme().TextTint; })
-                    .Visibility_Lambda([this] { return BrandName.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible; })
+                    .Visibility_Lambda([this] { return Manufacturer.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible; })
                     .OverflowPolicy(ETextOverflowPolicy::Ellipsis)
-                    .ToolTipText_Lambda([this] { return BrandName; })
+                    .ToolTipText_Lambda([this] { return Manufacturer; })
                 ]
             ]
         ];

@@ -170,6 +170,8 @@ public:
     // The authored span stays available after the grid projects its Slate slot widths.
     int32 GridColumnSpan = 1;
 
+    FName FallbackIconIdentifier;
+
     virtual const UCFTileTheme& GetTileTheme() const override;
 
     virtual void BindItem(const FCFMagritteBinding& Item);
@@ -200,6 +202,7 @@ private:
     TOptional<FCFMagritteBinding> InspectorItem;
     FText ItemLabel;
     FName EmptySlotIdentifier;
+
     FString DefinitionIdentifier;
     TOptional<int64> InventoryStorageCapacity;
     FSlateBrush IconBrush;

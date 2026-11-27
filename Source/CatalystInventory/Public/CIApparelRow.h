@@ -28,5 +28,5 @@ protected:
 private:
     const UCIEquipmentRowTheme& GetRowTheme() const;
 
-    FText BrandName;
+    FText Manufacturer;
 };

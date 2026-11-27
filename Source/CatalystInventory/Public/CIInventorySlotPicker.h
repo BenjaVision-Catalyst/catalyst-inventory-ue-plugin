@@ -13,6 +13,7 @@ struct FCIInventorySlotChoice
     bool bEquipped = false;
     TOptional<FCFMagritteBinding> Item{};
     TWeakObjectPtr<UTexture> Icon{};
+    FName FallbackIconIdentifier;
 };
 
 struct FCIInventorySlotPicker

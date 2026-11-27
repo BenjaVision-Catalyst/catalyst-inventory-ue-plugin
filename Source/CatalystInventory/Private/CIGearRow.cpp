@@ -1,8 +1,8 @@
 #include "CIGearRow.h"
+#include "CIInventoryRowData.h"
 
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/SBoxPanel.h"
-#include "Widgets/SNullWidget.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/Text/STextBlock.h"
 
@@ -40,8 +40,8 @@ void UCIGearRow::BindItem(const FCFMagritteBinding& Item)
     Super::BindItem(Item);
     const bool bGear = PresentationKind == TEXT("gear");
     SetVisibility(bGear ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-    BrandName.Reset();
-    GearSlot.Reset();
+    Manufacturer = CIInventoryRowData::Manufacturer(Item);
+    Armour = CIInventoryRowData::Read(Item, "inspectorArmour");
     Attribute.Reset();
     bJunk = false;
     bFavorite = false;
@@ -49,9 +49,7 @@ void UCIGearRow::BindItem(const FCFMagritteBinding& Item)
     {
         for (const auto& Field : Item.Describe().orderedChildren())
         {
-            if (Field->id == "brandName") { BrandName = ReadIdentifier(Item.Read(*Field)); }
-            else if (Field->id == "gearSlotIdentifier") { GearSlot = ReadIdentifier(Item.Read(*Field)); }
-            else if (Field->id == "isJunk") { bJunk = ReadFlag(Item.Read(*Field)); }
+            if (Field->id == "isJunk") { bJunk = ReadFlag(Item.Read(*Field)); }
             else if (Field->id == "isFavorite") { bFavorite = ReadFlag(Item.Read(*Field)); }
         }
         if (const auto PrimaryBinding = Item.Follow("primaryAttribute"))
@@ -88,6 +86,25 @@ void UCIGearRow::BindItem(const FCFMagritteBinding& Item)
                 Attribute.Emplace(MoveTemp(Result));
             }
         }
+        if (!Attribute)
+        {
+            if (const auto PrimaryCard = CIInventoryRowData::Card(Item, "primary"))
+            {
+                for (const auto& Field : PrimaryCard->Describe().orderedChildren())
+                {
+                    FPrimaryAttribute Result;
+                    Result.Label = CIInventoryRowData::DisplayValue(Field->property("label"));
+                    Result.Value = CIInventoryRowData::DisplayValue(PrimaryCard->Read(*Field));
+                    if (!Result.Label.IsEmpty() && !Result.Value.IsEmpty())
+                    {
+                        Result.Id = UTF8_TO_TCHAR(Field->id.c_str());
+                        Result.Type = ReadIdentifier(Field->property("metadata:ciAttributeType"));
+                        Attribute.Emplace(MoveTemp(Result));
+                        break;
+                    }
+                }
+            }
+        }
     }
     RefreshDetails();
 }
@@ -101,15 +118,14 @@ void UCIGearRow::RefreshDetails()
 
     const auto& Style = GetGearTheme();
     Title->ClearChildren();
-    Title->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, Style.MarkerGap, 0.f)
-    [
-        SNew(SBox).WidthOverride(Style.PrimaryMarkerSize).HAlign(HAlign_Center)
-        [
-            GearSlot.IsEmpty() ? SNullWidget::NullWidget
-                : MakeIcon(Style.GearSlotIcons.FindRef(GearSlot), FText::FromString(TEXT("◇")),
-                    FText::FromString(GearSlot), Style.BadgeSize)
-        ]
-    ];
+    FText Subtitle = Manufacturer;
+    if (!Armour.IsEmpty())
+    {
+        const FText Contribution = LOCTEXT("ArmourContribution", "{0} Armour");
+        Subtitle = Manufacturer.IsEmpty() ? FText::Format(Contribution, Armour)
+            : FText::Format(LOCTEXT("ManufacturerAndArmour", "{0} · {1}"), Manufacturer,
+                FText::Format(Contribution, Armour));
+    }
     Title->AddSlot().FillWidth(1.f).VAlign(VAlign_Center)
     [
         SNew(SVerticalBox)
@@ -117,20 +133,19 @@ void UCIGearRow::RefreshDetails()
         [SNew(STextBlock).Text(Label).Font(Style.LabelFont).ColorAndOpacity(Style.TextTint)
             .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Label)]
         + SVerticalBox::Slot().AutoHeight()
-        [SNew(STextBlock).Text(FText::FromString(BrandName)).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
+        [SNew(STextBlock).Text(Subtitle).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
             .OverflowPolicy(ETextOverflowPolicy::Ellipsis)
-            .Visibility(BrandName.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible)]
+            .Visibility(Subtitle.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible)]
     ];
 
     Primary->ClearChildren();
     if (Attribute)
     {
         const auto& MarkerStyle = GetEquipmentTheme();
-        const TCHAR* Glyph = TEXT("◆");
+
         FLinearColor Tint = Style.TextTint;
         if (Attribute->Type == TEXT("offensive"))
         {
-            Glyph = TEXT("●");
             Tint = MarkerStyle.Offensive;
         }
         else if (Attribute->Type == TEXT("defensive"))
@@ -139,10 +154,13 @@ void UCIGearRow::RefreshDetails()
         }
         else if (Attribute->Type == TEXT("utility"))
         {
-            Glyph = TEXT("▲");
             Tint = MarkerStyle.Utility;
         }
-        AddMarker(*Primary, Attribute->Id, Glyph, Tint, true, Attribute->bMaximum, Style.PrimaryMarkerSize);
+        if (Tint != Style.TextTint)
+        {
+            AddMarker(*Primary, Attribute->Id, TEXT("●"), (Tint * .6f).CopyWithNewOpacity(.65f),
+                true, Attribute->bMaximum, 15.f);
+        }
         Primary->AddSlot().FillWidth(1.f).VAlign(VAlign_Center)
         [
             SNew(SVerticalBox)
@@ -150,7 +168,7 @@ void UCIGearRow::RefreshDetails()
             [SNew(STextBlock).Text(Attribute->Label).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
                 .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Attribute->Label)]
             + SVerticalBox::Slot().AutoHeight()
-            [SNew(STextBlock).Text(Attribute->Value).Font(Style.CountFont).ColorAndOpacity(Style.PrimaryValueTint)
+            [SNew(STextBlock).Text(Attribute->Value).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
                 .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Attribute->Value)]
         ];
     }

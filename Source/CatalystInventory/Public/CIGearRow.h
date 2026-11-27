@@ -58,7 +58,8 @@ private:
     TSharedPtr<SHorizontalBox> Title, Primary, Indicators;
     TSharedPtr<class STextBlock> FavoriteIndicator;
     TOptional<FPrimaryAttribute> Attribute;
-    FString BrandName, GearSlot;
+    FText Manufacturer;
+    FText Armour;
     bool bJunk = false;
     bool bFavorite = false;
 };
