@@ -15,7 +15,7 @@ class CATALYSTINVENTORY_API UCIInventoryTierStyle : public UDataAsset
 
 public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tier", meta = (ClampMin = "0.0"))
-    float BandWidth = 4.f;
+    float BandWidth = 8.f;
 };
 
 USTRUCT(BlueprintType)

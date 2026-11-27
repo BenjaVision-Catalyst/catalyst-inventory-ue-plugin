@@ -64,7 +64,7 @@ fill, backdrop blur, tier palette, text fonts, tints, minimum size and spacing. 
 between the icon and visible labels. The icon preserves its aspect ratio
 inside the theme's `IconSize` box.
 
-Compact tiles and rows use the same 4-unit tier band by default. To change the
+Compact tiles and rows use the same 8-unit tier band by default. To change the
 width for a presentation, assign the same `CIInventoryTierStyle` Data Asset to
 each theme's `TierStyle` and edit `BandWidth` on that shared asset. The band gets
 its own layout space before the tile content. Tiles with no tier, including

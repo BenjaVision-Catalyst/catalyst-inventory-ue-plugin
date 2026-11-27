@@ -1485,12 +1485,12 @@ private:
             auto* RowTheme = CastChecked<UCIInventoryTileTheme>(
                 &Row->GetTileTheme())->CreateProjectedSurfaceTheme(Row);
             RowTheme->Style.FocusedBackground = Theme->Style.FocusedBackground;
+            RowTheme->TierColors = Theme->TierColors;
+            RowTheme->TierStyle = Theme->TierStyle;
             if (Row->IsA<UCIApparelRow>())
             {
                 RowTheme->Style = Theme->Style;
                 RowTheme->Style.BackdropBlur = 0.f;
-                RowTheme->TierColors = Theme->TierColors;
-                RowTheme->TierStyle = Theme->TierStyle;
                 RowTheme->TextTint = Theme->TextTint;
             }
             Row->Theme = RowTheme;
