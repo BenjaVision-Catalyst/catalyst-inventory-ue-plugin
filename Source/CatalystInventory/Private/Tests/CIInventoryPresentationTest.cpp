@@ -594,6 +594,25 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         Press(EKeys::Down);
         Press(EKeys::Enter);
         TestEqual(TEXT("The picker equips the selected compatible item"), EquippedIdentifier, FString(TEXT("reserve")));
+
+        Shell->SetSlotPickerSource([&](const FCFMagritteBinding&)
+        {
+            FCIInventorySlotPicker Picker;
+            for (int32 Index = 0; Index < 8; ++Index)
+            {
+                Picker.Choices.Add({FString::FromInt(Index), FText::AsNumber(Index), Index == 0, Weapons[2]});
+            }
+            Picker.Equip = [&](const FString& Identifier) { EquippedIdentifier = Identifier; return true; };
+            return TOptional<FCIInventorySlotPicker>(MoveTemp(Picker));
+        });
+        TestTrue(TEXT("Open the overflowing picker"), Press(EKeys::Enter));
+        for (int32 Index = 0; Index < 7; ++Index)
+        {
+            Press(EKeys::Down);
+            Widget->Tick(Geometry, .6 + Index * .2, .2f);
+        }
+        Press(EKeys::Enter);
+        TestEqual(TEXT("Navigation reaches choices below the visible rows"), EquippedIdentifier, FString(TEXT("7")));
         Shell->SetSlotPickerSource({});
     }
     return true;

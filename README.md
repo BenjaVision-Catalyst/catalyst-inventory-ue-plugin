@@ -129,4 +129,5 @@ layout. The view resolves preview art by definition identifier.
 
 The slot picker accepts a thumbnail from the host and can use a theme glyph
 when item artwork is unavailable. Equipment picker rows use their dedicated
-row styles and the available width to the left of the character.
+row styles within the inventory panel bounds. Scroll the picker with the mouse
+wheel or controller navigation when the choices exceed the panel height.

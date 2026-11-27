@@ -904,6 +904,21 @@ public:
 
     FReply OnMouseWheel(const FGeometry& Geometry, const FPointerEvent& Event) override
     {
+        if (SlotPicker && !OptionsWindow.IsValid())
+        {
+            const auto Layout = GetLayout(Geometry.GetLocalSize());
+            const FBox2D Bounds(Layout.MainOrigin, Layout.MainOrigin + Layout.MainExtent);
+            const auto Point = Layout.Left.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()));
+            if (Bounds.IsInside(Point) && SlotPicker->Choices.Num() > VisibleSlotChoices(Layout))
+            {
+                const float Delta = Event.GetWheelDelta();
+                if (!FMath::IsNearlyZero(Delta))
+                {
+                    MoveNavigation({0, Delta > 0.f ? -1 : 1});
+                }
+                return FReply::Handled();
+            }
+        }
         if (InspectorScroll && InspectorTexture.IsValid() && !OptionsWindow.IsValid())
         {
             const auto Layout = GetLayout(Geometry.GetLocalSize());
@@ -942,9 +957,18 @@ public:
                 }
                 else
                 {
-                    const auto Bounds = SlotPickerBounds(Layout);
+                    const FBox2D Bounds(Layout.MainOrigin, Layout.MainOrigin + Layout.MainExtent);
                     const auto Point = (PlanePoint - Bounds.Min) / Layout.Scale;
-                    if (Point.X >= 0.0 && Point.X < Bounds.GetSize().X / Layout.Scale && Point.Y >= SlotPickerHeadingHeight)
+                    const int32 Count = SlotPicker->Choices.Num();
+                    const double EndX = Bounds.GetSize().X / Layout.Scale;
+                    if (Count > VisibleSlotChoices(Layout) && Point.X >= EndX && Point.X <= EndX + SlotPickerScrollbarGutter
+                        && Point.Y >= SlotPickerHeadingHeight && Point.Y <= Bounds.GetSize().Y / Layout.Scale)
+                    {
+                        const double Fraction = (Point.Y - SlotPickerHeadingHeight)
+                            / (Bounds.GetSize().Y / Layout.Scale - SlotPickerHeadingHeight);
+                        SlotChoice = FMath::Clamp(FMath::RoundToInt(Fraction * (Count - 1)), 0, Count - 1);
+                    }
+                    else if (Point.X >= 0.0 && Point.X < EndX && Point.Y >= SlotPickerHeadingHeight)
                     {
                         const int32 Row = FMath::FloorToInt((Point.Y - SlotPickerHeadingHeight) / (SlotPickerRowHeight + SlotPickerRowGap));
                         if (Point.Y - SlotPickerHeadingHeight - Row * (SlotPickerRowHeight + SlotPickerRowGap)
@@ -1201,7 +1225,7 @@ public:
             }
             if (SlotPicker)
             {
-                const auto ExtentInPixels = SlotPickerBounds(Layout).GetSize() * ProjectionRasterScale;
+                const auto ExtentInPixels = Layout.MainExtent * ProjectionRasterScale;
                 const FVector2D PickerSize(FMath::CeilToInt(ExtentInPixels.X), FMath::CeilToInt(ExtentInPixels.Y));
                 if (!SlotPickerWidget || SlotPickerWidgetSize != PickerSize || RenderedSlotChoice != SlotChoice
                     || SlotPickerPaintScale != PaintScale)
@@ -1256,9 +1280,10 @@ public:
         PaintBackdrops(Geometry, Elements, Layer, Layout);
         if (SlotPicker && SlotPickerTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
         {
-            const auto Bounds = SlotPickerBounds(Layout);
+            const FBox2D Bounds(Layout.MainOrigin, Layout.MainOrigin + Layout.MainExtent);
             DrawSurface(Geometry, Elements, Layer + 1, Layout.Left, SlotPickerTexture.Get(),
                 Bounds.Min, Bounds.GetSize());
+            DrawSlotPickerScrollbar(Geometry, Elements, Layer + 2, Layout);
         }
         else if (MainTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
         {
@@ -1467,7 +1492,25 @@ private:
                 RowTheme->TextTint = Theme->TextTint;
             }
             Row->Theme = RowTheme;
-            const auto* EquipmentRowTheme = CastChecked<UCIEquipmentRowTheme>(RowTheme);
+            auto* EquipmentRowTheme = CastChecked<UCIEquipmentRowTheme>(RowTheme);
+            if (!Row->IsA<UCIApparelRow>())
+            {
+                EquipmentRowTheme->ThumbnailWidth = 144.f;
+                EquipmentRowTheme->ContentInset = 8.f;
+                EquipmentRowTheme->ThumbnailInset.Left = 10.f;
+                EquipmentRowTheme->ThumbnailInset.Right = 10.f;
+                EquipmentRowTheme->IconWidth = 118.f;
+            }
+            if (auto* WeaponTheme = Cast<UCIWeaponToolRowTheme>(RowTheme))
+            {
+                WeaponTheme->StatWidth = 66.f;
+                WeaponTheme->TalentAreaWidth = 36.f;
+            }
+            if (auto* GearTheme = Cast<UCIGearRowTheme>(RowTheme))
+            {
+                GearTheme->PrimaryMarkerSize = 30.f;
+                GearTheme->BrandWidth = 72.f;
+            }
             SlotPickerRowHeight = FMath::Max(SlotPickerRowHeight, EquipmentRowTheme->RowHeight);
             if (Choice.Item)
             {
@@ -1488,22 +1531,37 @@ private:
         }
     }
 
-    FBox2D SlotPickerBounds(const FInventoryShellLayout& Layout) const
-    {
-        const FVector2D End = Layout.MainOrigin + Layout.MainExtent;
-        FVector2D Origin = Layout.MainOrigin;
-        if (ActionSection.Get() != ApparelSection)
-        {
-            constexpr float EquipmentListWidth = 768.f;
-            Origin.X = FMath::Max(8.0 * Layout.Scale, End.X - EquipmentListWidth * Layout.Scale);
-        }
-        return FBox2D(Origin, End);
-    }
-
     int32 VisibleSlotChoices(const FInventoryShellLayout& Layout) const
     {
         return FMath::Max(1, FMath::FloorToInt((Layout.MainExtent.Y / Layout.Scale - SlotPickerHeadingHeight + SlotPickerRowGap)
             / (SlotPickerRowHeight + SlotPickerRowGap)));
+    }
+
+    void DrawSlotPickerScrollbar(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
+        const FInventoryShellLayout& Layout) const
+    {
+        const int32 Total = SlotPicker->Choices.Num();
+        const int32 Visible = VisibleSlotChoices(Layout);
+        const double TrackHeight = Layout.MainExtent.Y - SlotPickerHeadingHeight * Layout.Scale;
+        if (Total <= Visible || TrackHeight <= 0.0)
+        {
+            return;
+        }
+
+        const auto& Style = InventoryTheme.Get()->Scrollbar;
+        const double X = Layout.MainOrigin.X + Layout.MainExtent.X + SlotPickerScrollbarGutter * Layout.Scale * .5;
+        const double Y = Layout.MainOrigin.Y + SlotPickerHeadingHeight * Layout.Scale;
+        const float Width = FMath::Clamp(Style.Width, .5f, SlotPickerScrollbarGutter) * Layout.Scale;
+        const auto Draw = [&](double Start, double End, const FLinearColor& Tint)
+        {
+            FSlateDrawElement::MakeLines(Elements, Layer, Geometry.ToPaintGeometry(),
+                {Layout.Left.Project({X, Y + Start}), Layout.Left.Project({X, Y + End})},
+                ESlateDrawEffect::NoPixelSnapping, Tint, true, Width);
+        };
+        const double ThumbHeight = TrackHeight * Visible / Total;
+        const double ThumbOffset = (TrackHeight - ThumbHeight) * FirstSlotChoice / (Total - Visible);
+        Draw(0.0, TrackHeight, Style.TrackTint);
+        Draw(ThumbOffset, ThumbOffset + ThumbHeight, Style.ThumbTint);
     }
 
     TSharedRef<SWidget> BuildSlotPicker(const FInventoryShellLayout& Layout)
@@ -2281,7 +2339,7 @@ private:
         }
         if (SlotPicker && SlotPickerTexture.IsValid())
         {
-            const auto Bounds = SlotPickerBounds(Layout);
+            const FBox2D Bounds(Layout.MainOrigin, Layout.MainOrigin + Layout.MainExtent);
             PaintBackdrop(Layout.Left, Bounds.Min, Bounds.Max);
             return;
         }
@@ -2766,6 +2824,7 @@ private:
     int32 RenderedSlotChoice = INDEX_NONE;
     float SlotPickerPaintScale = 0.f;
     static constexpr float SlotPickerHeadingHeight = 34.f;
+    static constexpr float SlotPickerScrollbarGutter = 8.f;
     float SlotPickerRowGap = 0.f;
     float SlotPickerRowHeight = 76.f;
     TArray<TStrongObjectPtr<UCIInventoryTile>> SlotPickerRows;
