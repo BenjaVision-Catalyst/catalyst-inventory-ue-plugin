@@ -21,7 +21,6 @@ UCIWeaponToolRowTheme::UCIWeaponToolRowTheme()
 {
     RowHeight = 102.f;
     ThumbnailInset.Bottom = 18.f;
-    StatLabelFont.Size = 12.f;
 }
 
 const UCFTileTheme& UCIWeaponToolRow::GetTileTheme() const

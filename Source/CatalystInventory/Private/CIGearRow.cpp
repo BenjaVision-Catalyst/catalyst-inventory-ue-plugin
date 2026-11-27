@@ -124,6 +124,8 @@ void UCIGearRow::RefreshDetails()
 
     const auto& Style = GetGearTheme();
     Title->ClearChildren();
+    auto ManufacturerFont = Style.CountFont;
+    ManufacturerFont.Size = 14.f;
     const FName Slot = GearSlot.IsNone() ? FallbackIconIdentifier : GearSlot;
     auto* SlotArt = Style.GearSlotIcons.FindRef(Slot.ToString()).Get();
     if (!SlotArt && Slot == TEXT("Chest"))
@@ -159,8 +161,8 @@ void UCIGearRow::RefreshDetails()
         + SVerticalBox::Slot().AutoHeight()
         [SNew(STextBlock).Text(Label).Font(Style.LabelFont).ColorAndOpacity(Style.TextTint)
             .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Label)]
-        + SVerticalBox::Slot().AutoHeight()
-        [SNew(STextBlock).Text(Manufacturer).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
+        + SVerticalBox::Slot().AutoHeight().Padding(0.f, -2.f, 0.f, 0.f)
+        [SNew(STextBlock).Text(Manufacturer).Font(ManufacturerFont).ColorAndOpacity(Style.TextTint)
             .OverflowPolicy(ETextOverflowPolicy::Ellipsis)
             .Visibility(Manufacturer.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible)]
     ];
@@ -186,13 +188,19 @@ void UCIGearRow::RefreshDetails()
             Tint = MarkerStyle.Utility;
         }
         AddMarker(*Primary, Attribute->Id, Glyph, Tint, true, Attribute->bMaximum, Style.PrimaryMarkerSize);
-        Primary->AddSlot().FillWidth(1.f).VAlign(VAlign_Center)
+        const FString AttributeName = Attribute->Label.ToString();
+        const bool bArmour = Attribute->Id.Equals(TEXT("armor"), ESearchCase::IgnoreCase)
+            || Attribute->Id.Equals(TEXT("armour"), ESearchCase::IgnoreCase)
+            || AttributeName.Equals(TEXT("armor"), ESearchCase::IgnoreCase)
+            || AttributeName.Equals(TEXT("armour"), ESearchCase::IgnoreCase);
+        const FText StatLabel = bArmour ? LOCTEXT("ArmourAbbreviation", "ARM") : Attribute->Label;
+        Primary->AddSlot().FillWidth(1.f).HAlign(HAlign_Left).VAlign(VAlign_Center)
         [
             SNew(SVerticalBox)
-            + SVerticalBox::Slot().AutoHeight()
-            [SNew(STextBlock).Text(Attribute->Label).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
+            + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.f, 0.f, 0.f, -2.f)
+            [SNew(STextBlock).Text(StatLabel).Font(Style.StatLabelFont).ColorAndOpacity(Style.TextTint)
                 .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Attribute->Label)]
-            + SVerticalBox::Slot().AutoHeight()
+            + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
             [SNew(STextBlock).Text(Attribute->Value).Font(Style.CountFont).ColorAndOpacity(Style.PrimaryValueTint)
                 .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Attribute->Value)]
         ];

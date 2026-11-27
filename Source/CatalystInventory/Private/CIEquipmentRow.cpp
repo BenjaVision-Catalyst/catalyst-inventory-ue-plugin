@@ -26,7 +26,7 @@ UCIEquipmentRowTheme::UCIEquipmentRowTheme()
     IconWidth = 144.f;
     LabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 18);
     CountFont = FCoreStyle::GetDefaultFontStyle("Bold", 18);
-    StatLabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 16);
+    StatLabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 12);
     LevelFont = FCoreStyle::GetDefaultFontStyle("Bold", 16);
     BadgeFont = FCoreStyle::GetDefaultFontStyle("Bold", 13);
     BadgeSize = 29.f;
