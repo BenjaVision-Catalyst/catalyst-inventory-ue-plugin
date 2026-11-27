@@ -264,6 +264,12 @@ FInventoryShellLayout LayoutFor(const FVector2D& Size, const FVector2D& MenuSize
     };
     Layout.InspectorExtent.Y = FMath::Max(0.0,
         FMath::Min(InspectorBottomAt(0.0), InspectorBottomAt(Layout.InspectorExtent.X)) - GridTop);
+    const FVector2D InspectorEnd = Layout.InspectorOrigin + Layout.InspectorExtent;
+    const double ProjectedTop = FMath::Min(Layout.Right.Project(Layout.InspectorOrigin).Y,
+        Layout.Right.Project({InspectorEnd.X, Layout.InspectorOrigin.Y}).Y);
+    const double ProjectedBottom = FMath::Max(Layout.Right.Project({Layout.InspectorOrigin.X, InspectorEnd.Y}).Y,
+        Layout.Right.Project(InspectorEnd).Y);
+    Layout.Right.Center.Y += (Size.Y - ProjectedTop - ProjectedBottom) * .5;
     Layout.FooterOrigin = Layout.MainOrigin + FVector2D(0.0, Layout.MainExtent.Y + FooterGap * Scale);
     return Layout;
 }
