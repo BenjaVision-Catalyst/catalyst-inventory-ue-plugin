@@ -92,7 +92,7 @@ TSharedRef<SWidget> UCIInspectorIdentityTile::BuildInventoryContent()
     auto Identity = SNew(SVerticalBox);
     Identity->AddSlot().AutoHeight()[Text(Label, Style.InspectorTitleFont)];
 
-    FText Manufacturer, Category, Armour, Consumable, ConsumableIcon;
+    FText Manufacturer, Category, Armour, ConsumableIcon;
     if (const auto& Item = GetInspectorItem())
     {
         for (const auto& Field : Item->Describe().orderedChildren())
@@ -108,10 +108,6 @@ TSharedRef<SWidget> UCIInspectorIdentityTile::BuildInventoryContent()
             else if (Field->id == "inspectorArmour")
             {
                 Armour = IdentityValue(Item->Read(*Field));
-            }
-            else if (Field->id == "inspectorConsumable")
-            {
-                Consumable = IdentityValue(Item->Read(*Field));
             }
             else if (Field->id == "inspectorConsumableIcon")
             {
@@ -132,24 +128,22 @@ TSharedRef<SWidget> UCIInspectorIdentityTile::BuildInventoryContent()
         const FText ArmourLine = FText::Format(NSLOCTEXT("Inventory", "InspectorArmour", "{0} Armour"), Armour);
         Identity->AddSlot().AutoHeight()[Text(ArmourLine, Style.GroupLabelFont)];
     }
-    if (!Category.IsEmpty() || !Consumable.IsEmpty())
+    const FString IconId = ConsumableIcon.ToString();
+    const bool bFuel = IconId == TEXT("fuel");
+    const bool bHasConsumableIcon = bFuel || IconId == TEXT("cartridge");
+    if (!Category.IsEmpty() || bHasConsumableIcon)
     {
         auto TypeLine = SNew(SHorizontalBox);
         if (!Category.IsEmpty())
         {
             TypeLine->AddSlot().AutoWidth().VAlign(VAlign_Center)[Text(Category, Style.LabelFont, false)];
         }
-        const FString IconId = ConsumableIcon.ToString();
-        if (IconId == TEXT("cartridge") || IconId == TEXT("fuel"))
+        if (bHasConsumableIcon)
         {
             TypeLine->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(5.f, 0.f)
             [
-                SNew(SCIInspectorConsumableIcon).Tint(Style.TextTint).Fuel(IconId == TEXT("fuel"))
+                SNew(SCIInspectorConsumableIcon).Tint(Style.TextTint).Fuel(bFuel)
             ];
-        }
-        if (!Consumable.IsEmpty())
-        {
-            TypeLine->AddSlot().FillWidth(1.f).VAlign(VAlign_Center)[Text(Consumable, Style.LabelFont)];
         }
         Identity->AddSlot().AutoHeight()[TypeLine];
     }
