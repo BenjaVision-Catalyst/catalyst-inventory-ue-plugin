@@ -79,8 +79,11 @@ bool FCIInventoryNavigationTest::RunTest(const FString&)
         Object.id = Category;
         Object.description = Card;
         Object.values = {{"categoryIdentifier", magritte::Value(Category)},
-            {"displayName", magritte::Value(ItemName)},
-            {"inspector", magritte::Value(magritte::Value::Reference{"body"})}};
+            {"displayName", magritte::Value(ItemName)}};
+        if (!*ItemName)
+        {
+            Object.values.emplace("inspector", magritte::Value(magritte::Value::Reference{"body"}));
+        }
         auto* Tile = NewObject<UCIInventoryTile>(UnpaintedGrid);
         Tile->BindItem(FCFMagritteBinding::Find(Graph, Object.id).GetValue());
         TestTrue(TEXT("An equipment tile still hides the label on its front"), Tile->Label.IsEmpty());
@@ -102,12 +105,15 @@ bool FCIInventoryNavigationTest::RunTest(const FString&)
 
     if (FApp::CanEverRender())
     {
-        const auto Geometry = FGeometry::MakeRoot({1280.0, 720.0}, FSlateLayoutTransform());
+        const FVector2D ViewSize(1280.0, 720.0);
+        const auto Geometry = FGeometry::MakeRoot(ViewSize, FSlateLayoutTransform());
         Widget->Tick(Geometry, 0.0, .2f);
+        const auto ShortInspector = Shell->GetInspectorScrollStateForTest(ViewSize);
         const double SelectedLift = Shell->GetGridTileLiftForTest({0, 0});
         TestTrue(TEXT("Selection lifts the entire tile off the grid"), SelectedLift > 0.0);
         Widget->OnKeyDown(Geometry, FKeyEvent(EKeys::Right, FModifierKeysState(), 0, false, 0, 0));
         Widget->Tick(Geometry, .07, .07f);
+        const auto GrowingInspector = Shell->GetInspectorScrollStateForTest(ViewSize);
         const double LeavingLift = Shell->GetGridTileLiftForTest({0, 0});
         const double EnteringLift = Shell->GetGridTileLiftForTest({1, 0});
         TestTrue(TEXT("The deselected tile lowers while the new tile rises"),
@@ -116,9 +122,12 @@ bool FCIInventoryNavigationTest::RunTest(const FString&)
         TestEqual(TEXT("The deselected tile settles into the grid"), Shell->GetGridTileLiftForTest({0, 0}), 0.0);
         TestEqual(TEXT("The new tile reaches the same selection lift"), Shell->GetGridTileLiftForTest({1, 0}), SelectedLift);
 
-        const FVector2D ViewSize(1280.0, 720.0);
         const auto Before = Shell->GetInspectorScrollStateForTest(ViewSize);
-        TestTrue(TEXT("The inspector extends below the inventory grid"), Before.Z > 0.0);
+        TestTrue(TEXT("The inspector grows from the short item to the full scroll height"),
+            ShortInspector.Z < GrowingInspector.Z && GrowingInspector.Z < Before.Z && Before.Z > 0.0);
+        TestTrue(TEXT("The inspector grows from the bottom edge"),
+            FMath::IsNearlyEqual(ShortInspector.Y, GrowingInspector.Y, 1.0)
+            && FMath::IsNearlyEqual(ShortInspector.Y, Before.Y, 1.0));
         const auto RightStick = [&](float Axis)
         {
             return Widget->OnAnalogValueChanged(Geometry,
@@ -136,6 +145,21 @@ bool FCIInventoryNavigationTest::RunTest(const FString&)
         RightStick(1.f);
         Widget->Tick(Geometry, .57, .1f);
         TestEqual(TEXT("The right stick can return the body to the top"), Shell->GetInspectorScrollStateForTest(ViewSize).X, 0.0);
+
+        Widget->OnKeyDown(Geometry, FKeyEvent(EKeys::Left, FModifierKeysState(), 0, false, 0, 0));
+        Widget->Tick(Geometry, .61, .04f);
+        const auto ShrinkingInspector = Shell->GetInspectorScrollStateForTest(ViewSize);
+        Widget->Tick(Geometry, .81, .2f);
+        const auto ShortAgain = Shell->GetInspectorScrollStateForTest(ViewSize);
+        TestTrue(TEXT("The inspector animates back down to fit short content"),
+            ShrinkingInspector.Z < Before.Z && ShrinkingInspector.Z > ShortAgain.Z
+            && FMath::IsNearlyEqual(ShortAgain.Z, ShortInspector.Z, 1.0));
+        TestTrue(TEXT("The inspector shrinks from the bottom edge"),
+            FMath::IsNearlyEqual(ShortInspector.Y, ShrinkingInspector.Y, 1.0)
+            && FMath::IsNearlyEqual(ShortInspector.Y, ShortAgain.Y, 1.0));
+        RightStick(-1.f);
+        Widget->Tick(Geometry, .91, .1f);
+        TestEqual(TEXT("Short content does not scroll"), Shell->GetInspectorScrollStateForTest(ViewSize).X, 0.0);
     }
 
     FCIInventoryNavigationInput Input;

@@ -583,7 +583,9 @@ public:
     {
         const auto Layout = GetLayout(ViewSize);
         return { InspectorScroll ? InspectorScroll->GetScrollOffset() : 0.f,
-            InspectorHeader ? InspectorHeader->GetPaintSpaceGeometry().GetAbsolutePosition().Y : 0.f,
+            Layout.Right.Project(Layout.InspectorOrigin).Y
+                + (InspectorHeader ? InspectorHeader->GetPaintSpaceGeometry().GetAbsolutePosition().Y
+                    / ProjectionRasterScale : 0.0),
             Layout.InspectorExtent.Y - Layout.MainExtent.Y };
     }
 
@@ -1031,7 +1033,7 @@ public:
             return;
         }
 
-        const auto Layout = GetLayout(Size);
+        const auto Layout = GetLayout(Size, true);
         RenderInspector(Layout, DeltaTime);
         const auto Extent = Layout.MainExtent;
         if (Extent.GetMin() >= 1.0)
@@ -1415,6 +1417,10 @@ private:
 
     void ScrollInspector(float Amount)
     {
+        if (!bInspectorCanScroll)
+        {
+            return;
+        }
         const float Current = InspectorScroll->GetScrollOffset();
         const float Offset = FMath::Clamp(Current + Amount, 0.f,
             FMath::Max(0.f, InspectorScroll->GetScrollOffsetOfEnd()));
@@ -1732,18 +1738,17 @@ private:
         if (!Tile || Tile->GetItemLabel().IsEmpty() || Layout.InspectorExtent.GetMin() < 1.0)
         {
             InspectorTexture.Reset();
+            InspectorHeight = 0.0;
+            bInspectorCanScroll = false;
             return;
         }
 
         const auto* Theme = InventoryTheme.Get();
         const float Scale = Layout.Scale * ProjectionRasterScale;
-        const FIntPoint Size(FMath::CeilToInt(Layout.InspectorExtent.X * ProjectionRasterScale),
-            FMath::CeilToInt(Layout.InspectorExtent.Y * ProjectionRasterScale));
         const auto& Item = Tile->GetInspectorItem();
         const auto* Description = Item ? &Item->Describe() : nullptr;
-        if (!InspectorTexture.IsValid() || InspectorTheme.Get() != Theme || InspectorTile.Get() != Tile
-            || (InspectorItem ? &InspectorItem->Describe() : nullptr) != Description || InspectorTexture->SizeX != Size.X
-            || InspectorTexture->SizeY != Size.Y || InspectorScale != Scale)
+        if (!InspectorWidget || InspectorTheme.Get() != Theme || InspectorTile.Get() != Tile
+            || (InspectorItem ? &InspectorItem->Describe() : nullptr) != Description)
         {
             InspectorBrush = FSlateRoundedBoxBrush(Theme->Style.Background, 0.f, Theme->Style.Border, Theme->Style.Stroke);
             auto Identity = SNew(SVerticalBox);
@@ -1831,15 +1836,38 @@ private:
             InspectorTheme = Theme;
             InspectorTile = Tile;
             InspectorItem = Item;
-            InspectorScale = Scale;
+            bInspectorScrollDirty = true;
+        }
+        InspectorWidget->SlatePrepass(Scale);
+        const double DesiredHeight = FMath::CeilToDouble(InspectorWidget->GetDesiredSize().Y * Scale)
+            / ProjectionRasterScale;
+        const double TargetHeight = FMath::Clamp(DesiredHeight, 1.0, Layout.InspectorExtent.Y);
+        InspectorHeight = InspectorHeight > 0.0
+            ? FMath::FInterpTo(InspectorHeight, TargetHeight, DeltaTime, 12.0)
+            : TargetHeight;
+        // Snap once the remaining motion is smaller than a render-target pixel.
+        if (FMath::IsNearlyEqual(InspectorHeight, TargetHeight, 1.0 / ProjectionRasterScale))
+        {
+            InspectorHeight = TargetHeight;
+        }
+        InspectorHeight = FMath::Min(InspectorHeight, Layout.InspectorExtent.Y);
+        bInspectorCanScroll = DesiredHeight > Layout.InspectorExtent.Y
+            && InspectorHeight == Layout.InspectorExtent.Y;
+
+        const FIntPoint Size(FMath::CeilToInt(Layout.InspectorExtent.X * ProjectionRasterScale),
+            FMath::CeilToInt(InspectorHeight * ProjectionRasterScale));
+        if (InspectorTexture.IsValid() && (InspectorTexture->SizeX != Size.X || InspectorTexture->SizeY != Size.Y))
+        {
+            InspectorTexture->ResizeTarget(Size.X, Size.Y);
             bInspectorScrollDirty = true;
         }
         if (InspectorScrollRate != 0.f && !bSavedSetsOpen && !OptionsWindow.IsValid())
         {
             ScrollInspector(InspectorScrollRate * DeltaTime);
         }
-        if (bInspectorScrollDirty)
+        if (bInspectorScrollDirty || !InspectorTexture.IsValid() || InspectorScale != Scale)
         {
+            InspectorScale = Scale;
             bInspectorScrollDirty = false;
             InspectorStrokes.Reset();
             DrawToTexture(InspectorTexture, InspectorWidget.ToSharedRef(), FVector2D(Size), DeltaTime, Scale);
@@ -2207,11 +2235,16 @@ private:
         SavedSetsThumbSlot->SetOffsets(FMargin(X, Heading + (TrackHeight - ThumbHeight) * Scroll, Width, ThumbHeight));
     }
 
-    FInventoryShellLayout GetLayout(const FVector2D& Size) const
+    FInventoryShellLayout GetLayout(const FVector2D& Size, bool bUseMaximumInspectorHeight = false) const
     {
         const FVector2D MenuSize = MenuTexture.IsValid()
             ? FVector2D(MenuTexture->SizeX, MenuTexture->SizeY) : FVector2D::ZeroVector;
-        return LayoutFor(Size, MenuSize, MenuPanelGap.Get(), PanelHeight.Get(), FooterGap.Get());
+        auto Layout = LayoutFor(Size, MenuSize, MenuPanelGap.Get(), PanelHeight.Get(), FooterGap.Get());
+        if (!bUseMaximumInspectorHeight && InspectorHeight > 0.0 && InspectorHeight < Layout.InspectorExtent.Y)
+        {
+            Layout.InspectorExtent.Y = InspectorHeight;
+        }
+        return Layout;
     }
 
     FCIInventorySidebarGeometry GetSidebarGeometry(const FInventoryShellLayout& Layout, double ViewportWidth) const
@@ -2341,11 +2374,13 @@ private:
     TSharedPtr<SBorder> InspectorHeader;
     float InspectorScrollRate = 0.f;
     bool bInspectorScrollDirty = false;
+    bool bInspectorCanScroll = false;
     FSlateBrush InspectorIconBrush;
     TStrongObjectPtr<UTextureRenderTarget2D> InspectorTexture;
     TArray<FInspectorStroke> InspectorStrokes;
     TWeakObjectPtr<const UCIInventoryTileTheme> InspectorTheme;
     float InspectorScale = 0.f;
+    double InspectorHeight = 0.0;
     TStrongObjectPtr<UTextureRenderTarget2D> FooterTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> SavedSetsTexture;
     FCIInventorySavedSetsPresentation SavedSetsPresentation;
