@@ -73,6 +73,14 @@ protected:
 
 private:
     TSharedRef<SWidget> BuildRequiredLevel();
+    struct FAttributeMarker
+    {
+        FString Id;
+        const TCHAR* Glyph;
+        FLinearColor Tint;
+    };
+
+    TArray<FAttributeMarker> InspectorAttributes;
     TArray<FString> MaximumAttributes, Talents;
     TOptional<int64> RequiredLevel;
     bool bProficient = false;

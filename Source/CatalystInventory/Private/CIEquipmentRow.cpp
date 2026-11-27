@@ -120,6 +120,7 @@ TSharedRef<SWidget> UCIEquipmentRow::BuildRequiredLevel()
 void UCIEquipmentRow::BindItem(const FCFMagritteBinding& Item)
 {
     Super::BindItem(Item);
+    InspectorAttributes.Reset();
     MaximumAttributes.Reset();
     Talents.Reset();
     RequiredLevel.Reset();
@@ -156,55 +157,66 @@ void UCIEquipmentRow::BindItem(const FCFMagritteBinding& Item)
             }
         }
     }
-    if (OffensiveAttributes.IsEmpty() && DefensiveAttributes.IsEmpty() && UtilityAttributes.IsEmpty())
+    const auto& Palette = GetEquipmentTheme();
+    const auto AddInspectorAttributes = [&](std::string_view CardKind)
     {
-        const auto AddInspectorAttributes = [&](std::string_view CardKind)
+        const auto Card = CIInventoryRowData::Card(Item, CardKind);
+        if (!Card)
         {
-            const auto Card = CIInventoryRowData::Card(Item, CardKind);
-            if (!Card)
-            {
-                return;
-            }
-            for (const auto& Field : Card->Describe().orderedChildren())
-            {
-                const FString Id = ReadIdentifier(Field->property("label"));
-                const FString Type = ReadIdentifier(Field->property("metadata:ciAttributeType"));
-                if (Id.IsEmpty() || CIInventoryRowData::DisplayValue(Card->Read(*Field)).IsEmpty())
-                {
-                    continue;
-                }
-                if (Type == TEXT("offensive"))
-                {
-                    OffensiveAttributes.AddUnique(Id);
-                }
-                else if (Type == TEXT("defensive"))
-                {
-                    DefensiveAttributes.AddUnique(Id);
-                }
-                else if (Type == TEXT("utility"))
-                {
-                    UtilityAttributes.AddUnique(Id);
-                }
-                const auto Meter = Field->property("metadata:ciMeterMillionths");
-                if (const auto* Millionths = std::get_if<std::int64_t>(&Meter.data); Millionths && *Millionths == 1000000)
-                {
-                    MaximumAttributes.AddUnique(Id);
-                }
-            }
-        };
-        if (PresentationKind != TEXT("gear"))
-        {
-            AddInspectorAttributes("primary");
+            return;
         }
-        AddInspectorAttributes("modifiers");
+        for (const auto& Field : Card->Describe().orderedChildren())
+        {
+            const auto Visibility = Field->property("visible");
+            const auto* Visible = std::get_if<bool>(&Visibility.data);
+            const FString Id = ReadIdentifier(Field->property("label"));
+            const FString Type = ReadIdentifier(Field->property("metadata:ciAttributeType"));
+            if ((Visible && !*Visible) || Id.IsEmpty() || CIInventoryRowData::DisplayValue(Card->Read(*Field)).IsEmpty())
+            {
+                continue;
+            }
+
+            if (Type == TEXT("offensive"))
+            {
+                InspectorAttributes.Add({Id, TEXT("●"), Palette.Offensive});
+            }
+            else if (Type == TEXT("defensive"))
+            {
+                InspectorAttributes.Add({Id, TEXT("◆"), Palette.Defensive});
+            }
+            else if (Type == TEXT("utility"))
+            {
+                InspectorAttributes.Add({Id, TEXT("▲"), Palette.Utility});
+            }
+            const auto Meter = Field->property("metadata:ciMeterMillionths");
+            if (const auto* Millionths = std::get_if<std::int64_t>(&Meter.data); Millionths && *Millionths == 1000000)
+            {
+                MaximumAttributes.AddUnique(Id);
+            }
+        }
+    };
+    if (PresentationKind != TEXT("gear"))
+    {
+        AddInspectorAttributes("primary");
     }
+    AddInspectorAttributes("modifiers");
 }
 
 void UCIEquipmentRow::PopulateRowIndicators(SHorizontalBox& Box, const FString& ExcludedAttribute)
 {
     const auto& Style = GetRowTheme();
     Box.ClearChildren();
-    PopulateAttributes(Box, MaximumAttributes, ExcludedAttribute);
+    if (InspectorAttributes.IsEmpty())
+    {
+        PopulateAttributes(Box, MaximumAttributes, ExcludedAttribute);
+    }
+    for (const auto& Attribute : InspectorAttributes)
+    {
+        if (Attribute.Id != ExcludedAttribute)
+        {
+            AddMarker(Box, Attribute.Id, Attribute.Glyph, Attribute.Tint, true, MaximumAttributes.Contains(Attribute.Id));
+        }
+    }
     const auto TalentWidgets = SNew(SHorizontalBox);
     if (Talents.IsEmpty())
     {
