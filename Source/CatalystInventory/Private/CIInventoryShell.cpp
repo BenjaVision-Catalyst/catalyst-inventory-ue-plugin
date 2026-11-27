@@ -34,6 +34,7 @@
 #include "Widgets/Layout/SBackgroundBlur.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SGridPanel.h"
+#include "Widgets/Layout/SScrollBar.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Input/SEditableTextBox.h"
@@ -1824,12 +1825,20 @@ private:
                 .SetNormalThumbImage(Thumb)
                 .SetHoveredThumbImage(Thumb)
                 .SetDraggedThumbImage(Thumb);
-            const float ScrollbarWidth = FMath::Max(.5f, Scrollbar.Width);
+            const float GutterWidth = Theme->InspectorPadding;
+            const float ScrollbarWidth = FMath::Clamp(Scrollbar.Width, .5f, FMath::Max(.5f, GutterWidth));
+            const auto ScrollbarWidget = SNew(SScrollBar)
+                .Style(&InspectorScrollbarStyle)
+                .Orientation(Orient_Vertical)
+                .Thickness(FVector2D(ScrollbarWidth, ScrollbarWidth))
+                .Padding(0.f)
+                .Visibility(EVisibility::Collapsed);
             InspectorWidget = SNew(SBorder).BorderImage(&InspectorBrush)
-                .Padding(FMargin(Theme->InspectorPadding)).Clipping(EWidgetClipping::ClipToBounds)
+                .Padding(FMargin(GutterWidth, GutterWidth, 0.f, GutterWidth))
+                .Clipping(EWidgetClipping::ClipToBounds)
                 [
                     SNew(SVerticalBox)
-                    + SVerticalBox::Slot().AutoHeight()
+                    + SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, GutterWidth, 0.f)
                     [
                         SAssignNew(InspectorHeader, SBorder)
                         .BorderImage(&InspectorBrush).Padding(8.f)
@@ -1837,13 +1846,19 @@ private:
                     ]
                     + SVerticalBox::Slot().FillHeight(1.f)
                     [
-                        SAssignNew(InspectorScroll, SScrollBox)
-                        .ScrollBarStyle(&InspectorScrollbarStyle)
-                        .ScrollBarThickness(FVector2D(ScrollbarWidth, ScrollbarWidth))
-                        .ScrollBarPadding(FMargin(4.f, 0.f, 0.f, 0.f))
-                        .ScrollBarVisibility(EVisibility::Collapsed)
-                        .Clipping(EWidgetClipping::ClipToBounds)
-                        + SScrollBox::Slot()[Content]
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot().FillWidth(1.f)
+                        [
+                            SAssignNew(InspectorScroll, SScrollBox)
+                            .ExternalScrollbar(ScrollbarWidget)
+                            .Clipping(EWidgetClipping::ClipToBounds)
+                            + SScrollBox::Slot()[Content]
+                        ]
+                        + SHorizontalBox::Slot().AutoWidth()
+                        [
+                            SNew(SBox).WidthOverride(GutterWidth).HAlign(HAlign_Center)
+                            [ScrollbarWidget]
+                        ]
                     ]
                 ];
             InspectorTheme = Theme;
