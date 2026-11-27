@@ -18,7 +18,8 @@ inline TOptional<FLinearColor> Tint(const UCIInventoryTileTheme& Theme, FStringV
     else if (Type == TEXTVIEW("defensive")) { Color = &Palette.Defensive; }
     else if (Type == TEXTVIEW("utility")) { Color = &Palette.Utility; }
 
-    return Color ? TOptional<FLinearColor>((*Color * .6f).CopyWithNewOpacity(.65f)) : TOptional<FLinearColor>();
+    const float Brightness = Type == TEXTVIEW("utility") ? .72f : .6f;
+    return Color ? TOptional<FLinearColor>((*Color * Brightness).CopyWithNewOpacity(.65f)) : TOptional<FLinearColor>();
 }
 
 inline TSharedRef<SWidget> Build(FLinearColor Tint)
