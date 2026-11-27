@@ -5,6 +5,7 @@
 #include "CIInventoryModel.h"
 #include "../CIInventorySavedSetRows.h"
 #include "CIInventoryShell.h"
+#include "CIInventoryProfile.h"
 #include "CIInventoryTile.h"
 #include "CIInventoryView.h"
 #include "Components/NamedSlot.h"
@@ -309,4 +310,53 @@ bool FCIInventoryPresentationTest::RunTest(const FString&)
     }
     return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCIInventoryCatalogProfileTest, "Catalyst.Inventory.CatalogProfile",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCIInventoryCatalogProfileTest::RunTest(const FString&)
+{
+    const auto Plugin = IPluginManager::Get().FindPlugin(TEXT("CatalystInventory"));
+    FString Json;
+    if (!TestTrue(TEXT("Load the server catalog profile"), Plugin &&
+        FFileHelper::LoadFileToString(Json, *(Plugin->GetBaseDir() / TEXT("Tests/Fixtures/CatalogGadgetProfile.json")))))
+    {
+        return false;
+    }
+
+    TestFalse(TEXT("Reject malformed graphs"), CIInventoryProfile::DecodeUser(TEXT("{"), TEXT("inventory-fixture")).IsSet());
+    TestFalse(TEXT("Reject another user"), CIInventoryProfile::DecodeUser(Json, TEXT("another-user")).IsSet());
+    const auto User = CIInventoryProfile::DecodeUser(Json, TEXT("inventory-fixture"));
+    if (!TestTrue(TEXT("Decode the authorized inventory"), User.IsSet()))
+    {
+        return false;
+    }
+    const auto Gear = User->Follow("profile")->Follow("inventory")->Follow("gear");
+    const auto Gadgets = Gear ? Gear->Related("gadgets", 2) : TArray<FCFMagritteBinding>();
+    if (!TestEqual(TEXT("Both equipped gadgets are described"), Gadgets.Num(), 2))
+    {
+        return false;
+    }
+    for (int32 Index = 0; Index < Gadgets.Num(); ++Index)
+    {
+        const auto Inspector = Gadgets[Index].Follow("inspector");
+        if (!TestTrue(TEXT("The selected gadget provides an inspector"), Inspector.IsSet()))
+        {
+            continue;
+        }
+        const auto Controls = Inspector->Follow(Inspector->ObjectId() + ":controls:section");
+        if (TestTrue(TEXT("The inspector provides controller bindings"), Controls.IsSet()))
+        {
+            const auto Fields = Controls->Describe().orderedChildren();
+            if (TestEqual(TEXT("There is one activation binding"), Fields.size(), std::size_t(1)))
+            {
+                const auto Key = Controls->Read(*Fields.front());
+                const auto* Symbol = std::get_if<magritte::Value::Symbol>(&Key.data);
+                TestTrue(TEXT("The binding uses the equipped slot's controller key"),
+                    Symbol && Symbol->utf8 == (Index == 0 ? "Gamepad_RightShoulder" : "Gamepad_RightTrigger"));
+            }
+        }
+    }
+    return true;
+}
+
 #endif
