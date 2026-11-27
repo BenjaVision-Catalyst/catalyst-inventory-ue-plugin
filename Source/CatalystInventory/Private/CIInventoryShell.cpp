@@ -32,6 +32,7 @@
 #include "UObject/StrongObjectPtr.h"
 #include "Widgets/Layout/SBackgroundBlur.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SGridPanel.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Input/SEditableTextBox.h"
@@ -1550,7 +1551,42 @@ private:
             ];
     }
 
-    TSharedRef<SWidget> BuildInspectorCard(const magritte::Description& Field, const FCFMagritteBinding& Section)
+    TSharedRef<SWidget> BuildInspectorStatsGrid(const FCFMagritteBinding& Section) const
+    {
+        constexpr int32 Columns = 3;
+        const auto* Theme = InventoryTheme.Get();
+        auto ValueFont = Theme->InspectorTitleFont;
+        ValueFont.Size = 22;
+        auto Grid = SNew(SGridPanel)
+            .FillColumn(0, 1.f)
+            .FillColumn(1, 1.f)
+            .FillColumn(2, 1.f);
+
+        int32 Index = 0;
+        for (const auto& Field : Section.Describe().orderedChildren())
+        {
+            if (!IsInspectorFieldVisible(*Field))
+            {
+                continue;
+            }
+            const auto Value = InspectorValue(Section.Read(*Field));
+            if (Value.IsEmpty())
+            {
+                continue;
+            }
+            const int32 Column = Index % Columns;
+            const int32 LabelRow = (Index / Columns) * 2;
+            Grid->AddSlot(Column, LabelRow).VAlign(VAlign_Bottom).Padding(0.f, 4.f, 6.f, 0.f)
+            [InspectorText(InspectorValue(Field->property("label")), Theme->LabelFont, true)];
+            Grid->AddSlot(Column, LabelRow + 1).VAlign(VAlign_Top).Padding(0.f, 0.f, 6.f, 4.f)
+            [InspectorText(Value, ValueFont, true)];
+            ++Index;
+        }
+        return Grid;
+    }
+
+    TSharedRef<SWidget> BuildInspectorCard(
+        const magritte::Description& Field, const FCFMagritteBinding& Section, bool bWeapon)
     {
         const auto* Theme = InventoryTheme.Get();
         const auto KindValue = Field.property("metadata:ciCard");
@@ -1564,6 +1600,11 @@ private:
         [
             InspectorText(InspectorValue(Field.property("label")), Theme->GroupLabelFont, true)
         ];
+        if (bWeapon && Kind && *Kind == "stats")
+        {
+            Content->AddSlot().AutoHeight()[BuildInspectorStatsGrid(Section)];
+            return SNew(SBorder).BorderImage(&InspectorBrush).Padding(8.f)[Content];
+        }
         if (Kind && *Kind == "falloff")
         {
             if (const auto Plot = BuildFalloffPlot(Section))
@@ -1717,9 +1758,16 @@ private:
             auto Content = SNew(SVerticalBox);
             if (Item)
             {
+                bool bWeapon = false;
                 for (const auto& Field : Item->Describe().orderedChildren())
                 {
-                    if (Field->id == "inspectorCategory")
+                    if (Field->id == "presentationKind")
+                    {
+                        const auto Kind = Item->Read(*Field);
+                        const auto* Name = std::get_if<std::string>(&Kind.data);
+                        bWeapon = Name && *Name == "weapon";
+                    }
+                    else if (Field->id == "inspectorCategory")
                     {
                         Identity->AddSlot().AutoHeight()[InspectorText(InspectorValue(Item->Read(*Field)), Theme->LabelFont, true)];
                     }
@@ -1734,7 +1782,8 @@ private:
                         }
                         if (const auto Section = Inspector->Follow(*Field))
                         {
-                            Content->AddSlot().AutoHeight().Padding(0.f, 6.f, 0.f, 0.f)[BuildInspectorCard(*Field, *Section)];
+                            Content->AddSlot().AutoHeight().Padding(0.f, 6.f, 0.f, 0.f)
+                            [BuildInspectorCard(*Field, *Section, bWeapon)];
                         }
                         else if (const auto Text = InspectorValue(Inspector->Read(*Field)); !Text.IsEmpty())
                         {
