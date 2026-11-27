@@ -106,6 +106,52 @@ struct FInventoryTileLift
     FIntPoint Cell;
 };
 
+class SCIFalloffPlot final : public SLeafWidget
+{
+public:
+    SLATE_BEGIN_ARGS(SCIFalloffPlot) {}
+        SLATE_ARGUMENT(TArray<FVector2D>, Points)
+        SLATE_ARGUMENT(FLinearColor, Tint)
+    SLATE_END_ARGS()
+
+    void Construct(const FArguments& Args)
+    {
+        Points = Args._Points;
+        Tint = Args._Tint;
+    }
+
+    FVector2D ComputeDesiredSize(float) const override { return {80.0, 64.0}; }
+
+    int32 OnPaint(const FPaintArgs&, const FGeometry& Geometry, const FSlateRect&,
+        FSlateWindowElementList& Elements, int32 Layer, const FWidgetStyle&, bool) const override
+    {
+        const FVector2D Inset(1.0, 1.0);
+        const FVector2D Size = (FVector2D(Geometry.GetLocalSize()) - Inset * 2.0).ComponentMax(FVector2D(1.0, 1.0));
+        const auto Paint = Geometry.ToPaintGeometry();
+        const FLinearColor GridInk = Tint.CopyWithNewOpacity(Tint.A * .25f);
+        for (const double Y : {0.0, .5, 1.0})
+        {
+            const TArray<FVector2D> Line{Inset + FVector2D(0.0, Size.Y * Y), Inset + FVector2D(Size.X, Size.Y * Y)};
+            FSlateDrawElement::MakeLines(Elements, Layer, Paint, Line,
+                ESlateDrawEffect::NoPixelSnapping, GridInk, true, 1.f);
+        }
+
+        TArray<FVector2D> Curve;
+        Curve.Reserve(Points.Num());
+        for (const auto& Point : Points)
+        {
+            Curve.Add(Inset + FVector2D(Point.X / Points.Last().X, 1.0 - Point.Y / 100.0) * Size);
+        }
+        FSlateDrawElement::MakeLines(Elements, Layer + 1, Paint, Curve,
+            ESlateDrawEffect::NoPixelSnapping, Tint, true, 2.f);
+        return Layer + 1;
+    }
+
+private:
+    TArray<FVector2D> Points;
+    FLinearColor Tint = FLinearColor::White;
+};
+
 class SCIProjectedBlur : public SBackgroundBlur
 {
 public:
@@ -1351,6 +1397,60 @@ private:
         return FText::GetEmpty();
     }
 
+    TSharedPtr<SWidget> BuildFalloffPlot(const FCFMagritteBinding& Section) const
+    {
+        TArray<FVector2D> Points;
+        for (const auto& Row : Section.Describe().orderedChildren())
+        {
+            if (!IsInspectorFieldVisible(*Row))
+            {
+                continue;
+            }
+            const auto Distance = Row->property("metadata:ciDistanceMetres");
+            const auto Damage = Section.Read(*Row);
+            const auto* Metres = std::get_if<std::int64_t>(&Distance.data);
+            const auto* Percent = std::get_if<std::int64_t>(&Damage.data);
+            if (!Metres || !Percent || *Metres < 0 || *Percent < 0 || *Percent > 100
+                || (!Points.IsEmpty() && *Metres <= Points.Last().X))
+            {
+                return nullptr;
+            }
+            Points.Emplace(double(*Metres), double(*Percent));
+        }
+        if (Points.Num() < 2 || Points[0].X != 0.0)
+        {
+            return nullptr;
+        }
+
+        const auto* Theme = InventoryTheme.Get();
+        const auto Label = [&](const FText& Text) { return InspectorText(Text, Theme->LabelFont); };
+        const auto Metres = [&](int64 Value) {
+            return Label(FText::Format(NSLOCTEXT("Inventory", "FalloffMetres", "{0} m"), FText::AsNumber(Value)));
+        };
+        const auto Upper = Label(FText::AsPercent(1.0));
+        const auto Lower = Label(FText::AsPercent(0.0));
+        const auto MaxDistance = Metres(int64(Points.Last().X));
+        return SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.f, 0.f, 6.f, 18.f)
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot().AutoHeight()[Upper]
+                + SVerticalBox::Slot().FillHeight(1.f).VAlign(VAlign_Bottom)[Lower]
+            ]
+            + SHorizontalBox::Slot().FillWidth(1.f)
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot().AutoHeight()
+                [SNew(SCIFalloffPlot).Points(MoveTemp(Points)).Tint(Theme->TextTint)]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.f, 3.f, 0.f, 0.f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().FillWidth(1.f)[Metres(0)]
+                    + SHorizontalBox::Slot().AutoWidth()[MaxDistance]
+                ]
+            ];
+    }
+
     TSharedRef<SWidget> BuildInspectorCard(const magritte::Description& Field, const FCFMagritteBinding& Section) const
     {
         const auto* Theme = InventoryTheme.Get();
@@ -1365,6 +1465,14 @@ private:
         [
             InspectorText(InspectorValue(Field.property("label")), Theme->GroupLabelFont, true)
         ];
+        if (Kind && *Kind == "falloff")
+        {
+            if (const auto Plot = BuildFalloffPlot(Section))
+            {
+                Content->AddSlot().AutoHeight()[Plot.ToSharedRef()];
+            }
+            return SNew(SBorder).BorderImage(&InspectorBrush).Padding(8.f)[Content];
+        }
         for (const auto& Row : Section.Describe().orderedChildren())
         {
             const auto Label = InspectorValue(Row->property("label"));

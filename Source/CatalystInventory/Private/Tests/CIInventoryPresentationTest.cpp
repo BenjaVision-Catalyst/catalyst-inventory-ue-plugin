@@ -478,6 +478,26 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         const auto Stats = Inspector->Follow(Inspector->ObjectId() + ":stats:section");
         const auto Core = Inspector->Follow(Inspector->ObjectId() + ":primary:section");
         const auto Handling = Inspector->Follow(Inspector->ObjectId() + ":meters:section");
+        const auto Falloff = Inspector->Follow(Inspector->ObjectId() + ":falloff:section");
+        TestEqual(TEXT("Only ranged weapons have a falloff curve"),
+            Falloff ? int32(Falloff->Describe().children.size()) : 0, Index == 0 ? 0 : 4);
+        if (Falloff && Falloff->Describe().children.size() == 4)
+        {
+            const auto& Curve = Falloff->Describe().children;
+            const auto ReadDistance = [](const magritte::Description& Field)
+            {
+                const auto Value = Field.property("metadata:ciDistanceMetres");
+                const auto* Metres = std::get_if<std::int64_t>(&Value.data);
+                return Metres ? *Metres : std::int64_t(-1);
+            };
+            TestEqual(TEXT("Full damage extends to this weapon's optimal range"),
+                ReadDistance(*Curve[1]), std::int64_t(Index == 1 ? 18 : 32));
+            TestEqual(TEXT("The curve ends at the weapon's longest plotted range"),
+                ReadDistance(*Curve.back()), std::int64_t(Index == 1 ? 60 : 100));
+            const auto Value = Falloff->Read(*Curve.back());
+            const auto* Retained = std::get_if<std::int64_t>(&Value.data);
+            TestTrue(TEXT("The curve shows the catalog's retained damage"), Retained && *Retained == (Index == 1 ? 55 : 65));
+        }
         const auto Attachments = Inspector->Follow(Inspector->ObjectId() + ":slots:section");
         TestTrue(TEXT("The owned weapon exposes its core roll"), Core.IsSet());
         TestEqual(TEXT("The attachment card uses the type's sockets"),
