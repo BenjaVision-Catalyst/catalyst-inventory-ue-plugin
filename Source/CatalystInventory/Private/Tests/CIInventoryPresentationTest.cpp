@@ -373,4 +373,67 @@ bool FCIInventoryCatalogProfileTest::RunTest(const FString&)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCIInventoryCatalogGearTest, "Catalyst.Inventory.CatalogGear",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCIInventoryCatalogGearTest::RunTest(const FString&)
+{
+    const auto Plugin = IPluginManager::Get().FindPlugin(TEXT("CatalystInventory"));
+    FString Json;
+    if (!TestTrue(TEXT("Load a profile with catalog gear and gadgets"), Plugin &&
+        FFileHelper::LoadFileToString(Json, *(Plugin->GetBaseDir() / TEXT("Tests/Fixtures/CatalogGearProfile.json")))))
+    {
+        return false;
+    }
+    const auto User = CIInventoryProfile::DecodeUser(Json, TEXT("inventory-fixture"));
+    if (!TestTrue(TEXT("Decode the server-authored profile"), User.IsSet()))
+    {
+        return false;
+    }
+    const auto Gear = User->Follow("profile")->Follow("inventory")->Follow("gear");
+    if (!TestTrue(TEXT("The profile includes Equipment"), Gear.IsSet()))
+    {
+        return false;
+    }
+    const auto Equipped = Gear->Related("equippedGear", 16);
+    struct FExpectedItem
+    {
+        int32 Index;
+        int32 Attributes;
+        int32 Sockets;
+        const char* Core;
+    };
+    const FExpectedItem Expected[] = {{1, 2, 2, "+80"}, {2, 2, 1, "+1"}, {4, 1, 0, "+50"}};
+    for (const auto& Piece : Expected)
+    {
+        if (!TestTrue(TEXT("The occupied slot is present"), Equipped.IsValidIndex(Piece.Index)))
+        {
+            return false;
+        }
+        const auto Inspector = Equipped[Piece.Index].Follow("inspector");
+        if (!TestTrue(TEXT("Gear exposes the generic inspector"), Inspector.IsSet()))
+        {
+            continue;
+        }
+        const auto Core = Inspector->Follow(Inspector->ObjectId() + ":primary:section");
+        const auto Attributes = Inspector->Follow(Inspector->ObjectId() + ":modifiers:section");
+        const auto Mods = Inspector->Follow(Inspector->ObjectId() + ":slots:section");
+        if (TestTrue(TEXT("Gear exposes its rolled core"), Core.IsSet()))
+        {
+            const auto Fields = Core->Describe().orderedChildren();
+            if (TestEqual(TEXT("There is one core attribute"), int32(Fields.size()), 1))
+            {
+                const auto Value = Core->Read(*Fields.front());
+                const auto* Text = std::get_if<std::string>(&Value.data);
+                TestTrue(TEXT("The core value comes from the owned gear"), Text && *Text == Piece.Core);
+            }
+        }
+        TestEqual(TEXT("Show each rolled secondary attribute"),
+            Attributes ? int32(Attributes->Describe().children.size()) : 0, Piece.Attributes);
+        TestEqual(TEXT("Show only the supported mod sockets"),
+            Mods ? int32(Mods->Describe().children.size()) : 0, Piece.Sockets);
+    }
+    return true;
+}
+
 #endif
