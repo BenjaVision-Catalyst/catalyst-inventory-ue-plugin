@@ -16,13 +16,13 @@ public:
     float ThumbnailWidth = 224.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
-    float RowHeight = 126.f;
+    float RowHeight = 108.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
-    float HeaderHeight = 54.f;
+    float HeaderHeight = 44.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
-    FMargin ThumbnailInset = FMargin(20.f, 8.f, 20.f, 26.f);
+    FMargin ThumbnailInset = FMargin(20.f, 6.f, 20.f, 21.f);
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
     float ContentInset = 12.f;

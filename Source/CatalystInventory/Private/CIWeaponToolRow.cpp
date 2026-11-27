@@ -116,6 +116,53 @@ TArray<UCIWeaponToolRow::FStat> UCIWeaponToolRow::ReadStats(const FCFMagritteBin
             }
         }
     }
+    TOptional<double> Damage;
+    bool bHasDps = false;
+    for (FStat& Stat : Result)
+    {
+        const FString Name = Stat.Label.ToString();
+        if (Name.Equals(TEXT("Damage"), ESearchCase::IgnoreCase) || Stat.Id == TEXT("damagePerShot"))
+        {
+            Stat.Label = LOCTEXT("DamageAbbreviation", "DMG");
+            Stat.Id = TEXT("damagePerShot");
+            Damage = Stat.Value;
+        }
+        else if (Name.Equals(TEXT("DPS"), ESearchCase::IgnoreCase) || Stat.Id == TEXT("damagePerSecond"))
+        {
+            Stat.Label = LOCTEXT("DpsAbbreviation", "DPS");
+            Stat.Id = TEXT("damagePerSecond");
+            bHasDps = true;
+        }
+        else if (Name.Equals(TEXT("Magazine"), ESearchCase::IgnoreCase) || Stat.Id == TEXT("magazineCapacity"))
+        {
+            Stat.Label = LOCTEXT("MagazineAbbreviation", "MAG");
+            Stat.Id = TEXT("magazineCapacity");
+        }
+    }
+    if (Damage)
+    {
+        for (int32 Index = 0; Index < Result.Num(); ++Index)
+        {
+            auto& Stat = Result[Index];
+            if (Stat.Value && (Stat.Id.Equals(TEXT("Fire rate"), ESearchCase::IgnoreCase)
+                || Stat.Id == TEXT("roundsPerMinute")))
+            {
+                if (bHasDps)
+                {
+                    Result.RemoveAt(Index);
+                }
+                else
+                {
+                    const double Dps = *Damage * *Stat.Value / 60.0;
+                    FNumberFormattingOptions Formatting;
+                    Formatting.SetMaximumFractionalDigits(1);
+                    Stat = {TEXT("damagePerSecond"), LOCTEXT("DpsAbbreviation", "DPS"), Dps,
+                        FText::AsNumber(Dps, &Formatting)};
+                }
+                break;
+            }
+        }
+    }
     return Result;
 }
 

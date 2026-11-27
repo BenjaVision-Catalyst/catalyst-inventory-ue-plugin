@@ -20,7 +20,7 @@ bool ReadFlag(const magritte::Value& Value)
 
 UCIGearRowTheme::UCIGearRowTheme()
 {
-    HeaderHeight = 60.f;
+    HeaderHeight = 50.f;
     BrandWidth = 106.f;
     TalentAreaWidth = 0.f;
 }
