@@ -1254,12 +1254,22 @@ private:
                         const auto& Style = CurrentMenu->GetMenuTheme();
                         const FCFControllerButtonStyle ButtonStyle{
                             Style.ActionLabelFont, Style.ActionGlyphFont, Style.Ink, Style.ShoulderFill, Style.ShoulderInk};
-                        ValueWidget = SNew(SCFControllerButton)
-                            .Label(NSLOCTEXT("Inventory", "TapGadgetControl", "Tap"))
-                            .ControllerKey(Key)
-                            .Platform(ECFControllerPlatform::PlayStation)
-                            .Style(ButtonStyle)
-                            .Visibility(EVisibility::HitTestInvisible);
+                        ValueWidget = SNew(SHorizontalBox)
+                            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 5.f, 0.f)
+                            [
+                                SNew(STextBlock)
+                                .Text(NSLOCTEXT("Inventory", "TapGadgetControl", "Tap"))
+                                .Font(ButtonStyle.LabelFont)
+                                .ColorAndOpacity(FSlateColor(ButtonStyle.LabelTint))
+                            ]
+                            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                            [
+                                SNew(SCFControllerButton)
+                                .ControllerKey(Key)
+                                .Platform(ECFControllerPlatform::PlayStation)
+                                .Style(ButtonStyle)
+                                .Visibility(EVisibility::HitTestInvisible)
+                            ];
                     }
                 }
             }
