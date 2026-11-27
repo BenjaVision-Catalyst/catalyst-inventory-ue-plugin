@@ -5,6 +5,7 @@
 #include "CIInventoryTile.h"
 
 #include "Algo/BinarySearch.h"
+#include "Brushes/SlateColorBrush.h"
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Components/Border.h"
 #include "Components/CanvasPanel.h"
@@ -1816,6 +1817,14 @@ private:
                     }
                 }
             }
+            const auto& Scrollbar = Theme->Scrollbar;
+            const FSlateColorBrush Thumb(Scrollbar.ThumbTint);
+            InspectorScrollbarStyle
+                .SetVerticalBackgroundImage(FSlateColorBrush(Scrollbar.TrackTint))
+                .SetNormalThumbImage(Thumb)
+                .SetHoveredThumbImage(Thumb)
+                .SetDraggedThumbImage(Thumb);
+            const float ScrollbarWidth = FMath::Max(.5f, Scrollbar.Width);
             InspectorWidget = SNew(SBorder).BorderImage(&InspectorBrush)
                 .Padding(FMargin(Theme->InspectorPadding)).Clipping(EWidgetClipping::ClipToBounds)
                 [
@@ -1829,6 +1838,10 @@ private:
                     + SVerticalBox::Slot().FillHeight(1.f)
                     [
                         SAssignNew(InspectorScroll, SScrollBox)
+                        .ScrollBarStyle(&InspectorScrollbarStyle)
+                        .ScrollBarThickness(FVector2D(ScrollbarWidth, ScrollbarWidth))
+                        .ScrollBarPadding(FMargin(4.f, 0.f, 0.f, 0.f))
+                        .ScrollBarVisibility(EVisibility::Collapsed)
                         .Clipping(EWidgetClipping::ClipToBounds)
                         + SScrollBox::Slot()[Content]
                     ]
@@ -1842,6 +1855,7 @@ private:
         const double DesiredHeight = FMath::CeilToDouble(InspectorWidget->GetDesiredSize().Y * Scale)
             / ProjectionRasterScale;
         const double TargetHeight = FMath::Clamp(DesiredHeight, 1.0, Layout.InspectorExtent.Y);
+        const double PreviousHeight = InspectorHeight;
         InspectorHeight = InspectorHeight > 0.0
             ? FMath::FInterpTo(InspectorHeight, TargetHeight, DeltaTime, 12.0)
             : TargetHeight;
@@ -1853,6 +1867,13 @@ private:
         InspectorHeight = FMath::Min(InspectorHeight, Layout.InspectorExtent.Y);
         bInspectorCanScroll = DesiredHeight > Layout.InspectorExtent.Y
             && InspectorHeight == Layout.InspectorExtent.Y;
+
+        const bool bShowScrollbar = bInspectorCanScroll && PreviousHeight == InspectorHeight;
+        if (bInspectorScrollbarVisible != bShowScrollbar)
+        {
+            bInspectorScrollbarVisible = bShowScrollbar;
+            bInspectorScrollDirty = true;
+        }
 
         const FIntPoint Size(FMath::CeilToInt(Layout.InspectorExtent.X * ProjectionRasterScale),
             FMath::CeilToInt(InspectorHeight * ProjectionRasterScale));
@@ -1870,6 +1891,8 @@ private:
             InspectorScale = Scale;
             bInspectorScrollDirty = false;
             InspectorStrokes.Reset();
+            InspectorScroll->SetScrollBarVisibility(bInspectorScrollbarVisible
+                ? EVisibility::HitTestInvisible : EVisibility::Collapsed);
             DrawToTexture(InspectorTexture, InspectorWidget.ToSharedRef(), FVector2D(Size), DeltaTime, Scale);
         }
     }
@@ -2366,6 +2389,7 @@ private:
     TStrongObjectPtr<UTextureRenderTarget2D> MenuTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> MainTexture;
     TArray<FInventoryTileLift> LiftedTiles;
+    FScrollBarStyle InspectorScrollbarStyle;
     FSlateRoundedBoxBrush InspectorBrush{FLinearColor::Transparent, 0.f};
     TSharedPtr<SBorder> InspectorWidget;
     TWeakObjectPtr<const UCIInventoryTile> InspectorTile;
@@ -2375,6 +2399,7 @@ private:
     float InspectorScrollRate = 0.f;
     bool bInspectorScrollDirty = false;
     bool bInspectorCanScroll = false;
+    bool bInspectorScrollbarVisible = false;
     FSlateBrush InspectorIconBrush;
     TStrongObjectPtr<UTextureRenderTarget2D> InspectorTexture;
     TArray<FInspectorStroke> InspectorStrokes;
