@@ -8,7 +8,8 @@ class UCCSubsystem;
 namespace CIInventoryProfile
 {
 /** Decode a local inventory preview for the supplied profile identity. */
-CATALYSTINVENTORY_API TOptional<FCFMagritteBinding> DecodeUser(const FString& Json, const FString& UserId);
+CATALYSTINVENTORY_API TOptional<FCFMagritteBinding> DecodeUser(const FString& Json, const FString& UserId,
+    std::shared_ptr<const magritte::Graph>* OutGraph = nullptr);
 /** Decode a successful operation 103 reply, including the bounded ZLIB envelope. */
 CATALYSTINVENTORY_API TOptional<FCFMagritteBinding> DecodeReply(TConstArrayView<uint8> Body, const FString& UserId);
 

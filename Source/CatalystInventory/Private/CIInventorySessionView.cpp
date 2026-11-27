@@ -54,6 +54,15 @@ void UCIInventorySessionView::SetCloseAction(FSimpleDelegate Action)
     }
 }
 
+void UCIInventorySessionView::SetSlotPickerSource(FCIInventorySlotPickerSource InSource)
+{
+    SlotPickerSource = MoveTemp(InSource);
+    if (auto* Inventory = GetInventoryView())
+    {
+        Inventory->GetInventoryShell()->SetSlotPickerSource(SlotPickerSource);
+    }
+}
+
 TSharedRef<SWidget> UCIInventorySessionView::RebuildWidget()
 {
     if (!Panel)
@@ -126,6 +135,7 @@ void UCIInventorySessionView::Refresh()
     if (auto* Shell = Content ? Content->GetInventoryShell() : nullptr)
     {
         Shell->SetCloseAction(CloseAction);
+        Shell->SetSlotPickerSource(SlotPickerSource);
         if (CreateSavedSet)
         {
             Shell->SetCreateSavedSetAction([WeakThis = TWeakObjectPtr<UCIInventorySessionView>(this)](bool bOutfit) {

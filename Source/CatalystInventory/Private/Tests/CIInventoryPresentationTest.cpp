@@ -572,6 +572,28 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
             FString(TEXT("Pathfinder Carbine")));
         TestEqual(TEXT("Draw three attribute and handling meters, two plot rules, and one curve"),
             Shell->GetInspectorStrokeCountForTest(), 9);
+
+        FString EquippedIdentifier;
+        Shell->SetSlotPickerSource([&](const FCFMagritteBinding&)
+        {
+            FCIInventorySlotPicker Picker;
+            Picker.Choices = {{TEXT("equipped"), FText::FromString(TEXT("Equipped")), true},
+                {TEXT("reserve"), FText::FromString(TEXT("Reserve")), false}};
+            Picker.Equip = [&](const FString& Identifier) { EquippedIdentifier = Identifier; return true; };
+            return TOptional<FCIInventorySlotPicker>(MoveTemp(Picker));
+        });
+        const auto Press = [&](const FKey& Key)
+        {
+            return Widget->OnKeyDown(Geometry, FKeyEvent(Key, FModifierKeysState(), 0, false, 0, 0)).IsEventHandled();
+        };
+        TestTrue(TEXT("Confirm opens a slot picker for the focused tile"), Press(EKeys::Enter));
+        TestTrue(TEXT("Back cancels item picking"), Press(EKeys::BackSpace));
+        TestTrue(TEXT("Cancelling leaves the equipped item alone"), EquippedIdentifier.IsEmpty());
+        Press(EKeys::Enter);
+        Press(EKeys::Down);
+        Press(EKeys::Enter);
+        TestEqual(TEXT("The picker equips the selected compatible item"), EquippedIdentifier, FString(TEXT("reserve")));
+        Shell->SetSlotPickerSource({});
     }
     return true;
 }

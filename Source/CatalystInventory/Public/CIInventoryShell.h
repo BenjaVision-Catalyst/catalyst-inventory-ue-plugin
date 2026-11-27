@@ -2,6 +2,7 @@
 
 #include "Components/PanelWidget.h"
 #include "Presentation/CFControllerHold.h"
+#include "CIInventorySlotPicker.h"
 #include "CIInventoryShell.generated.h"
 
 class UCFMenu;
@@ -34,6 +35,7 @@ public:
     void SetRenameSavedSetAction(TFunction<bool(FString, FString)> Action);
     void CloseSavedSetOptions();
     void SetCloseAction(FSimpleDelegate Action);
+    void SetSlotPickerSource(FCIInventorySlotPickerSource Source);
     void RestoreSavedSetsState(const UCIInventoryShell& Previous);
 #if WITH_DEV_AUTOMATION_TESTS
     FIntPoint GetFocusedGridCellForTest() const;
@@ -78,6 +80,7 @@ private:
     TFunction<bool(FString, FString)> RenameSavedSet;
     FSimpleDelegate SavedSetConfirm;
     FSimpleDelegate CloseAction;
+    FCIInventorySlotPickerSource SlotPickerSource;
     bool bConfirmEquips = false;
     bool bRestoreSavedSetsOpen = false;
     int32 RestoredSavedSetIndex = 0;

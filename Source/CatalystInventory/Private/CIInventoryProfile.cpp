@@ -11,7 +11,8 @@ constexpr int32 MaximumGraphBytes = 65536;
 constexpr int32 MaximumPreviewGraphBytes = 128 * 1024;
 constexpr int32 ZlibHeaderBytes = 8;
 
-TOptional<FCFMagritteBinding> DecodeUserUtf8(const std::string& Json, const FString& UserId, int32 Limit = MaximumGraphBytes)
+TOptional<FCFMagritteBinding> DecodeUserUtf8(const std::string& Json, const FString& UserId, int32 Limit = MaximumGraphBytes,
+    std::shared_ptr<const magritte::Graph>* OutGraph = nullptr)
 {
     if (UserId.IsEmpty())
     {
@@ -28,7 +29,15 @@ TOptional<FCFMagritteBinding> DecodeUserUtf8(const std::string& Json, const FStr
             return {};
         }
         const auto Profile = User->Follow("profile");
-        return Profile && Profile->Follow("inventory") ? User : TOptional<FCFMagritteBinding>();
+        if (!Profile || !Profile->Follow("inventory"))
+        {
+            return {};
+        }
+        if (OutGraph)
+        {
+            *OutGraph = MoveTemp(Graph);
+        }
+        return User;
     }
     catch (const magritte::Error&)
     {
@@ -37,10 +46,11 @@ TOptional<FCFMagritteBinding> DecodeUserUtf8(const std::string& Json, const FStr
 }
 }
 
-TOptional<FCFMagritteBinding> CIInventoryProfile::DecodeUser(const FString& Json, const FString& UserId)
+TOptional<FCFMagritteBinding> CIInventoryProfile::DecodeUser(const FString& Json, const FString& UserId,
+    std::shared_ptr<const magritte::Graph>* OutGraph)
 {
     const auto Utf8 = StringCast<UTF8CHAR>(*Json, Json.Len());
-    return DecodeUserUtf8(std::string(reinterpret_cast<const char*>(Utf8.Get()), Utf8.Length()), UserId, MaximumPreviewGraphBytes);
+    return DecodeUserUtf8(std::string(reinterpret_cast<const char*>(Utf8.Get()), Utf8.Length()), UserId, MaximumPreviewGraphBytes, OutGraph);
 }
 
 TOptional<FCFMagritteBinding> CIInventoryProfile::DecodeReply(TConstArrayView<uint8> Body, const FString& UserId)

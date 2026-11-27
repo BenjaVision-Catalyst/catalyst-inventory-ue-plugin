@@ -297,6 +297,9 @@ public:
     SLATE_BEGIN_ARGS(SCIInventoryActionFooter) {}
         SLATE_ATTRIBUTE(FName, Section)
         SLATE_ATTRIBUTE(bool, SavedSetsOpen)
+        SLATE_ATTRIBUTE(bool, SlotPickerOpen)
+        SLATE_ATTRIBUTE(bool, SlotPickerAvailable)
+        SLATE_ATTRIBUTE(bool, SlotChoiceAvailable)
         SLATE_ATTRIBUTE(bool, ConfirmEquips)
         SLATE_ATTRIBUTE(bool, ConfirmAvailable)
         SLATE_ATTRIBUTE(bool, OverwriteAvailable)
@@ -311,6 +314,9 @@ public:
     {
         Section = Args._Section;
         SavedSetsOpen = Args._SavedSetsOpen;
+        SlotPickerOpen = Args._SlotPickerOpen;
+        SlotPickerAvailable = Args._SlotPickerAvailable;
+        SlotChoiceAvailable = Args._SlotChoiceAvailable;
         ConfirmEquips = Args._ConfirmEquips;
         ConfirmAvailable = Args._ConfirmAvailable;
         OverwriteAvailable = Args._OverwriteAvailable;
@@ -370,8 +376,17 @@ public:
             Right -= ActionPromptGap;
         };
 
-        DrawPrompt(NSLOCTEXT("Inventory", "CloseActionLabel", "Close"), EKeys::BackSpace, EKeys::Gamepad_FaceButton_Right);
+        DrawPrompt(SlotPickerOpen.Get() ? NSLOCTEXT("Inventory", "SlotPickerBack", "Back")
+            : NSLOCTEXT("Inventory", "CloseActionLabel", "Close"), EKeys::BackSpace, EKeys::Gamepad_FaceButton_Right);
         CloseBounds = FSlateRect(Right + ActionPromptGap, 0.0, Geometry.GetLocalSize().X, 25.0);
+        if (SlotPickerOpen.Get())
+        {
+            const double ConfirmRight = Right;
+            DrawPrompt(NSLOCTEXT("Inventory", "EquipActionLabel", "Equip"), EKeys::Enter,
+                EKeys::Gamepad_FaceButton_Bottom, SlotChoiceAvailable.Get());
+            ConfirmBounds = FSlateRect(Right + ActionPromptGap, 0.0, ConfirmRight, 25.0);
+            return Layer + 2;
+        }
         const FText SectionAction = bResources
             ? NSLOCTEXT("Inventory", "OpenResourceCategories", "Categories") : SavedSetsLabel(CurrentSection);
         const double ActionRight = Right;
@@ -411,12 +426,21 @@ public:
                 DeleteAvailable.Get() || Indicator.bAnimating, true, Indicator);
             DeleteBounds = FSlateRect(Right + ActionPromptGap, 25.0, DeleteRight, FooterHeight);
         }
+        else if (SlotPickerAvailable.Get())
+        {
+            const double ConfirmRight = Right;
+            DrawPrompt(NSLOCTEXT("Inventory", "SelectSlotItem", "Select"), EKeys::Enter, EKeys::Gamepad_FaceButton_Bottom);
+            ConfirmBounds = FSlateRect(Right + ActionPromptGap, 0.0, ConfirmRight, 25.0);
+        }
         return Layer + 2;
     }
 
 private:
     TAttribute<FName> Section;
     TAttribute<bool> SavedSetsOpen;
+    TAttribute<bool> SlotPickerOpen;
+    TAttribute<bool> SlotPickerAvailable;
+    TAttribute<bool> SlotChoiceAvailable;
     TAttribute<bool> ConfirmEquips;
     TAttribute<bool> ConfirmAvailable;
     TAttribute<bool> OverwriteAvailable;
@@ -493,6 +517,9 @@ public:
                 .Menu(InMenu)
                 .Section(ActionSection)
                 .SavedSetsOpen_Lambda([this] { return bSavedSetsOpen; })
+                .SlotPickerOpen_Lambda([this] { return SlotPicker.IsSet(); })
+                .SlotPickerAvailable_Lambda([this] { return SlotPickerSource && HasSavedSets(ActionSection.Get()); })
+                .SlotChoiceAvailable_Lambda([this] { return SlotPicker && SlotPicker->Choices.IsValidIndex(SlotChoice); })
                 .ConfirmEquips(ConfirmEquips)
                 .ConfirmAvailable(ConfirmAvailable)
                 .OverwriteAvailable_Lambda([this] { return HoldTarget(ESavedSetHold::Overwrite).IsValid(); })
@@ -523,6 +550,7 @@ public:
     }
 
     void SetCloseAction(const FSimpleDelegate& Action) { OnClose = Action; }
+    void SetSlotPickerSource(FCIInventorySlotPickerSource Source) { SlotPickerSource = MoveTemp(Source); }
 
     void SetSavedSets(const TArray<FCIInventorySavedSet>& Sets)
     {
@@ -562,6 +590,7 @@ public:
     void SwitchSectionNavigation(FName Section)
     {
         TabSelections = GetTabSelections();
+        SlotPicker.Reset();
         SetSavedSetsState(false, 0);
         SavedSetsPresentation = {};
         SetNavigationGrid(nullptr);
@@ -697,6 +726,32 @@ public:
             return FReply::Handled();
         }
         const FKey Key = Event.GetKey();
+        const bool bConfirmSlot = Key == EKeys::Enter || Key == EKeys::Gamepad_FaceButton_Bottom;
+        const bool bBackSlot = Key == EKeys::BackSpace || Key == EKeys::Escape || Key == EKeys::Gamepad_FaceButton_Right;
+        if (SlotPicker && bBackSlot)
+        {
+            SlotPicker.Reset();
+            return FReply::Handled();
+        }
+        if (SlotPicker && (Key == EKeys::Tab || Key == EKeys::Gamepad_Special_Right))
+        {
+            SlotPicker.Reset();
+        }
+        if (SlotPicker && bConfirmSlot)
+        {
+            if (!Event.IsRepeat()) { ConfirmSlotChoice(); }
+            return FReply::Handled();
+        }
+        if (SlotPicker && (Key == EKeys::G || Key == EKeys::Q || Key == EKeys::E
+            || Key == EKeys::Gamepad_LeftShoulder || Key == EKeys::Gamepad_RightShoulder
+            || Key == EKeys::Gamepad_LeftTrigger))
+        {
+            return FReply::Handled();
+        }
+        if (!SlotPicker && !bSavedSetsOpen && bConfirmSlot && !Event.IsRepeat() && OpenSlotPicker())
+        {
+            return FReply::Handled();
+        }
         if (InspectorScroll && !bSavedSetsOpen && (Key == EKeys::PageUp || Key == EKeys::PageDown))
         {
             ScrollInspector(Key == EKeys::PageUp ? -140.f : 140.f);
@@ -820,6 +875,7 @@ public:
         }
         if (Key == EKeys::Gamepad_LeftTriggerAxis)
         {
+            if (SlotPicker) { return FReply::Handled(); }
             NavigationInput.TriggerAxis = Event.GetAnalogValue();
             return UpdateNavigationTrigger() ? FReply::Handled() : FReply::Unhandled();
         }
@@ -870,6 +926,34 @@ public:
             const auto Layout = GetLayout(Geometry.GetLocalSize());
             const FVector2D PlanePoint = Layout.Left.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()));
             const FVector2D FooterPoint = (PlanePoint - Layout.FooterOrigin) / Layout.Scale;
+            if (SlotPicker)
+            {
+                if (FooterWidget->IsOverClose(FooterPoint))
+                {
+                    SlotPicker.Reset();
+                }
+                else if (FooterWidget->IsOverConfirm(FooterPoint))
+                {
+                    ConfirmSlotChoice();
+                }
+                else
+                {
+                    const auto Point = (PlanePoint - Layout.MainOrigin) / Layout.Scale;
+                    if (Point.X >= 0.0 && Point.X < Layout.MainExtent.X / Layout.Scale && Point.Y >= SlotPickerHeadingHeight)
+                    {
+                        const int32 Row = FMath::FloorToInt((Point.Y - SlotPickerHeadingHeight) / SlotPickerRowHeight);
+                        if (Row < VisibleSlotChoices(Layout) && SlotPicker->Choices.IsValidIndex(FirstSlotChoice + Row))
+                        {
+                            SlotChoice = FirstSlotChoice + Row;
+                        }
+                    }
+                }
+                return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
+            }
+            if (!bSavedSetsOpen && FooterWidget->IsOverConfirm(FooterPoint) && OpenSlotPicker())
+            {
+                return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
+            }
             if (FooterWidget->IsOverClose(FooterPoint) && OnClose.ExecuteIfBound())
             {
                 return FReply::Handled();
@@ -1104,6 +1188,18 @@ public:
             {
                 FooterTexture.Reset();
             }
+            if (SlotPicker)
+            {
+                const FVector2D PickerSize(TargetSize.X - MainRightGuardPixels, TargetSize.Y - MainBottomGuardPixels);
+                if (!SlotPickerTexture.IsValid() || SlotPickerTexture->SizeX != PickerSize.X
+                    || SlotPickerTexture->SizeY != PickerSize.Y || RenderedSlotChoice != SlotChoice
+                    || SlotPickerPaintScale != PaintScale)
+                {
+                    DrawToTexture(SlotPickerTexture, BuildSlotPicker(Layout), PickerSize, DeltaTime, PaintScale);
+                    RenderedSlotChoice = SlotChoice;
+                    SlotPickerPaintScale = PaintScale;
+                }
+            }
             if (bSavedSetsOpen || SavedSetsPresentation.Reveal.GetProgress() > 0.0)
             {
                 const auto Sidebar = GetSidebarGeometry(Layout, Size.X);
@@ -1145,7 +1241,12 @@ public:
             });
         }
         PaintBackdrops(Geometry, Elements, Layer, Layout);
-        if (MainTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
+        if (SlotPicker && SlotPickerTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
+        {
+            DrawSurface(Geometry, Elements, Layer + 1, Layout.Left, SlotPickerTexture.Get(),
+                Layout.MainOrigin, Layout.MainExtent);
+        }
+        else if (MainTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
         {
             DrawMainGrid(Geometry, Elements, Layer + 1, Layout);
         }
@@ -1268,10 +1369,98 @@ private:
         GridFocus = StepInventoryGrid(NavigationRows, GridFocus, FIntPoint::ZeroValue);
     }
 
+    bool OpenSlotPicker()
+    {
+        const auto* Tile = GetSelectedTile();
+        if (!SlotPickerSource || !Tile || !Tile->GetInspectorItem() || !HasSavedSets(ActionSection.Get()))
+        {
+            return false;
+        }
+        SlotPicker = SlotPickerSource(*Tile->GetInspectorItem());
+        if (!SlotPicker)
+        {
+            return false;
+        }
+        SlotChoice = FMath::Max(0, SlotPicker->Choices.IndexOfByPredicate(
+            [](const FCIInventorySlotChoice& Choice) { return Choice.bEquipped; }));
+        FirstSlotChoice = SlotChoice;
+        RenderedSlotChoice = INDEX_NONE;
+        SetSavedSetsState(false, 0);
+        return true;
+    }
+
+    void ConfirmSlotChoice()
+    {
+        if (!SlotPicker || !SlotPicker->Equip || !SlotPicker->Choices.IsValidIndex(SlotChoice))
+        {
+            return;
+        }
+        const auto Identifier = SlotPicker->Choices[SlotChoice].Identifier;
+        auto Picker = MoveTemp(*SlotPicker);
+        SlotPicker.Reset();
+        // The host may replace the entire view synchronously when an item is equipped.
+        const auto KeepAlive = SharedThis(this);
+        if (!Picker.Equip(Identifier))
+        {
+            SlotPicker = MoveTemp(Picker);
+        }
+    }
+
+    int32 VisibleSlotChoices(const FInventoryShellLayout& Layout) const
+    {
+        return FMath::Max(1, FMath::FloorToInt((Layout.MainExtent.Y / Layout.Scale - SlotPickerHeadingHeight) / SlotPickerRowHeight));
+    }
+
+    TSharedRef<SWidget> BuildSlotPicker(const FInventoryShellLayout& Layout)
+    {
+        const auto* Theme = InventoryTheme.Get();
+        const int32 Visible = VisibleSlotChoices(Layout);
+        FirstSlotChoice = FMath::Clamp(FirstSlotChoice, FMath::Max(0, SlotChoice - Visible + 1), SlotChoice);
+        FirstSlotChoice = FMath::Min(FirstSlotChoice, FMath::Max(0, SlotPicker->Choices.Num() - Visible));
+        auto Content = SNew(SVerticalBox)
+            + SVerticalBox::Slot().AutoHeight()
+            [
+                SNew(SBox).HeightOverride(SlotPickerHeadingHeight).VAlign(VAlign_Center)
+                [InspectorText(SlotPicker->Heading, Theme->GroupLabelFont)]
+            ];
+        if (SlotPicker->Choices.IsEmpty())
+        {
+            Content->AddSlot().AutoHeight()
+            [InspectorText(NSLOCTEXT("Inventory", "NoCompatibleSlotItems", "No compatible items"), Theme->LabelFont)];
+        }
+        for (int32 Index = FirstSlotChoice; Index < FMath::Min(FirstSlotChoice + Visible, SlotPicker->Choices.Num()); ++Index)
+        {
+            const auto& Choice = SlotPicker->Choices[Index];
+            Content->AddSlot().AutoHeight()
+            [
+                SNew(SBox).HeightOverride(SlotPickerRowHeight)
+                [
+                    SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+                    .BorderBackgroundColor(Index == SlotChoice ? Theme->Style.FocusedBackground : Theme->Style.Background)
+                    .Padding(FMargin(8.f, 0.f))
+                    [
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+                        [InspectorText(Choice.Label, Theme->LabelFont)]
+                        + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                        [InspectorText(Choice.bEquipped ? NSLOCTEXT("Inventory", "SlotItemEquipped", "Equipped") : FText::GetEmpty(),
+                            Theme->LabelFont)]
+                    ]
+                ]
+            ];
+        }
+        return Content;
+    }
+
     void MoveNavigation(FIntPoint Direction)
     {
         if (Direction == FIntPoint::ZeroValue)
         {
+            return;
+        }
+        if (SlotPicker)
+        {
+            SlotChoice = FMath::Clamp(SlotChoice + Direction.Y, 0, FMath::Max(0, SlotPicker->Choices.Num() - 1));
             return;
         }
         if (bSavedSetsOpen)
@@ -1985,6 +2174,11 @@ private:
         {
             PaintBackdrop(Layout.Right, Layout.InspectorOrigin, Layout.InspectorOrigin + Layout.InspectorExtent);
         }
+        if (SlotPicker && SlotPickerTexture.IsValid())
+        {
+            PaintBackdrop(Layout.Left, Layout.MainOrigin, Layout.MainOrigin + Layout.MainExtent);
+            return;
+        }
         const auto* Grid = Cast<UCFSpanGrid>(MainContent.Get());
         const auto GridWidget = Grid ? Grid->GetCachedWidget() : nullptr;
         if (!MainTexture.IsValid() || Layout.MainExtent.GetMin() <= 0.0 || !GridWidget)
@@ -2456,6 +2650,15 @@ private:
 #endif
     TStrongObjectPtr<UTextureRenderTarget2D> FooterTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> SavedSetsTexture;
+    TStrongObjectPtr<UTextureRenderTarget2D> SlotPickerTexture;
+    FCIInventorySlotPickerSource SlotPickerSource;
+    TOptional<FCIInventorySlotPicker> SlotPicker;
+    int32 SlotChoice = 0;
+    int32 FirstSlotChoice = 0;
+    int32 RenderedSlotChoice = INDEX_NONE;
+    float SlotPickerPaintScale = 0.f;
+    static constexpr float SlotPickerHeadingHeight = 34.f;
+    static constexpr float SlotPickerRowHeight = 48.f;
     FCIInventorySavedSetsPresentation SavedSetsPresentation;
     double SavedSetsPaintedAt = 0.0;
     bool bSavedSetsOpen = false;
@@ -2523,6 +2726,15 @@ void UCIInventoryShell::CloseSavedSetOptions()
     if (Shell)
     {
         Shell->CloseSavedSetOptions();
+    }
+}
+
+void UCIInventoryShell::SetSlotPickerSource(FCIInventorySlotPickerSource Source)
+{
+    SlotPickerSource = MoveTemp(Source);
+    if (Shell)
+    {
+        Shell->SetSlotPickerSource(SlotPickerSource);
     }
 }
 
@@ -2674,6 +2886,7 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
     Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput);
     Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
     Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
+    Shell->SetSlotPickerSource(SlotPickerSource);
     Shell->RestoreHoldConfirmation(ESavedSetHold::Overwrite, RestoredOverwriteConfirmation);
     Shell->RestoreHoldConfirmation(ESavedSetHold::Delete, RestoredDeleteConfirmation);
     return Shell.ToSharedRef();
