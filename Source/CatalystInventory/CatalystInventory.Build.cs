@@ -6,6 +6,6 @@ public class CatalystInventory : ModuleRules
     {
         bEnableExceptions = true;
         PrivateDependencyModuleNames.AddRange(new[] { "InputCore", "Projects", "RenderCore" });
-        PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "UMG", "CatalystFoundation", "CatalystConnectObjects", "Slate", "SlateCore" });
+        PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "UMG", "CatalystFoundation", "CatalystConnect", "CatalystConnectObjects", "Slate", "SlateCore" });
     }
 }

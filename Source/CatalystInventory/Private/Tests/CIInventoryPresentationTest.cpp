@@ -325,7 +325,21 @@ bool FCIInventoryCatalogProfileTest::RunTest(const FString&)
 
     TestFalse(TEXT("Reject malformed graphs"), CIInventoryProfile::DecodeUser(TEXT("{"), TEXT("inventory-fixture")).IsSet());
     TestFalse(TEXT("Reject another user"), CIInventoryProfile::DecodeUser(Json, TEXT("another-user")).IsSet());
-    const auto User = CIInventoryProfile::DecodeUser(Json, TEXT("inventory-fixture"));
+    TestTrue(TEXT("Decode the uncompressed preview JSON"), CIInventoryProfile::DecodeUser(Json, TEXT("inventory-fixture")).IsSet());
+    TArray<uint8> Body;
+    if (!TestTrue(TEXT("Load the gateway's compressed profile"),
+        FFileHelper::LoadFileToArray(Body, *(Plugin->GetBaseDir() / TEXT("Tests/Fixtures/CatalogGadgetProfile.reply")))))
+    {
+        return false;
+    }
+    TestFalse(TEXT("Reject a different session identity"), CIInventoryProfile::DecodeReply(Body, TEXT("another-user")).IsSet());
+    TestFalse(TEXT("Reject a truncated ZLIB envelope"), CIInventoryProfile::DecodeReply(MakeArrayView(Body.GetData(), 7),
+        TEXT("inventory-fixture")).IsSet());
+    auto Oversized = Body;
+    Oversized[7] = 1;
+    TestFalse(TEXT("Reject an oversized graph before decompression"),
+        CIInventoryProfile::DecodeReply(Oversized, TEXT("inventory-fixture")).IsSet());
+    const auto User = CIInventoryProfile::DecodeReply(Body, TEXT("inventory-fixture"));
     if (!TestTrue(TEXT("Decode the authorized inventory"), User.IsSet()))
     {
         return false;
