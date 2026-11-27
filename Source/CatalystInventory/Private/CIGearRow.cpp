@@ -202,7 +202,7 @@ void UCIGearRow::RefreshDetails()
             [SNew(STextBlock).Text(StatLabel).Font(Style.StatLabelFont).ColorAndOpacity(Style.TextTint)
                 .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(AttributeLabel)]
             + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
-            [SNew(STextBlock).Text(Attribute->Value).Font(Style.CountFont).ColorAndOpacity(bArmour ? Style.TextTint : Style.PrimaryValueTint)
+            [SNew(STextBlock).Text(Attribute->Value).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
                 .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Attribute->Value)]
         ];
     }
