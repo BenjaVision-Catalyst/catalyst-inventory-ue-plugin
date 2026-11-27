@@ -234,7 +234,14 @@ FInventoryShellLayout LayoutFor(const FVector2D& Size, const FVector2D& MenuSize
     Layout.MainOrigin = {Layout.Left.Extent.X - MainRightInset - GridWidth, GridTop};
     const double AvailableHeight = Layout.Left.Extent.Y - Layout.MainOrigin.Y - (FooterGap + FooterHeight) * Scale;
     Layout.MainExtent = {GridWidth, FMath::Min(AvailableHeight, FMath::Max(1.f, PanelHeight) * Scale)};
-    Layout.InspectorExtent.Y = Layout.MainExtent.Y;
+    const double InspectorBottom = Size.Y - 24.0 * Scale;
+    const auto InspectorBottomAt = [&](double X)
+    {
+        const double ScreenX = Layout.Right.Project({X, GridTop}).X;
+        return Layout.Right.Unproject({ScreenX, InspectorBottom}).Y;
+    };
+    Layout.InspectorExtent.Y = FMath::Max(0.0,
+        FMath::Min(InspectorBottomAt(0.0), InspectorBottomAt(Layout.InspectorExtent.X)) - GridTop);
     Layout.FooterOrigin = Layout.MainOrigin + FVector2D(0.0, Layout.MainExtent.Y + FooterGap * Scale);
     return Layout;
 }
@@ -542,6 +549,14 @@ public:
     FIntPoint GetGridFocus() const { return GridFocus; }
 
 #if WITH_DEV_AUTOMATION_TESTS
+    FVector GetInspectorScrollState(const FVector2D& ViewSize) const
+    {
+        const auto Layout = GetLayout(ViewSize);
+        return { InspectorScroll ? InspectorScroll->GetScrollOffset() : 0.f,
+            InspectorHeader ? InspectorHeader->GetPaintSpaceGeometry().GetAbsolutePosition().Y : 0.f,
+            Layout.InspectorExtent.Y - Layout.MainExtent.Y };
+    }
+
     double GetGridTileLift(FIntPoint Cell) const
     {
         const auto* Tile = LiftedTiles.FindByPredicate([Cell](const auto& Entry) { return Entry.Cell == Cell; });
@@ -759,6 +774,13 @@ public:
     FReply OnAnalogValueChanged(const FGeometry&, const FAnalogInputEvent& Event) override
     {
         const FKey Key = Event.GetKey();
+        if (Key == EKeys::Gamepad_RightY)
+        {
+            const float Axis = Event.GetAnalogValue();
+            const float Strength = FMath::Clamp((FMath::Abs(Axis) - .2f) / .8f, 0.f, 1.f);
+            InspectorScrollRate = -FMath::Sign(Axis) * Strength * 640.f;
+            return HasSavedSets(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
+        }
         if (Key == EKeys::Gamepad_LeftTriggerAxis)
         {
             NavigationInput.TriggerAxis = Event.GetAnalogValue();
@@ -774,6 +796,7 @@ public:
 
     void OnFocusLost(const FFocusEvent&) override
     {
+        InspectorScrollRate = 0.f;
         NavigationInput = {};
         for (const auto Action : SavedSetHoldActions)
         {
@@ -1361,10 +1384,14 @@ private:
 
     void ScrollInspector(float Amount)
     {
-        const float Offset = FMath::Clamp(InspectorScroll->GetScrollOffset() + Amount, 0.f,
-            InspectorScroll->GetScrollOffsetOfEnd());
-        InspectorScroll->SetScrollOffset(Offset);
-        bInspectorScrollDirty = true;
+        const float Current = InspectorScroll->GetScrollOffset();
+        const float Offset = FMath::Clamp(Current + Amount, 0.f,
+            FMath::Max(0.f, InspectorScroll->GetScrollOffsetOfEnd()));
+        if (Offset != Current)
+        {
+            InspectorScroll->SetScrollOffset(Offset);
+            bInspectorScrollDirty = true;
+        }
     }
 
     static bool IsInspectorFieldVisible(const magritte::Description& Field)
@@ -1608,10 +1635,6 @@ private:
             }
             Header->AddSlot().FillWidth(1.f)[Identity];
             auto Content = SNew(SVerticalBox);
-            Content->AddSlot().AutoHeight()
-            [
-                SNew(SBorder).BorderImage(&InspectorBrush).Padding(8.f)[Header]
-            ];
             if (Item)
             {
                 for (const auto& Field : Item->Describe().orderedChildren())
@@ -1644,14 +1667,29 @@ private:
             InspectorWidget = SNew(SBorder).BorderImage(&InspectorBrush)
                 .Padding(FMargin(Theme->InspectorPadding)).Clipping(EWidgetClipping::ClipToBounds)
                 [
-                    SAssignNew(InspectorScroll, SScrollBox)
-                    + SScrollBox::Slot()[Content]
+                    SNew(SVerticalBox)
+                    + SVerticalBox::Slot().AutoHeight()
+                    [
+                        SAssignNew(InspectorHeader, SBorder)
+                        .BorderImage(&InspectorBrush).Padding(8.f)
+                        [Header]
+                    ]
+                    + SVerticalBox::Slot().FillHeight(1.f)
+                    [
+                        SAssignNew(InspectorScroll, SScrollBox)
+                        .Clipping(EWidgetClipping::ClipToBounds)
+                        + SScrollBox::Slot()[Content]
+                    ]
                 ];
             InspectorTheme = Theme;
             InspectorTile = Tile;
             InspectorItem = Item;
             InspectorScale = Scale;
             bInspectorScrollDirty = true;
+        }
+        if (InspectorScrollRate != 0.f && !bSavedSetsOpen && !OptionsWindow.IsValid())
+        {
+            ScrollInspector(InspectorScrollRate * DeltaTime);
         }
         if (bInspectorScrollDirty)
         {
@@ -2152,6 +2190,8 @@ private:
     TWeakObjectPtr<const UCIInventoryTile> InspectorTile;
     TOptional<FCFMagritteBinding> InspectorItem;
     TSharedPtr<SScrollBox> InspectorScroll;
+    TSharedPtr<SBorder> InspectorHeader;
+    float InspectorScrollRate = 0.f;
     bool bInspectorScrollDirty = false;
     FSlateBrush InspectorIconBrush;
     TStrongObjectPtr<UTextureRenderTarget2D> InspectorTexture;
@@ -2279,6 +2319,11 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
 FIntPoint UCIInventoryShell::GetFocusedGridCellForTest() const
 {
     return Shell ? Shell->GetGridFocus() : RestoredGridFocus;
+}
+
+FVector UCIInventoryShell::GetInspectorScrollStateForTest(FVector2D ViewSize) const
+{
+    return Shell ? Shell->GetInspectorScrollState(ViewSize) : FVector::ZeroVector;
 }
 
 double UCIInventoryShell::GetGridTileLiftForTest(FIntPoint Cell) const

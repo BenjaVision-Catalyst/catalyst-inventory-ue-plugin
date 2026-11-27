@@ -51,13 +51,36 @@ bool FCIInventoryNavigationTest::RunTest(const FString&)
         Field->className = "MAStringDescription";
         Card->children.push_back(Field);
     }
+    const auto InspectorRelation = std::make_shared<magritte::Description>();
+    InspectorRelation->id = "inspector";
+    InspectorRelation->className = "MAToOneRelationDescription";
+    Card->children.push_back(InspectorRelation);
+    const auto Inspector = std::make_shared<magritte::Description>();
+    Inspector->id = "inspectorBody";
+    Inspector->className = "MAPriorityContainer";
+    const auto BodyField = std::make_shared<magritte::Description>();
+    BodyField->id = "summary";
+    BodyField->className = "MAStringDescription";
+    Inspector->children.push_back(BodyField);
+    InspectorRelation->reference = Inspector;
+
     const auto Graph = std::make_shared<magritte::Graph>();
+    auto& Body = Graph->objects["body"];
+    Body.id = "body";
+    Body.description = Inspector;
+    std::string LongBody;
+    for (int32 Index = 0; Index < 180; ++Index)
+    {
+        LongBody += "Inspector body row\n";
+    }
+    Body.values = {{"summary", magritte::Value(LongBody)}};
     const auto AddTile = [&](const char* Category, const char* ItemName) {
         auto& Object = Graph->objects[Category];
         Object.id = Category;
         Object.description = Card;
         Object.values = {{"categoryIdentifier", magritte::Value(Category)},
-            {"displayName", magritte::Value(ItemName)}};
+            {"displayName", magritte::Value(ItemName)},
+            {"inspector", magritte::Value(magritte::Value::Reference{"body"})}};
         auto* Tile = NewObject<UCIInventoryTile>(UnpaintedGrid);
         Tile->BindItem(FCFMagritteBinding::Find(Graph, Object.id).GetValue());
         TestTrue(TEXT("An equipment tile still hides the label on its front"), Tile->Label.IsEmpty());
@@ -92,6 +115,27 @@ bool FCIInventoryNavigationTest::RunTest(const FString&)
         Widget->Tick(Geometry, .27, .2f);
         TestEqual(TEXT("The deselected tile settles into the grid"), Shell->GetGridTileLiftForTest({0, 0}), 0.0);
         TestEqual(TEXT("The new tile reaches the same selection lift"), Shell->GetGridTileLiftForTest({1, 0}), SelectedLift);
+
+        const FVector2D ViewSize(1280.0, 720.0);
+        const auto Before = Shell->GetInspectorScrollStateForTest(ViewSize);
+        TestTrue(TEXT("The inspector extends below the inventory grid"), Before.Z > 0.0);
+        const auto RightStick = [&](float Axis)
+        {
+            return Widget->OnAnalogValueChanged(Geometry,
+                FAnalogInputEvent(EKeys::Gamepad_RightY, FModifierKeysState(), 0, false, 0, 0, Axis)).IsEventHandled();
+        };
+        TestTrue(TEXT("The right stick is routed to the inspector"), RightStick(-1.f));
+        Widget->Tick(Geometry, .37, .1f);
+        const auto Scrolled = Shell->GetInspectorScrollStateForTest(ViewSize);
+        TestTrue(TEXT("The right stick scrolls the body down"), Scrolled.X > Before.X);
+        TestEqual(TEXT("The identity header stays fixed"), Scrolled.Y, Before.Y);
+        TestEqual(TEXT("Right stick does not change grid selection"), Shell->GetFocusedGridCellForTest(), FIntPoint(1, 0));
+        RightStick(0.1f);
+        Widget->Tick(Geometry, .47, .1f);
+        TestEqual(TEXT("Stick drift does not scroll"), Shell->GetInspectorScrollStateForTest(ViewSize).X, Scrolled.X);
+        RightStick(1.f);
+        Widget->Tick(Geometry, .57, .1f);
+        TestEqual(TEXT("The right stick can return the body to the top"), Shell->GetInspectorScrollStateForTest(ViewSize).X, 0.0);
     }
 
     FCIInventoryNavigationInput Input;
