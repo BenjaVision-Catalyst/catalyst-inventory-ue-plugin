@@ -31,7 +31,7 @@ UCIInventoryTileTheme::UCIInventoryTileTheme()
     };
     GroupLabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 16);
     LabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 14);
-    InspectorTitleFont = FCoreStyle::GetDefaultFontStyle("Bold", 29);
+    InspectorTitleFont = FCoreStyle::GetDefaultFontStyle("Bold", 24);
     CountFont = FCoreStyle::GetDefaultFontStyle("Regular", 16);
     if (const auto Foundation = IPluginManager::Get().FindPlugin(TEXT("CatalystFoundation")))
     {
