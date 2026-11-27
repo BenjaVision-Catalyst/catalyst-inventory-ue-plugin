@@ -260,7 +260,7 @@ TSharedRef<SWidget> UCIEquipmentRow::BuildRow(const TSharedRef<SWidget>& Thumbna
             SNew(SVerticalBox)
             + SVerticalBox::Slot().AutoHeight()
             [
-                SNew(SBox).HeightOverride(Style.HeaderHeight)
+                SNew(SBox).HeightOverride_Lambda([this] { return FOptionalSize(GetHeaderHeight()); })
                 [
                     SNew(SHorizontalBox)
                     + SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(Style.ContentInset, 0.f)

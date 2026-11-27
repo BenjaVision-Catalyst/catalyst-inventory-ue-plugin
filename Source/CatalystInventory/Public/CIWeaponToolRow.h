@@ -44,6 +44,7 @@ public:
 
 protected:
     virtual float GetMarkerLeftInset() const override;
+    virtual float GetHeaderHeight() const override;
     virtual TSharedRef<SWidget> BuildInventoryContent() override;
     virtual void ReleaseSlateResources(bool bReleaseChildren) override;
 
@@ -65,4 +66,5 @@ private:
     TArray<FStat> Stats, ComparisonStats;
     FString Consumable;
     FString ConsumableIcon;
+    FText Description;
 };

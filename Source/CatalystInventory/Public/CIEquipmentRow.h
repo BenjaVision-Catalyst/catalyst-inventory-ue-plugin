@@ -65,6 +65,7 @@ protected:
     virtual FMargin GetIconPadding() const override;
     virtual TSharedRef<SWidget> BuildExpertise() override;
     const UCIEquipmentRowTheme& GetRowTheme() const;
+    virtual float GetHeaderHeight() const { return GetRowTheme().HeaderHeight; }
     TSharedRef<SWidget> BuildRow(const TSharedRef<SWidget>& Thumbnail,
         const TSharedRef<SWidget>& Title, const TSharedRef<SWidget>& Details,
         const TSharedRef<SWidget>& Indicators);

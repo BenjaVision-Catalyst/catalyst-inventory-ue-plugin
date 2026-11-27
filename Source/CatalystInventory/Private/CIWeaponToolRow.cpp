@@ -6,6 +6,7 @@
 #include "Widgets/Layout/SScaleBox.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/SNullWidget.h"
+#include "Widgets/SOverlay.h"
 #include "Widgets/Text/STextBlock.h"
 
 #define LOCTEXT_NAMESPACE "CatalystInventory"
@@ -40,9 +41,17 @@ void UCIWeaponToolRow::BindItem(const FCFMagritteBinding& Item)
     const bool bSupported = IsToolRowKind(PresentationKind);
     SetVisibility(bSupported ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     Stats.Reset();
+    Description = FText::GetEmpty();
     Consumable = CIInventoryRowData::Read(Item, "consumableTypeIdentifier").ToString();
     ConsumableIcon = CIInventoryRowData::Read(Item, "inspectorConsumableIcon").ToString();
-    if (bSupported)
+    if (PresentationKind == TEXT("gadget"))
+    {
+        if (const auto Inspector = Item.Follow("inspector"))
+        {
+            Description = CIInventoryRowData::Read(*Inspector, "itemSummary");
+        }
+    }
+    else if (bSupported)
     {
         Stats = ReadStats(Item);
     }
@@ -107,27 +116,6 @@ TArray<UCIWeaponToolRow::FStat> UCIWeaponToolRow::ReadStats(const FCFMagritteBin
             }
         }
     }
-    if (CIInventoryRowData::Read(Item, "presentationKind").ToString() == TEXT("gadget"))
-    {
-        for (FStat& Stat : Result)
-        {
-            const FString Name = Stat.Label.ToString();
-            if (Name == TEXT("Cooldown"))
-            {
-                Stat.Label = LOCTEXT("CooldownAbbreviation", "CD");
-            }
-            else if (Name == TEXT("Deployment duration") || Name == TEXT("Reveal duration"))
-            {
-                Stat.Label = LOCTEXT("DurationAbbreviation", "DUR");
-            }
-            else if (Name == TEXT("Scan range"))
-            {
-                Stat.Label = LOCTEXT("RangeAbbreviation", "RNG");
-            }
-        }
-        return Result;
-    }
-
     TOptional<double> Damage;
     bool bHasDps = false;
     for (FStat& Stat : Result)
@@ -177,7 +165,7 @@ TArray<UCIWeaponToolRow::FStat> UCIWeaponToolRow::ReadStats(const FCFMagritteBin
 
 void UCIWeaponToolRow::SetComparisonItem(const TOptional<FCFMagritteBinding>& Item)
 {
-    ComparisonStats = Item ? ReadStats(*Item) : TArray<FStat>();
+    ComparisonStats = Item && PresentationKind != TEXT("gadget") ? ReadStats(*Item) : TArray<FStat>();
     RefreshStats();
     InvalidateLayoutAndVolatility();
 }
@@ -192,7 +180,18 @@ void UCIWeaponToolRow::RefreshDetails()
     const auto& Style = GetWeaponToolTheme();
     Title->ClearChildren();
     TSharedRef<SWidget> ConsumableWidget = SNullWidget::NullWidget;
-    if (ConsumableIcon == TEXT("cartridge") || ConsumableIcon == TEXT("fuel"))
+    if (PresentationKind == TEXT("gadget"))
+    {
+        const int32* Glyph = Style.SlotIconGlyphs.Find(FallbackIconIdentifier);
+        if (Glyph)
+        {
+            auto Font = Style.SlotIconFont;
+            Font.Size = 16.f;
+            ConsumableWidget = SNew(STextBlock).Text(FText::AsCultureInvariant(FString::Chr(*Glyph)))
+                .Font(Font).ColorAndOpacity(Style.TextTint);
+        }
+    }
+    else if (ConsumableIcon == TEXT("cartridge") || ConsumableIcon == TEXT("fuel"))
     {
         ConsumableWidget = SNew(SCIInspectorConsumableIcon)
             .Tint(FLinearColor(1.f, .75f, .02f)).Fuel(ConsumableIcon == TEXT("fuel"));
@@ -282,6 +281,11 @@ float UCIWeaponToolRow::GetMarkerLeftInset() const
     return Super::GetMarkerLeftInset();
 }
 
+float UCIWeaponToolRow::GetHeaderHeight() const
+{
+    return PresentationKind == TEXT("gadget") ? 32.f : Super::GetHeaderHeight();
+}
+
 TSharedRef<SWidget> UCIWeaponToolRow::BuildInventoryContent()
 {
     SAssignNew(Title, SHorizontalBox);
@@ -291,7 +295,20 @@ TSharedRef<SWidget> UCIWeaponToolRow::BuildInventoryContent()
 
     const auto StatsPanel = SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
         .HAlign(HAlign_Left)[StatWidgets.ToSharedRef()];
-    return BuildRow(Super::BuildInventoryContent(), Title.ToSharedRef(), StatsPanel, Indicators.ToSharedRef());
+    const auto Details = SNew(SOverlay)
+        + SOverlay::Slot()[StatsPanel]
+        + SOverlay::Slot()
+        [
+            SNew(STextBlock)
+            .Text_Lambda([this] { return Description; })
+            .Font(GetWeaponToolTheme().StatLabelFont)
+            .ColorAndOpacity(GetWeaponToolTheme().TextTint)
+            .AutoWrapText(true)
+            .Visibility_Lambda([this] {
+                return PresentationKind == TEXT("gadget") ? EVisibility::HitTestInvisible : EVisibility::Collapsed;
+            })
+        ];
+    return BuildRow(Super::BuildInventoryContent(), Title.ToSharedRef(), Details, Indicators.ToSharedRef());
 }
 
 void UCIWeaponToolRow::ReleaseSlateResources(bool bReleaseChildren)
