@@ -1703,7 +1703,6 @@ private:
         const auto KindValue = Field.property("metadata:ciCard");
         const auto* Kind = std::get_if<std::string>(&KindValue.data);
         const bool bSlots = Kind && *Kind == "slots";
-        const bool bTier = Kind && *Kind == "tier";
         const bool bMeters = Kind && *Kind == "meters";
         const bool bControls = Kind && *Kind == "controls";
         auto Content = SNew(SVerticalBox);
@@ -1801,7 +1800,7 @@ private:
                 {
                     continue;
                 }
-                ValueWidget = InspectorText(Value, bTier ? Theme->GroupLabelFont : Theme->LabelFont, bSlots);
+                ValueWidget = InspectorText(Value, Theme->LabelFont, bSlots);
             }
             if (bSlots)
             {
