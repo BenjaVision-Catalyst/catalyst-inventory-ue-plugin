@@ -32,7 +32,6 @@
 #include "UObject/StrongObjectPtr.h"
 #include "Widgets/Layout/SBackgroundBlur.h"
 #include "Widgets/Layout/SBox.h"
-#include "Widgets/Layout/SGridPanel.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Input/SEditableTextBox.h"
@@ -1610,11 +1609,8 @@ private:
         const auto* Theme = InventoryTheme.Get();
         auto ValueFont = Theme->InspectorTitleFont;
         ValueFont.Size = 22;
-        auto Grid = SNew(SGridPanel)
-            .FillColumn(0, 1.f)
-            .FillColumn(1, 1.f)
-            .FillColumn(2, 1.f);
-
+        auto Grid = SNew(SVerticalBox);
+        TSharedPtr<SHorizontalBox> Row;
         int32 Index = 0;
         for (const auto& Field : Section.Describe().orderedChildren())
         {
@@ -1622,17 +1618,36 @@ private:
             {
                 continue;
             }
-            const auto Value = InspectorValue(Section.Read(*Field));
+            auto Data = Section.Read(*Field);
+            if (auto* Text = std::get_if<std::string>(&Data.data))
+            {
+                for (const std::string_view Unit : {" RPM", " rounds"})
+                {
+                    if (Text->ends_with(Unit))
+                    {
+                        Text->resize(Text->size() - Unit.size());
+                        break;
+                    }
+                }
+            }
+            const auto Value = InspectorValue(Data);
             if (Value.IsEmpty())
             {
                 continue;
             }
-            const int32 Column = Index % Columns;
-            const int32 LabelRow = (Index / Columns) * 2;
-            Grid->AddSlot(Column, LabelRow).VAlign(VAlign_Bottom).Padding(0.f, 4.f, 6.f, 0.f)
-            [InspectorText(InspectorValue(Field->property("label")), Theme->LabelFont, true)];
-            Grid->AddSlot(Column, LabelRow + 1).VAlign(VAlign_Top).Padding(0.f, 0.f, 6.f, 4.f)
-            [InspectorText(Value, ValueFont, true)];
+            if (Index % Columns == 0)
+            {
+                Row = SNew(SHorizontalBox);
+                Grid->AddSlot().AutoHeight().Padding(0.f, Index == 0 ? 0.f : 4.f, 0.f, 0.f)[Row.ToSharedRef()];
+            }
+            Row->AddSlot().FillWidth(1.f).Padding(0.f, 0.f, 6.f, 0.f)
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot().AutoHeight()
+                [InspectorText(InspectorValue(Field->property("label")), Theme->LabelFont)]
+                + SVerticalBox::Slot().AutoHeight()
+                [InspectorText(Value, ValueFont)]
+            ];
             ++Index;
         }
         return Grid;
