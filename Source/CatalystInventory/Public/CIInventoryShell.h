@@ -41,6 +41,7 @@ public:
     double GetGridTileLiftForTest(FIntPoint Cell) const;
     FVector GetInspectorScrollStateForTest(FVector2D ViewSize) const;
     int32 GetInspectorStrokeCountForTest() const;
+    TPair<bool, int32> GetInspectorScrollbarStateForTest() const;
 #endif
     /** Bind Create or Equip for the selected row. An unbound action is disabled. */
     void SetSavedSetConfirmAction(bool bEquip, FSimpleDelegate Action);

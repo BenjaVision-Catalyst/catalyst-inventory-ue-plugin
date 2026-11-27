@@ -122,6 +122,13 @@ bool FCIInventoryNavigationTest::RunTest(const FString&)
         TestEqual(TEXT("The deselected tile settles into the grid"), Shell->GetGridTileLiftForTest({0, 0}), 0.0);
         TestEqual(TEXT("The new tile reaches the same selection lift"), Shell->GetGridTileLiftForTest({1, 0}), SelectedLift);
 
+        const auto ResizingScrollbar = Shell->GetInspectorScrollbarStateForTest();
+        TestFalse(TEXT("The scrollbar stays hidden until the resize settles"), ResizingScrollbar.Key);
+        Widget->Tick(Geometry, .28, .01f);
+        const auto SettledScrollbar = Shell->GetInspectorScrollbarStateForTest();
+        TestTrue(TEXT("The scrollbar appears after the resize settles"), SettledScrollbar.Key);
+        TestEqual(TEXT("Showing the scrollbar does not repaint the inspector"), SettledScrollbar.Value, ResizingScrollbar.Value);
+
         const auto Before = Shell->GetInspectorScrollStateForTest(ViewSize);
         TestTrue(TEXT("The inspector grows from the short item to the full scroll height"),
             ShortInspector.Z < GrowingInspector.Z && GrowingInspector.Z < Before.Z && Before.Z > 0.0);
