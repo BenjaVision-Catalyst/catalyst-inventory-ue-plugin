@@ -17,6 +17,13 @@ bool IsToolRowKind(const FString& Kind)
 }
 }
 
+UCIWeaponToolRowTheme::UCIWeaponToolRowTheme()
+{
+    RowHeight = 102.f;
+    ThumbnailInset.Bottom = 18.f;
+    StatLabelFont.Size = 12.f;
+}
+
 const UCFTileTheme& UCIWeaponToolRow::GetTileTheme() const
 {
     return Theme ? Super::GetTileTheme() : *GetDefault<UCIWeaponToolRowTheme>();
@@ -154,10 +161,7 @@ TArray<UCIWeaponToolRow::FStat> UCIWeaponToolRow::ReadStats(const FCFMagritteBin
                 else
                 {
                     const double Dps = *Damage * *Stat.Value / 60.0;
-                    FNumberFormattingOptions Formatting;
-                    Formatting.SetMaximumFractionalDigits(1);
-                    Stat = {TEXT("damagePerSecond"), LOCTEXT("DpsAbbreviation", "DPS"), Dps,
-                        FText::AsNumber(Dps, &Formatting)};
+                    Stat = {TEXT("damagePerSecond"), LOCTEXT("DpsAbbreviation", "DPS"), Dps, FText::AsNumber(Dps)};
                 }
                 break;
             }
@@ -225,25 +229,44 @@ void UCIWeaponToolRow::RefreshStats()
     {
         FLinearColor Tint = Style.TextTint;
         FText Display = Stat.Display;
+        if (Stat.Value && (Stat.Id == TEXT("damagePerShot") || Stat.Id == TEXT("damagePerSecond")
+            || Stat.Id == TEXT("magazineCapacity")))
+        {
+            FNumberFormattingOptions Formatting;
+            Formatting.SetMaximumFractionalDigits(0);
+            Display = FText::AsNumber(*Stat.Value, &Formatting);
+        }
+        FText Direction;
         const auto* Other = ComparisonStats.FindByPredicate([&Stat](const FStat& Candidate) { return Stat.Id == Candidate.Id; });
         if (Other && Stat.Value && Other->Value && *Stat.Value != *Other->Value)
         {
             const bool bHigher = *Stat.Value > *Other->Value;
             Tint = bHigher ? Style.HigherValue : Style.LowerValue;
-            Display = FText::Format(bHigher ? LOCTEXT("Higher", "{0} ▲") : LOCTEXT("Lower", "{0} ▼"), Display);
+            Direction = bHigher ? LOCTEXT("Higher", "▲") : LOCTEXT("Lower", "▼");
         }
         StatWidgets->AddSlot().AutoWidth()
         [
             SNew(SBox).WidthOverride(Style.StatWidth)
             [
                 SNew(SScaleBox).Stretch(EStretch::ScaleToFitX).StretchDirection(EStretchDirection::DownOnly)
-                .HAlign(HAlign_Left)
+                .HAlign(HAlign_Center)
                 [
                     SNew(SVerticalBox)
-                    + SVerticalBox::Slot().AutoHeight()
+                    + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.f, 0.f, 0.f, -2.f)
                     [SNew(STextBlock).Text(Stat.Label.ToUpper()).Font(Style.StatLabelFont).ColorAndOpacity(Style.TextTint)]
-                    + SVerticalBox::Slot().AutoHeight()
-                    [SNew(STextBlock).Text(Display).Font(Style.CountFont).ColorAndOpacity(Tint)]
+                    + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+                    [
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot().AutoWidth()
+                        [SNew(SBox).WidthOverride(12.f)]
+                        + SHorizontalBox::Slot().AutoWidth()
+                        [SNew(STextBlock).Text(Display).Font(Style.CountFont).ColorAndOpacity(Tint)]
+                        + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                        [
+                            SNew(SBox).WidthOverride(12.f).HAlign(HAlign_Right)
+                            [SNew(STextBlock).Text(Direction).Font(Style.StatLabelFont).ColorAndOpacity(Tint)]
+                        ]
+                    ]
                 ]
             ]
         ];

@@ -9,6 +9,8 @@ class CATALYSTINVENTORY_API UCIWeaponToolRowTheme : public UCIEquipmentRowTheme
     GENERATED_BODY()
 
 public:
+    UCIWeaponToolRowTheme();
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row", meta = (ClampMin = "0.0"))
     float ModInsetFromTierBand = 9.f;
 
