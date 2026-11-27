@@ -1227,6 +1227,7 @@ private:
         const auto* Kind = std::get_if<std::string>(&KindValue.data);
         const bool bSlots = Kind && *Kind == "slots";
         const bool bTier = Kind && *Kind == "tier";
+        const bool bControls = Kind && *Kind == "controls";
         auto Content = SNew(SVerticalBox);
         Content->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
         [
@@ -1235,14 +1236,42 @@ private:
         for (const auto& Row : Section.Describe().orderedChildren())
         {
             const auto Label = InspectorValue(Row->property("label"));
-            const auto Value = InspectorValue(Section.Read(*Row));
-            if (!IsInspectorFieldVisible(*Row) || Value.IsEmpty())
+            if (!IsInspectorFieldVisible(*Row))
             {
                 continue;
             }
 
+            const auto Data = Section.Read(*Row);
+            const auto Value = InspectorValue(Data);
+            TSharedPtr<SWidget> ValueWidget;
+            if (bControls)
+            {
+                if (const auto* Symbol = std::get_if<magritte::Value::Symbol>(&Data.data))
+                {
+                    const FKey Key(FName(UTF8_TO_TCHAR(Symbol->utf8.c_str())));
+                    if (const auto* CurrentMenu = Menu.Get(); CurrentMenu && Key.IsGamepadKey())
+                    {
+                        const auto& Style = CurrentMenu->GetMenuTheme();
+                        const FCFControllerButtonStyle ButtonStyle{
+                            Style.ActionLabelFont, Style.ActionGlyphFont, Style.Ink, Style.ShoulderFill, Style.ShoulderInk};
+                        ValueWidget = SNew(SCFControllerButton)
+                            .Label(NSLOCTEXT("Inventory", "TapGadgetControl", "Tap"))
+                            .ControllerKey(Key)
+                            .Platform(ECFControllerPlatform::PlayStation)
+                            .Style(ButtonStyle)
+                            .Visibility(EVisibility::HitTestInvisible);
+                    }
+                }
+            }
+            if (!ValueWidget)
+            {
+                if (Value.IsEmpty())
+                {
+                    continue;
+                }
+                ValueWidget = InspectorText(Value, bTier ? Theme->GroupLabelFont : Theme->LabelFont, bSlots);
+            }
             const auto LabelWidget = InspectorText(Label, Theme->LabelFont, true);
-            const auto ValueWidget = InspectorText(Value, bTier ? Theme->GroupLabelFont : Theme->LabelFont, bSlots);
             if (bSlots)
             {
                 Content->AddSlot().AutoHeight().Padding(0.f, 3.f)
@@ -1251,7 +1280,7 @@ private:
                     [
                         SNew(SVerticalBox)
                         + SVerticalBox::Slot().AutoHeight()[LabelWidget]
-                        + SVerticalBox::Slot().AutoHeight()[ValueWidget]
+                        + SVerticalBox::Slot().AutoHeight()[ValueWidget.ToSharedRef()]
                     ]
                 ];
             }
@@ -1261,7 +1290,7 @@ private:
                 [
                     SNew(SHorizontalBox)
                     + SHorizontalBox::Slot().FillWidth(1.f).Padding(0.f, 0.f, 8.f, 0.f)[LabelWidget]
-                    + SHorizontalBox::Slot().AutoWidth()[ValueWidget]
+                    + SHorizontalBox::Slot().AutoWidth()[ValueWidget.ToSharedRef()]
                 ];
             }
         }
