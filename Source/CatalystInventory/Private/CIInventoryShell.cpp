@@ -1484,6 +1484,7 @@ private:
             }
             auto* RowTheme = CastChecked<UCIInventoryTileTheme>(
                 &Row->GetTileTheme())->CreateProjectedSurfaceTheme(Row);
+            RowTheme->Style.FocusedBackground = Theme->Style.FocusedBackground;
             if (Row->IsA<UCIApparelRow>())
             {
                 RowTheme->Style = Theme->Style;
@@ -2348,10 +2349,6 @@ private:
             const double PanelRight = Layout.MainOrigin.X + Layout.MainExtent.X;
             for (int32 Index = FirstSlotChoice; Index < End; ++Index)
             {
-                if (Index == RenderedSlotChoice)
-                {
-                    continue;
-                }
                 const double Top = Layout.MainOrigin.Y + SlotPickerHeadingHeight * Layout.Scale
                     + (Index - FirstSlotChoice) * Pitch;
                 const double Bottom = FMath::Min(Top + RowHeight, PanelBottom);
