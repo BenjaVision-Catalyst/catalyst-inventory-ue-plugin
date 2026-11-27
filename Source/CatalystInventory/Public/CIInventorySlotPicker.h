@@ -1,8 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Presentation/CFMagritteBinding.h"
 
-class FCFMagritteBinding;
+class UTexture;
 
 /** The host supplies owned, compatible items for the selected slot and authorizes the equip. */
 struct FCIInventorySlotChoice
@@ -10,6 +11,8 @@ struct FCIInventorySlotChoice
     FString Identifier;
     FText Label;
     bool bEquipped = false;
+    TOptional<FCFMagritteBinding> Item{};
+    TWeakObjectPtr<UTexture> Icon{};
 };
 
 struct FCIInventorySlotPicker

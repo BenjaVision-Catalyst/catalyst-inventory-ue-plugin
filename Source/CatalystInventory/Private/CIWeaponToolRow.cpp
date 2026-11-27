@@ -9,9 +9,9 @@
 
 namespace
 {
-bool IsToolOrWeapon(const FString& Kind)
+bool IsToolRowKind(const FString& Kind)
 {
-    return Kind == TEXT("tool") || Kind == TEXT("weapon");
+    return Kind == TEXT("tool") || Kind == TEXT("weapon") || Kind == TEXT("gadget");
 }
 }
 
@@ -29,7 +29,7 @@ const UCIWeaponToolRowTheme& UCIWeaponToolRow::GetWeaponToolTheme() const
 void UCIWeaponToolRow::BindItem(const FCFMagritteBinding& Item)
 {
     Super::BindItem(Item);
-    const bool bSupported = IsToolOrWeapon(PresentationKind);
+    const bool bSupported = IsToolRowKind(PresentationKind);
     SetVisibility(bSupported ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     Stats.Reset();
     Consumable.Reset();

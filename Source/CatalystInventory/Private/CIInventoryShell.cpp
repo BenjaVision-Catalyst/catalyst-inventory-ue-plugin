@@ -1,6 +1,10 @@
 #include "CIInventoryShell.h"
 
+#include "CIApparelRow.h"
 #include "CIEquipmentTile.h"
+#include "CIGearRow.h"
+#include "CIWeaponToolRow.h"
+#include "Widgets/SOverlay.h"
 #include "CIInspectorIdentityTile.h"
 #include "CIInventoryNavigation.h"
 #include "CIInventorySavedSetRows.h"
@@ -1384,6 +1388,7 @@ private:
         SlotChoice = FMath::Max(0, SlotPicker->Choices.IndexOfByPredicate(
             [](const FCIInventorySlotChoice& Choice) { return Choice.bEquipped; }));
         FirstSlotChoice = SlotChoice;
+        CreateSlotPickerRows(Tile->GetInspectorItem());
         RenderedSlotChoice = INDEX_NONE;
         SetSavedSetsState(false, 0);
         return true;
@@ -1403,6 +1408,67 @@ private:
         if (!Picker.Equip(Identifier))
         {
             SlotPicker = MoveTemp(Picker);
+        }
+    }
+
+    void CreateSlotPickerRows(const TOptional<FCFMagritteBinding>& Equipped)
+    {
+        SlotPickerRows.Reset();
+        const auto* Theme = InventoryTheme.Get();
+        SlotPickerRowHeight = GetDefault<UCIApparelRowTheme>()->RowHeight;
+        for (const auto& Choice : SlotPicker->Choices)
+        {
+            FString Kind;
+            if (Choice.Item)
+            {
+                for (const auto& Field : Choice.Item->Describe().orderedChildren())
+                {
+                    if (Field->id == "presentationKind")
+                    {
+                        Kind = InspectorValue(Choice.Item->Read(*Field)).ToString();
+                        break;
+                    }
+                }
+            }
+
+            UCIInventoryTile* Row;
+            if (ActionSection.Get() == ApparelSection || Kind.IsEmpty())
+            {
+                Row = NewObject<UCIApparelRow>();
+            }
+            else if (Kind == TEXT("gear"))
+            {
+                Row = NewObject<UCIGearRow>();
+            }
+            else
+            {
+                Row = NewObject<UCIWeaponToolRow>();
+            }
+            auto* RowTheme = CastChecked<UCIInventoryTileTheme>(
+                &Row->GetTileTheme())->CreateProjectedSurfaceTheme(Row);
+            RowTheme->Style = Theme->Style;
+            RowTheme->Style.BackdropBlur = 0.f;
+            RowTheme->TierColors = Theme->TierColors;
+            RowTheme->TierStyle = Theme->TierStyle;
+            RowTheme->TextTint = Theme->TextTint;
+            Row->Theme = RowTheme;
+            const auto* EquipmentRowTheme = CastChecked<UCIEquipmentRowTheme>(RowTheme);
+            SlotPickerRowHeight = FMath::Max(SlotPickerRowHeight, EquipmentRowTheme->RowHeight);
+            if (Choice.Item)
+            {
+                Row->BindItem(*Choice.Item);
+            }
+            else
+            {
+                Row->bShowTier = false;
+            }
+            Row->Label = Choice.Label;
+            Row->Icon = Choice.Icon.Get();
+            if (auto* Weapon = Cast<UCIWeaponToolRow>(Row))
+            {
+                Weapon->SetComparisonItem(Equipped);
+            }
+            SlotPickerRows.Emplace(Row);
         }
     }
 
@@ -1431,23 +1497,17 @@ private:
         for (int32 Index = FirstSlotChoice; Index < FMath::Min(FirstSlotChoice + Visible, SlotPicker->Choices.Num()); ++Index)
         {
             const auto& Choice = SlotPicker->Choices[Index];
+            auto* Row = SlotPickerRows[Index].Get();
+            Row->SetVisualState(Index == SlotChoice ? 1.f : 0.f, 1.f);
+            auto RowOverlay = SNew(SOverlay)
+                + SOverlay::Slot()[Row->TakeWidget()];
+            if (Choice.bEquipped)
+            {
+                RowOverlay->AddSlot().HAlign(HAlign_Right).VAlign(VAlign_Top).Padding(8.f)
+                [InspectorText(NSLOCTEXT("Inventory", "SlotItemEquipped", "Equipped"), Theme->LabelFont)];
+            }
             Content->AddSlot().AutoHeight()
-            [
-                SNew(SBox).HeightOverride(SlotPickerRowHeight)
-                [
-                    SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-                    .BorderBackgroundColor(Index == SlotChoice ? Theme->Style.FocusedBackground : Theme->Style.Background)
-                    .Padding(FMargin(8.f, 0.f))
-                    [
-                        SNew(SHorizontalBox)
-                        + SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
-                        [InspectorText(Choice.Label, Theme->LabelFont)]
-                        + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-                        [InspectorText(Choice.bEquipped ? NSLOCTEXT("Inventory", "SlotItemEquipped", "Equipped") : FText::GetEmpty(),
-                            Theme->LabelFont)]
-                    ]
-                ]
-            ];
+            [SNew(SBox).HeightOverride(SlotPickerRowHeight)[RowOverlay]];
         }
         return Content;
     }
@@ -2658,7 +2718,8 @@ private:
     int32 RenderedSlotChoice = INDEX_NONE;
     float SlotPickerPaintScale = 0.f;
     static constexpr float SlotPickerHeadingHeight = 34.f;
-    static constexpr float SlotPickerRowHeight = 48.f;
+    float SlotPickerRowHeight = 76.f;
+    TArray<TStrongObjectPtr<UCIInventoryTile>> SlotPickerRows;
     FCIInventorySavedSetsPresentation SavedSetsPresentation;
     double SavedSetsPaintedAt = 0.0;
     bool bSavedSetsOpen = false;

@@ -196,6 +196,11 @@ void UCIInventoryView::PresentSection(int32 Index, UCFMenuItem*)
     }
 }
 
+UTexture* UCIInventoryView::FindItemIcon(const FString& DefinitionIdentifier) const
+{
+    return ItemIcons.FindRef(DefinitionIdentifier).Get();
+}
+
 UCIInventoryShell* UCIInventoryView::GetInventoryShell() const
 {
     return WidgetTree ? Cast<UCIInventoryShell>(WidgetTree->RootWidget) : nullptr;

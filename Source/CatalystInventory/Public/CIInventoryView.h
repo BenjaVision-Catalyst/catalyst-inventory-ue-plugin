@@ -32,6 +32,7 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Catalyst|Inventory|Layout")
     void SetHalfSize(bool bEnabled);
     class UCIInventoryShell* GetInventoryShell() const;
+    UTexture* FindItemIcon(const FString& DefinitionIdentifier) const;
 
 protected:
     UPROPERTY(EditDefaultsOnly, Category = "Catalyst|Inventory")
