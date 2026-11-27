@@ -580,7 +580,7 @@ public:
     int32 GetInspectorStrokeCount() const { return InspectorStrokes.Num(); }
     TPair<bool, int32> GetInspectorScrollbarState() const
     {
-        return { bInspectorScrollbarVisible, InspectorPaintCount };
+        return { InspectorTexture.IsValid() && InspectorScroll->GetViewFraction() < 1.f, InspectorPaintCount };
     }
 
     FVector GetInspectorScrollState(const FVector2D& ViewSize) const
@@ -1037,7 +1037,7 @@ public:
             return;
         }
 
-        const auto Layout = GetLayout(Size, true);
+        const auto Layout = GetLayout(Size);
         RenderInspector(Layout, DeltaTime);
         const auto Extent = Layout.MainExtent;
         if (Extent.GetMin() >= 1.0)
@@ -1422,10 +1422,6 @@ private:
 
     void ScrollInspector(float Amount)
     {
-        if (!bInspectorCanScroll)
-        {
-            return;
-        }
         const float Current = InspectorScroll->GetScrollOffset();
         const float Offset = FMath::Clamp(Current + Amount, 0.f,
             FMath::Max(0.f, InspectorScroll->GetScrollOffsetOfEnd()));
@@ -1513,7 +1509,8 @@ private:
     void DrawInspectorScrollbar(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
         const FInventoryShellLayout& Layout) const
     {
-        if (!bInspectorScrollbarVisible)
+        const double ViewFraction = InspectorScroll->GetViewFraction();
+        if (ViewFraction >= 1.0)
         {
             return;
         }
@@ -1541,7 +1538,7 @@ private:
                 {Project(Start), Project(End)}, ESlateDrawEffect::NoPixelSnapping, Tint, true, Width);
         };
         const double ThumbStart = BodyHeight * InspectorScroll->GetViewOffsetFraction();
-        const double ThumbHeight = BodyHeight * InspectorScroll->GetViewFraction();
+        const double ThumbHeight = BodyHeight * ViewFraction;
         Draw(0.0, BodyHeight, Theme->Scrollbar.TrackTint);
         Draw(ThumbStart, ThumbStart + ThumbHeight, Theme->Scrollbar.ThumbTint);
     }
@@ -1779,8 +1776,6 @@ private:
         if (!Tile || Tile->GetItemLabel().IsEmpty() || Layout.InspectorExtent.GetMin() < 1.0)
         {
             InspectorTexture.Reset();
-            InspectorHeight = 0.0;
-            bInspectorCanScroll = false;
             return;
         }
 
@@ -1881,40 +1876,12 @@ private:
             InspectorItem = Item;
             bInspectorScrollDirty = true;
         }
-        const int32 RasterWidth = FMath::CeilToInt(Layout.InspectorExtent.X * ProjectionRasterScale);
-        if (bContentChanged || !InspectorTexture.IsValid() || InspectorTexture->SizeX != RasterWidth
-            || InspectorScale != Scale)
-        {
-            // Give auto-wrapping text its final width before measuring the resize target.
-            InspectorStrokes.Reset();
-            DrawToTexture(InspectorTexture, InspectorWidget.ToSharedRef(),
-                {double(RasterWidth), FMath::CeilToDouble(Layout.InspectorExtent.Y * ProjectionRasterScale)}, 0.f, Scale);
-            InspectorWidget->SlatePrepass(Scale);
-            InspectorDesiredHeight = FMath::CeilToDouble(InspectorWidget->GetDesiredSize().Y * Scale)
-                / ProjectionRasterScale;
-            bInspectorScrollDirty = true;
-        }
-        const double TargetHeight = FMath::Clamp(InspectorDesiredHeight, 1.0, Layout.InspectorExtent.Y);
-        const double PreviousHeight = InspectorHeight;
-        InspectorHeight = InspectorHeight > 0.0
-            ? FMath::FInterpTo(InspectorHeight, TargetHeight, DeltaTime, 12.0)
-            : TargetHeight;
-        // Snap once the remaining motion is smaller than a render-target pixel.
-        if (FMath::IsNearlyEqual(InspectorHeight, TargetHeight, 1.0 / ProjectionRasterScale))
-        {
-            InspectorHeight = TargetHeight;
-        }
-        InspectorHeight = FMath::Min(InspectorHeight, Layout.InspectorExtent.Y);
-        bInspectorCanScroll = InspectorDesiredHeight > Layout.InspectorExtent.Y
-            && InspectorHeight == Layout.InspectorExtent.Y;
-
-        bInspectorScrollbarVisible = bInspectorCanScroll && PreviousHeight == InspectorHeight;
-
-        const FIntPoint Size(RasterWidth,
-            FMath::CeilToInt(InspectorHeight * ProjectionRasterScale));
+        const FVector2D Size(FMath::CeilToDouble(Layout.InspectorExtent.X * ProjectionRasterScale),
+            FMath::CeilToDouble(Layout.InspectorExtent.Y * ProjectionRasterScale));
+        const bool bMeasureWrapping = bContentChanged || !InspectorTexture.IsValid()
+            || InspectorTexture->SizeX != Size.X || InspectorScale != Scale;
         if (InspectorTexture.IsValid() && (InspectorTexture->SizeX != Size.X || InspectorTexture->SizeY != Size.Y))
         {
-            InspectorTexture->ResizeTarget(Size.X, Size.Y);
             bInspectorScrollDirty = true;
         }
         if (InspectorScrollRate != 0.f && !bSavedSetsOpen && !OptionsWindow.IsValid())
@@ -1925,8 +1892,13 @@ private:
         {
             InspectorScale = Scale;
             bInspectorScrollDirty = false;
+            if (bMeasureWrapping)
+            {
+                // Measure wrapping at the final width before presenting the new content.
+                DrawToTexture(InspectorTexture, InspectorWidget.ToSharedRef(), Size, 0.f, Scale);
+            }
             InspectorStrokes.Reset();
-            DrawToTexture(InspectorTexture, InspectorWidget.ToSharedRef(), FVector2D(Size), DeltaTime, Scale);
+            DrawToTexture(InspectorTexture, InspectorWidget.ToSharedRef(), Size, DeltaTime, Scale);
 #if WITH_DEV_AUTOMATION_TESTS
             ++InspectorPaintCount;
 #endif
@@ -2294,16 +2266,11 @@ private:
         SavedSetsThumbSlot->SetOffsets(FMargin(X, Heading + (TrackHeight - ThumbHeight) * Scroll, Width, ThumbHeight));
     }
 
-    FInventoryShellLayout GetLayout(const FVector2D& Size, bool bUseMaximumInspectorHeight = false) const
+    FInventoryShellLayout GetLayout(const FVector2D& Size) const
     {
         const FVector2D MenuSize = MenuTexture.IsValid()
             ? FVector2D(MenuTexture->SizeX, MenuTexture->SizeY) : FVector2D::ZeroVector;
-        auto Layout = LayoutFor(Size, MenuSize, MenuPanelGap.Get(), PanelHeight.Get(), FooterGap.Get());
-        if (!bUseMaximumInspectorHeight && InspectorHeight > 0.0 && InspectorHeight < Layout.InspectorExtent.Y)
-        {
-            Layout.InspectorExtent.Y = InspectorHeight;
-        }
-        return Layout;
+        return LayoutFor(Size, MenuSize, MenuPanelGap.Get(), PanelHeight.Get(), FooterGap.Get());
     }
 
     FCIInventorySidebarGeometry GetSidebarGeometry(const FInventoryShellLayout& Layout, double ViewportWidth) const
@@ -2433,15 +2400,11 @@ private:
     TSharedPtr<SBorder> InspectorHeader;
     float InspectorScrollRate = 0.f;
     bool bInspectorScrollDirty = false;
-    bool bInspectorCanScroll = false;
-    bool bInspectorScrollbarVisible = false;
     FSlateBrush InspectorIconBrush;
     TStrongObjectPtr<UTextureRenderTarget2D> InspectorTexture;
     TArray<FInspectorStroke> InspectorStrokes;
     TWeakObjectPtr<const UCIInventoryTileTheme> InspectorTheme;
     float InspectorScale = 0.f;
-    double InspectorHeight = 0.0;
-    double InspectorDesiredHeight = 0.0;
 #if WITH_DEV_AUTOMATION_TESTS
     int32 InspectorPaintCount = 0;
 #endif
