@@ -1599,10 +1599,6 @@ private:
         const bool bMeters = Kind && *Kind == "meters";
         const bool bControls = Kind && *Kind == "controls";
         auto Content = SNew(SVerticalBox);
-        Content->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)
-        [
-            InspectorText(InspectorValue(Field.property("label")), Theme->GroupLabelFont, true)
-        ];
         if (bWeapon && Kind && *Kind == "stats")
         {
             Content->AddSlot().AutoHeight()[BuildInspectorStatsGrid(Section)];
@@ -1785,8 +1781,21 @@ private:
                         }
                         if (const auto Section = Inspector->Follow(*Field))
                         {
-                            Content->AddSlot().AutoHeight().Padding(0.f, 6.f, 0.f, 0.f)
-                            [BuildInspectorCard(*Field, *Section, bWeapon)];
+                            const auto Heading = InspectorValue(Field->property("label"));
+                            if (!Heading.IsEmpty())
+                            {
+                                FMargin HeadingPadding = Theme->GroupLabelPadding;
+                                HeadingPadding.Top += 6.f;
+                                Content->AddSlot().AutoHeight().Padding(HeadingPadding)
+                                [
+                                    SNew(STextBlock)
+                                    .Text(Heading)
+                                    .Font(Theme->GroupLabelFont)
+                                    .ColorAndOpacity(FSlateColor(Theme->GroupLabelTint))
+                                    .AutoWrapText(true)
+                                ];
+                            }
+                            Content->AddSlot().AutoHeight()[BuildInspectorCard(*Field, *Section, bWeapon)];
                         }
                         else if (const auto Text = InspectorValue(Inspector->Read(*Field)); !Text.IsEmpty())
                         {
