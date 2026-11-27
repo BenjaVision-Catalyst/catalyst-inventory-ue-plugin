@@ -6,6 +6,7 @@
 #include "CIInventoryTile.h"
 #include "Components/WidgetSwitcher.h"
 #include "Input/Events.h"
+#include "Misc/App.h"
 #include "Presentation/CFMenu.h"
 #include "Presentation/CFMagritteBinding.h"
 #include "Presentation/CFSpanGrid.h"
@@ -75,6 +76,23 @@ bool FCIInventoryNavigationTest::RunTest(const FString&)
     Widget->OnKeyDown(Widget->GetCachedGeometry(), FKeyEvent(EKeys::Left, FModifierKeysState(), 0, false, 0, 0));
     TestEqual(TEXT("The inspector follows focus and displays the model's item name"),
         Shell->GetInspectorLabelForTest().ToString(), FString(TEXT("Training sword")));
+
+    if (FApp::CanEverRender())
+    {
+        const auto Geometry = FGeometry::MakeRoot({1280.0, 720.0}, FSlateLayoutTransform());
+        Widget->Tick(Geometry, 0.0, .2f);
+        const double SelectedLift = Shell->GetGridTileLiftForTest({0, 0});
+        TestTrue(TEXT("Selection lifts the entire tile off the grid"), SelectedLift > 0.0);
+        Widget->OnKeyDown(Geometry, FKeyEvent(EKeys::Right, FModifierKeysState(), 0, false, 0, 0));
+        Widget->Tick(Geometry, .07, .07f);
+        const double LeavingLift = Shell->GetGridTileLiftForTest({0, 0});
+        const double EnteringLift = Shell->GetGridTileLiftForTest({1, 0});
+        TestTrue(TEXT("The deselected tile lowers while the new tile rises"),
+            LeavingLift > 0.0 && LeavingLift < SelectedLift && EnteringLift > 0.0 && EnteringLift < SelectedLift);
+        Widget->Tick(Geometry, .27, .2f);
+        TestEqual(TEXT("The deselected tile settles into the grid"), Shell->GetGridTileLiftForTest({0, 0}), 0.0);
+        TestEqual(TEXT("The new tile reaches the same selection lift"), Shell->GetGridTileLiftForTest({1, 0}), SelectedLift);
+    }
 
     FCIInventoryNavigationInput Input;
     Input.SetStickAxis(true, .9);

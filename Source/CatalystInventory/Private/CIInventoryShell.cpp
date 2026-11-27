@@ -81,11 +81,11 @@ struct FInventoryPlane
     double CosYaw = 1.0;
     double FocalLength = 1.0;
 
-    FVector2D Project(const FVector2D& Point) const
+    FVector2D Project(const FVector2D& Point, double Lift = 0.0) const
     {
         const FVector2D Relative = Point - Extent * .5;
-        const double Perspective = FocalLength / (FocalLength + Relative.X * SinYaw);
-        return Center + FVector2D(Relative.X * CosYaw, Relative.Y) * Perspective;
+        const double Perspective = FocalLength / (FocalLength + Relative.X * SinYaw - Lift * CosYaw);
+        return Center + FVector2D(Relative.X * CosYaw + Lift * SinYaw, Relative.Y) * Perspective;
     }
 
     FVector2D Unproject(const FVector2D& Point) const
@@ -94,6 +94,15 @@ struct FInventoryPlane
         const double X = Offset.X * FocalLength / (FocalLength * CosYaw - Offset.X * SinYaw);
         return FVector2D(X, Offset.Y * (FocalLength + X * SinYaw) / FocalLength) + Extent * .5;
     }
+};
+
+struct FInventoryTileLift
+{
+    FBox2D Source;
+    FVector2D Origin;
+    FVector2D Extent;
+    double Depth;
+    FIntPoint Cell;
 };
 
 class SCIProjectedBlur : public SBackgroundBlur
@@ -484,6 +493,14 @@ public:
     }
 
     FIntPoint GetGridFocus() const { return GridFocus; }
+
+#if WITH_DEV_AUTOMATION_TESTS
+    double GetGridTileLift(FIntPoint Cell) const
+    {
+        const auto* Tile = LiftedTiles.FindByPredicate([Cell](const auto& Entry) { return Entry.Cell == Cell; });
+        return Tile ? Tile->Depth : 0.0;
+    }
+#endif
 
     const UCIInventoryTile* GetSelectedTile() const
     {
@@ -877,6 +894,7 @@ public:
         UWidget* Content = GetPanelContent(ActivePanel);
         SetNavigationGrid(HasSavedSets(ActionSection.Get()) ? Cast<UCFSpanGrid>(Content) : nullptr);
         UpdateGridFocus(DeltaTime);
+        LiftedTiles.Reset();
         if (MainContent.Get() != Content)
         {
             MainContent = Content;
@@ -968,6 +986,7 @@ public:
                 LastGridPixelScale = PixelScale;
             }
             DrawToTexture(MainTexture, MainRenderRoot.ToSharedRef(), TargetSize, DeltaTime, PaintScale);
+            UpdateLiftedTiles(Layout);
             if (FooterWidget && (Section == GearSection || Section == ApparelSection || Section == ResourcesSection))
             {
                 DrawToTexture(FooterTexture, FooterWidget.ToSharedRef(),
@@ -1021,9 +1040,7 @@ public:
         PaintBackdrops(Geometry, Elements, Layer, Layout);
         if (MainTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
         {
-            const FVector2D RasterExtent(MainTexture->SizeX / ProjectionRasterScale,
-                MainTexture->SizeY / ProjectionRasterScale);
-            DrawSurface(Geometry, Elements, Layer + 1, Layout.Left, MainTexture.Get(), Layout.MainOrigin, RasterExtent);
+            DrawMainGrid(Geometry, Elements, Layer + 1, Layout);
         }
         if (InspectorTexture.IsValid() && Layout.InspectorExtent.GetMin() >= 1.0)
         {
@@ -1042,7 +1059,7 @@ public:
                 FooterTexture->SizeY / ProjectionRasterScale);
             DrawSurface(Geometry, Elements, Layer + 2, Layout.Left, FooterTexture.Get(), Layout.FooterOrigin, FooterExtent);
         }
-        return Layer + 2;
+        return Layer + 3;
     }
 
 private:
@@ -1179,6 +1196,119 @@ private:
                     Tile->SetVisualState(FMath::SmoothStep(0.f, 1.f, Progress), 1.f);
                 }
             }
+        }
+    }
+
+    static FBox2D TileBounds(const SWidget& Tile, const SWidget& Grid, double Scale)
+    {
+        const auto& TileGeometry = Tile.GetPaintSpaceGeometry();
+        const auto& GridGeometry = Grid.GetPaintSpaceGeometry();
+        const auto GridPoint = [&](FVector2D Point) {
+            return FVector2D(GridGeometry.AbsoluteToLocal(TileGeometry.LocalToAbsolute(Point))) * Scale;
+        };
+        return FBox2D(GridPoint(FVector2D::ZeroVector), GridPoint(TileGeometry.GetLocalSize()));
+    }
+
+    void UpdateLiftedTiles(const FInventoryShellLayout& Layout)
+    {
+        const auto* Grid = NavigationGrid.Get();
+        const auto GridWidget = Grid ? Grid->GetCachedWidget() : nullptr;
+        if (!GridWidget)
+        {
+            return;
+        }
+        for (int32 Y = 0; Y < NavigationRows.Num(); ++Y)
+        {
+            const auto& Cells = NavigationRows[Y].Cells;
+            for (int32 X = 0; X < Cells.Num(); ++X)
+            {
+                const auto& Cell = Cells[X];
+                const auto* Tile = Cell.Tile.Get();
+                const auto Widget = Tile && Cell.FocusProgress > 0.f ? Tile->GetCachedWidget() : nullptr;
+                if (!Widget)
+                {
+                    continue;
+                }
+
+                auto Source = TileBounds(*Widget, *GridWidget, Layout.Scale);
+                Source.Min = Source.Min.ComponentMax(FVector2D::ZeroVector);
+                Source.Max = Source.Max.ComponentMin(Layout.MainExtent);
+                if (Source.GetSize().GetMin() <= 0.0)
+                {
+                    continue;
+                }
+
+                const double Focus = FMath::SmoothStep(0.f, 1.f, Cell.FocusProgress);
+                const FVector2D Extent = Source.GetSize() * (1.0 + .035 * Focus);
+                const double Lift = 19.0 * Layout.Scale * Focus;
+                FVector2D Origin = Layout.MainOrigin + Source.GetCenter() - Extent * .5;
+                if (Y == 0 || (ActionSection.Get() == ApparelSection && Y == 2))
+                {
+                    const auto& Plane = Layout.Left;
+                    const double Depth = Plane.FocalLength + (Origin.X - Plane.Extent.X * .5) * Plane.SinYaw;
+                    Origin.Y += (Extent.Y - Source.GetSize().Y) * .5
+                        + FMath::Max(0.0, (Plane.Extent.Y * .5 - Layout.MainOrigin.Y - Source.Min.Y)
+                            * Lift * Plane.CosYaw / Depth);
+                }
+                LiftedTiles.Add({Source, Origin, Extent, Lift, {X, Y}});
+            }
+        }
+    }
+
+    void DrawMainGrid(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
+        const FInventoryShellLayout& Layout) const
+    {
+        const FVector2D RasterExtent(MainTexture->SizeX / ProjectionRasterScale, MainTexture->SizeY / ProjectionRasterScale);
+        if (LiftedTiles.IsEmpty())
+        {
+            DrawSurface(Geometry, Elements, Layer, Layout.Left, MainTexture.Get(), Layout.MainOrigin, RasterExtent);
+            return;
+        }
+
+        // Draw the flat grid around the animated cards, then sample each card
+        // once at its projected depth. The original footprint stays clear.
+        TArray<FBox2D> FlatRegions{FBox2D(FVector2D::ZeroVector, RasterExtent)};
+        for (const auto& Tile : LiftedTiles)
+        {
+            TArray<FBox2D> Remaining;
+            for (const auto& Region : FlatRegions)
+            {
+                const FVector2D Min = Region.Min.ComponentMax(Tile.Source.Min);
+                const FVector2D Max = Region.Max.ComponentMin(Tile.Source.Max);
+                if ((Max - Min).GetMin() <= 0.0)
+                {
+                    Remaining.Add(Region);
+                    continue;
+                }
+
+                const FBox2D Pieces[] = {
+                    {Region.Min, {Region.Max.X, Min.Y}},
+                    {{Region.Min.X, Max.Y}, Region.Max},
+                    {{Region.Min.X, Min.Y}, {Min.X, Max.Y}},
+                    {{Max.X, Min.Y}, {Region.Max.X, Max.Y}}
+                };
+                for (const auto& Piece : Pieces)
+                {
+                    if (Piece.GetSize().GetMin() > 0.0)
+                    {
+                        Remaining.Add(Piece);
+                    }
+                }
+            }
+            FlatRegions = MoveTemp(Remaining);
+        }
+        const auto DrawRegion = [&](const FBox2D& Source, FVector2D Origin, FVector2D Extent, double Lift, int32 DrawLayer) {
+            const FBox2D UV(Source.Min / RasterExtent, Source.Max / RasterExtent);
+            DrawSurface(Geometry, Elements, DrawLayer, Layout.Left, MainTexture.Get(), Origin, Extent,
+                0.0, 1.0, 1.0, &UV, Lift);
+        };
+        for (const auto& Region : FlatRegions)
+        {
+            DrawRegion(Region, Layout.MainOrigin + Region.Min, Region.GetSize(), 0.0, Layer);
+        }
+        for (const auto& Tile : LiftedTiles)
+        {
+            DrawRegion(Tile.Source, Tile.Origin, Tile.Extent, Tile.Depth, Tile.Cell == GridFocus ? Layer + 2 : Layer + 1);
         }
     }
 
@@ -1409,8 +1539,8 @@ private:
         int32 Downsample = 0;
         ProjectedBlur->ComputeEffectiveKernelSize(Strength, KernelSize, Downsample);
         const int32 Factor = FMath::Max(1, Downsample);
-        const auto PaintBackdrop = [&](const FInventoryPlane& Plane, FVector2D Min, FVector2D Max) {
-            const auto Project = [&](FVector2D Point) { return Geometry.LocalToAbsolute(Plane.Project(Point)); };
+        const auto PaintBackdrop = [&](const FInventoryPlane& Plane, FVector2D Min, FVector2D Max, double Lift = 0.0) {
+            const auto Project = [&](FVector2D Point) { return Geometry.LocalToAbsolute(Plane.Project(Point, Lift)); };
             const FVector2D TL = Project(Min);
             const FVector2D TR = Project({Max.X, Min.Y});
             const FVector2D BL = Project({Min.X, Max.Y});
@@ -1436,7 +1566,6 @@ private:
         {
             return;
         }
-        const FGeometry& GridGeometry = GridWidget->GetPaintSpaceGeometry();
         for (const auto* Child : Grid->GetAllChildren())
         {
             const auto* Row = Cast<USizeBox>(Child);
@@ -1452,17 +1581,23 @@ private:
                 {
                     continue;
                 }
-                const FGeometry& TileGeometry = Tile->GetPaintSpaceGeometry();
-                const auto GridPoint = [&](FVector2D Point) {
-                    return FVector2D(GridGeometry.AbsoluteToLocal(TileGeometry.LocalToAbsolute(Point))) * Layout.Scale;
-                };
-                const FVector2D Min = GridPoint(FVector2D::ZeroVector).ComponentMax(FVector2D::ZeroVector);
-                const FVector2D Max = GridPoint(TileGeometry.GetLocalSize()).ComponentMin(Layout.MainExtent);
+                const auto Bounds = TileBounds(*Tile, *GridWidget, Layout.Scale);
+                const FVector2D Min = Bounds.Min.ComponentMax(FVector2D::ZeroVector);
+                const FVector2D Max = Bounds.Max.ComponentMin(Layout.MainExtent);
                 if ((Max - Min).GetMin() <= 0.0)
                 {
                     continue;
                 }
-                PaintBackdrop(Layout.Left, Layout.MainOrigin + Min, Layout.MainOrigin + Max);
+                if (const auto* Lifted = LiftedTiles.FindByPredicate([&](const auto& Entry) {
+                    return Entry.Source.Min == Min && Entry.Source.Max == Max;
+                }))
+                {
+                    PaintBackdrop(Layout.Left, Lifted->Origin, Lifted->Origin + Lifted->Extent, Lifted->Depth);
+                }
+                else
+                {
+                    PaintBackdrop(Layout.Left, Layout.MainOrigin + Min, Layout.MainOrigin + Max);
+                }
             }
         }
     }
@@ -1803,7 +1938,8 @@ private:
 
     void DrawSurface(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
         const FInventoryPlane& Plane, UTextureRenderTarget2D* Texture, const FVector2D& Origin,
-        const FVector2D& Extent, double Start = 0.0, double End = 1.0, double Opacity = 1.0) const
+        const FVector2D& Extent, double Start = 0.0, double End = 1.0, double Opacity = 1.0,
+        const FBox2D* Source = nullptr, double Lift = 0.0) const
     {
         const uint8 Fade = FMath::RoundToInt(255.0 * Opacity);
         // The render target already contains premultiplied pixels.
@@ -1817,9 +1953,10 @@ private:
             const double U = FMath::Lerp(Start, End, double(Strip) / ProjectionStrips);
             for (const float V : {0.f, 1.f})
             {
-                const auto Point = Plane.Project(Origin + FVector2D(U * Extent.X, V * Extent.Y));
+                const auto Point = Plane.Project(Origin + FVector2D(U * Extent.X, V * Extent.Y), Lift);
+                const auto UV = Source ? Source->Min + FVector2D(U, V) * Source->GetSize() : FVector2D(U, V);
                 Vertices.Add(FSlateVertex::Make(Geometry.GetAccumulatedRenderTransform(),
-                    FVector2f(Point), FVector2f(U, V), Tint));
+                    FVector2f(Point), FVector2f(UV), Tint));
             }
             if (Strip > 0)
             {
@@ -1873,6 +2010,7 @@ private:
     double SavedSetsHeight = 0.0;
     TStrongObjectPtr<UTextureRenderTarget2D> MenuTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> MainTexture;
+    TArray<FInventoryTileLift> LiftedTiles;
     FSlateRoundedBoxBrush InspectorBrush{FLinearColor::Transparent, 0.f};
     TSharedPtr<SBorder> InspectorWidget;
     TWeakObjectPtr<const UCIInventoryTile> InspectorTile;
@@ -2005,6 +2143,11 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
 FIntPoint UCIInventoryShell::GetFocusedGridCellForTest() const
 {
     return Shell ? Shell->GetGridFocus() : RestoredGridFocus;
+}
+
+double UCIInventoryShell::GetGridTileLiftForTest(FIntPoint Cell) const
+{
+    return Shell ? Shell->GetGridTileLift(Cell) : 0.0;
 }
 
 FText UCIInventoryShell::GetInspectorLabelForTest() const
