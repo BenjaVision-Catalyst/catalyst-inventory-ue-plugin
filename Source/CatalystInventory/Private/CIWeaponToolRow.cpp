@@ -19,7 +19,6 @@ bool IsToolRowKind(const FString& Kind)
 
 UCIWeaponToolRowTheme::UCIWeaponToolRowTheme()
 {
-    RowHeight = 102.f;
     ThumbnailInset.Bottom = 18.f;
 }
 

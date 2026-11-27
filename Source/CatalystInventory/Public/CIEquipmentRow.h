@@ -16,7 +16,7 @@ public:
     float ThumbnailWidth = 224.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
-    float RowHeight = 108.f;
+    float RowHeight = 102.f;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Row")
     float HeaderHeight = 44.f;
