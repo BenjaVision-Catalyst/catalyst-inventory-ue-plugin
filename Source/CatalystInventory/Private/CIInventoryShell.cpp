@@ -1501,6 +1501,7 @@ private:
                 EquipmentRowTheme->ThumbnailInset.Left = 10.f;
                 EquipmentRowTheme->ThumbnailInset.Right = 10.f;
                 EquipmentRowTheme->IconWidth = 118.f;
+                EquipmentRowTheme->SlotIconFont.Size = 48.f;
             }
             if (auto* WeaponTheme = Cast<UCIWeaponToolRowTheme>(RowTheme))
             {

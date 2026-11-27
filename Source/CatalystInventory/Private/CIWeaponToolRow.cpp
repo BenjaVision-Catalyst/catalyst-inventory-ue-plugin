@@ -5,6 +5,7 @@
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScaleBox.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/SNullWidget.h"
 #include "Widgets/Text/STextBlock.h"
 
 #define LOCTEXT_NAMESPACE "CatalystInventory"
@@ -190,17 +191,21 @@ void UCIWeaponToolRow::RefreshDetails()
 
     const auto& Style = GetWeaponToolTheme();
     Title->ClearChildren();
+    TSharedRef<SWidget> ConsumableWidget = SNullWidget::NullWidget;
     if (ConsumableIcon == TEXT("cartridge") || ConsumableIcon == TEXT("fuel"))
     {
-        Title->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, Style.ContentInset, 0)
-        [SNew(SCIInspectorConsumableIcon).Tint(FLinearColor(1.f, .75f, .02f)).Fuel(ConsumableIcon == TEXT("fuel"))];
+        ConsumableWidget = SNew(SCIInspectorConsumableIcon)
+            .Tint(FLinearColor(1.f, .75f, .02f)).Fuel(ConsumableIcon == TEXT("fuel"));
     }
     else if (!Consumable.IsEmpty())
     {
-        Title->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, Style.ContentInset, 0)
-        [MakeIcon(Style.ConsumableIcons.FindRef(Consumable), FText::FromString(TEXT("▮▮▮")),
-            FText::FromString(Consumable), Style.ConsumableSize)];
+        ConsumableWidget = MakeIcon(Style.ConsumableIcons.FindRef(Consumable),
+            FText::FromString(TEXT("▮▮▮")), FText::FromString(Consumable), Style.ConsumableSize);
     }
+    Title->AddSlot().AutoWidth().VAlign(VAlign_Center)
+    [
+        SNew(SBox).WidthOverride(Style.ConsumableSize).HAlign(HAlign_Left)[ConsumableWidget]
+    ];
     Title->AddSlot().FillWidth(1.f).VAlign(VAlign_Center)
     [
         SNew(STextBlock).Text(Label).Font(Style.LabelFont).ColorAndOpacity(Style.TextTint)

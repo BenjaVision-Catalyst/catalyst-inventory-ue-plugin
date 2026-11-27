@@ -60,6 +60,7 @@ public:
 
 protected:
     virtual bool IsRowPresentation() const override { return true; }
+    virtual bool ReservesTierBandSpace() const override { return true; }
     virtual FText TileLabel() const override { return FText::GetEmpty(); }
     virtual FMargin GetIconPadding() const override;
     virtual TSharedRef<SWidget> BuildExpertise() override;

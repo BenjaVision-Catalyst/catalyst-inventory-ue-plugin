@@ -205,8 +205,17 @@ TSharedRef<SWidget> UCIInventoryTile::BuildTileContent()
         SNew(SHorizontalBox)
         + SHorizontalBox::Slot().AutoWidth()
         [
-            SNew(SBox).WidthOverride_Lambda([this] { return FOptionalSize(GetVisibleTierBandWidth()); })
-            .Visibility_Lambda([this] { return HasTierBand() ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
+            SNew(SBox).WidthOverride_Lambda([this] {
+                return FOptionalSize(ReservesTierBandSpace()
+                    ? FMath::Max(0.f, GetInventoryTheme().GetTierStyle().BandWidth) : GetVisibleTierBandWidth());
+            })
+            .Visibility_Lambda([this] {
+                if (HasTierBand())
+                {
+                    return EVisibility::HitTestInvisible;
+                }
+                return ReservesTierBandSpace() ? EVisibility::Hidden : EVisibility::Collapsed;
+            })
             [
                 SNew(SBorder).Padding(0).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
                 .BorderBackgroundColor_Lambda([this] {

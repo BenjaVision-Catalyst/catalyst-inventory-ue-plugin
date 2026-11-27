@@ -194,6 +194,7 @@ protected:
     const UCIInventoryTileTheme& GetInventoryTheme() const;
     virtual UTexture* GetTileIcon() const { return Icon; }
     virtual bool ShowsItemIcon() const { return true; }
+    virtual bool ReservesTierBandSpace() const { return false; }
     virtual FMargin GetIconPadding() const { return FMargin(0.f, 0.f, GetVisibleTierBandWidth(), 0.f); }
     virtual bool ShowsTypeCount() const { return true; }
     virtual FText TileLabel() const { return Label; }
