@@ -31,7 +31,6 @@ UCIEquipmentRowTheme::UCIEquipmentRowTheme()
     BadgeSize = 29.f;
     MarkerSize = 27.f;
     GlyphMarkerWidth = 13.f;
-    AttributeGlyphMarkerWidth = 22.f;
     MarkerGap = 5.f;
 }
 
@@ -156,7 +155,6 @@ void UCIEquipmentRow::BindItem(const FCFMagritteBinding& Item)
             }
         }
     }
-    const auto& Palette = GetEquipmentTheme();
     const auto AddInspectorAttributes = [&](std::string_view CardKind)
     {
         const auto Card = CIInventoryRowData::Card(Item, CardKind);
@@ -175,17 +173,9 @@ void UCIEquipmentRow::BindItem(const FCFMagritteBinding& Item)
                 continue;
             }
 
-            if (Type == TEXT("offensive"))
+            if (Type == TEXT("offensive") || Type == TEXT("defensive") || Type == TEXT("utility"))
             {
-                InspectorAttributes.Add({Id, TEXT("●"), Palette.Offensive});
-            }
-            else if (Type == TEXT("defensive"))
-            {
-                InspectorAttributes.Add({Id, TEXT("◆"), Palette.Defensive});
-            }
-            else if (Type == TEXT("utility"))
-            {
-                InspectorAttributes.Add({Id, TEXT("▲"), Palette.Utility});
+                InspectorAttributes.Add({Id, Type});
             }
             const auto Meter = Field->property("metadata:ciMeterMillionths");
             if (const auto* Millionths = std::get_if<std::int64_t>(&Meter.data); Millionths && *Millionths == 1000000)
@@ -213,7 +203,7 @@ void UCIEquipmentRow::PopulateRowIndicators(SHorizontalBox& Box, const FString& 
     {
         if (Attribute.Id != ExcludedAttribute)
         {
-            AddMarker(Box, Attribute.Id, Attribute.Glyph, Attribute.Tint, true, MaximumAttributes.Contains(Attribute.Id));
+            AddAttributeMarker(Box, Attribute.Id, Attribute.Type, MaximumAttributes.Contains(Attribute.Id));
         }
     }
     const auto TalentWidgets = SNew(SHorizontalBox);

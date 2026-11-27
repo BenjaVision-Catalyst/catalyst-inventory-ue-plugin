@@ -78,8 +78,7 @@ private:
     struct FAttributeMarker
     {
         FString Id;
-        const TCHAR* Glyph;
-        FLinearColor Tint;
+        FString Type;
     };
 
     TArray<FAttributeMarker> InspectorAttributes;

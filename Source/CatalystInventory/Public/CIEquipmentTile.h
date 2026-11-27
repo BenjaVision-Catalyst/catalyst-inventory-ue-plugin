@@ -90,8 +90,8 @@ protected:
     virtual float GetMarkerLeftInset() const { return GetInventoryTheme().Spacing; }
     void PopulateAttributes(SHorizontalBox& Box, const TArray<FString>& MaximumAttributes,
         const FString& ExcludedAttribute = FString());
-    void AddMarker(SHorizontalBox& Box, const FString& Id, const TCHAR* Glyph,
-        FLinearColor Tint, bool bAttribute, bool bMaximum = false, float Size = 0.f);
+    void AddAttributeMarker(SHorizontalBox& Box, const FString& Id, FStringView Type,
+        bool bMaximum = false, float Size = 0.f);
     TSharedRef<SWidget> BuildTalent();
     virtual TSharedRef<SWidget> BuildExpertise();
     TOptional<int64> ExpertiseLevel;

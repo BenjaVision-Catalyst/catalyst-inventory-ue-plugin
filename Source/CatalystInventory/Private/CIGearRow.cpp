@@ -170,24 +170,7 @@ void UCIGearRow::RefreshDetails()
     Primary->ClearChildren();
     if (Attribute)
     {
-        const auto& MarkerStyle = GetEquipmentTheme();
-        const TCHAR* Glyph = TEXT("◆");
-        FLinearColor Tint = Style.TextTint;
-        if (Attribute->Type == TEXT("offensive"))
-        {
-            Glyph = TEXT("●");
-            Tint = MarkerStyle.Offensive;
-        }
-        else if (Attribute->Type == TEXT("defensive"))
-        {
-            Tint = MarkerStyle.Defensive;
-        }
-        else if (Attribute->Type == TEXT("utility"))
-        {
-            Glyph = TEXT("▲");
-            Tint = MarkerStyle.Utility;
-        }
-        AddMarker(*Primary, Attribute->Id, Glyph, Tint, true, Attribute->bMaximum, Style.PrimaryMarkerSize);
+        AddAttributeMarker(*Primary, Attribute->Id, Attribute->Type, Attribute->bMaximum, Style.PrimaryMarkerSize);
         const FString AttributeName = Attribute->Label.ToString();
         const bool bArmour = Attribute->Id.Equals(TEXT("armor"), ESearchCase::IgnoreCase)
             || Attribute->Id.Equals(TEXT("armour"), ESearchCase::IgnoreCase)

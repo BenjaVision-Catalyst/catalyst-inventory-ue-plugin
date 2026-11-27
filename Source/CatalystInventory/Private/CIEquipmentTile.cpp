@@ -1,4 +1,5 @@
 #include "CIEquipmentTile.h"
+#include "CIInventoryAttributeIcon.h"
 
 #include "Engine/Texture.h"
 #include "Presentation/CFMagritteBinding.h"
@@ -123,8 +124,21 @@ void UCIEquipmentTile::RefreshMarkers()
     for (const auto& Slot : ModSlots)
     {
         const bool bFilled = !Slot.Value.IsEmpty();
-        AddMarker(*Markers, bFilled ? Slot.Key + TEXT(": ") + Slot.Value : Slot.Key, bFilled ? TEXT("■") : TEXT("□"),
-            bFilled ? GetEquipmentTheme().FilledMod : GetEquipmentTheme().EmptyMod, false);
+        const auto& Style = GetEquipmentTheme();
+        Markers->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, Style.MarkerGap, 0)
+        [
+            SNew(SBox).WidthOverride(Style.GlyphMarkerWidth).HeightOverride(Style.MarkerSize)
+            .HAlign(HAlign_Center).VAlign(VAlign_Center)
+            .ToolTipText(FText::FromString(bFilled ? Slot.Key + TEXT(": ") + Slot.Value : Slot.Key))
+            [
+                SNew(SScaleBox).Stretch(EStretch::ScaleToFitY).StretchDirection(EStretchDirection::DownOnly)
+                [
+                    SNew(STextBlock).Text(FText::FromString(bFilled ? TEXT("■") : TEXT("□")))
+                    .Font(FCoreStyle::GetDefaultFontStyle("Regular", FMath::RoundToInt(Style.MarkerSize * 1.2f)))
+                    .ColorAndOpacity(bFilled ? Style.FilledMod : Style.EmptyMod)
+                ]
+            ]
+        ];
     }
     if (!IsRowPresentation())
     {
@@ -135,90 +149,47 @@ void UCIEquipmentTile::RefreshMarkers()
 void UCIEquipmentTile::PopulateAttributes(SHorizontalBox& Box, const TArray<FString>& MaximumAttributes,
     const FString& ExcludedAttribute)
 {
-    const auto& Style = GetEquipmentTheme();
-    for (const FString& Id : OffensiveAttributes)
+    const auto Populate = [&](const TArray<FString>& Attributes, FStringView Type)
     {
-        if (Id != ExcludedAttribute)
+        for (const FString& Id : Attributes)
         {
-            AddMarker(Box, Id, TEXT("●"), Style.Offensive, true, MaximumAttributes.Contains(Id));
+            if (Id != ExcludedAttribute)
+            {
+                AddAttributeMarker(Box, Id, Type, MaximumAttributes.Contains(Id));
+            }
         }
-    }
-    for (const FString& Id : DefensiveAttributes)
-    {
-        if (Id != ExcludedAttribute)
-        {
-            AddMarker(Box, Id, TEXT("◆"), Style.Defensive, true, MaximumAttributes.Contains(Id));
-        }
-    }
-    for (const FString& Id : UtilityAttributes)
-    {
-        if (Id != ExcludedAttribute)
-        {
-            AddMarker(Box, Id, TEXT("▲"), Style.Utility, true, MaximumAttributes.Contains(Id));
-        }
-    }
+    };
+    Populate(OffensiveAttributes, TEXTVIEW("offensive"));
+    Populate(DefensiveAttributes, TEXTVIEW("defensive"));
+    Populate(UtilityAttributes, TEXTVIEW("utility"));
 }
 
-void UCIEquipmentTile::AddMarker(SHorizontalBox& Box, const FString& Id, const TCHAR* Glyph,
-    FLinearColor Tint, bool bAttribute, bool bMaximum, float Size)
+void UCIEquipmentTile::AddAttributeMarker(SHorizontalBox& Box, const FString& Id, FStringView Type,
+    bool bMaximum, float Size)
 {
-    const auto Brush = MakeShared<FSlateBrush>();
-    const float MaximumInset = bMaximum ? GetEquipmentTheme().MaximumMarkerInset : 0.f;
-    Box.AddSlot().AutoWidth().Padding(0, 0, GetEquipmentTheme().MarkerGap, 0)
+    const auto& Style = GetEquipmentTheme();
+    const auto Tint = CIInventoryAttributeIcon::Tint(GetInventoryTheme(), Type);
+    if (!Tint)
+    {
+        return;
+    }
+    const float MaximumInset = bMaximum ? Style.MaximumMarkerInset : 0.f;
+    Box.AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, Style.MarkerGap, 0)
     [
         SNew(SBox)
-        .WidthOverride_Lambda([this, Id, bAttribute, Size] {
-            if (Size > 0.f)
-            {
-                return FOptionalSize(Size);
-            }
-            const auto& Style = GetEquipmentTheme();
-            if (bAttribute)
-            {
-                if (Style.AttributeIcons.FindRef(Id))
-                {
-                    return FOptionalSize(Style.MarkerSize);
-                }
-                if (Style.AttributeGlyphMarkerWidth > 0.f)
-                {
-                    return FOptionalSize(Style.AttributeGlyphMarkerWidth);
-                }
-            }
-            return FOptionalSize(Style.GlyphMarkerWidth);
-        })
-        .HeightOverride_Lambda([this, Size] { return FOptionalSize(Size > 0.f ? Size : GetEquipmentTheme().MarkerSize); })
+        .WidthOverride(Size > 0.f ? Size : CIInventoryAttributeIcon::Diameter)
+        .HeightOverride(Size > 0.f ? Size : Style.MarkerSize)
         .ToolTipText(FText::FromString(Id))
         [
             SNew(SOverlay)
-            + SOverlay::Slot().Padding(FMargin(0, 0, 0, MaximumInset))
-            [
-                SNew(SImage).Image_Lambda([this, Brush, Id, bAttribute] {
-                    return ImageBrush(*Brush, bAttribute ? GetEquipmentTheme().AttributeIcons.FindRef(Id).Get() : nullptr);
-                }).ColorAndOpacity(Tint)
-            ]
+            + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center).Padding(FMargin(0, 0, 0, MaximumInset))
+            [CIInventoryAttributeIcon::Build(*Tint)]
             + SOverlay::Slot().VAlign(VAlign_Bottom).HAlign(HAlign_Center)
             [
                 SNew(STextBlock).Text(FText::FromString(TEXT("▲")))
-                .Font(FCoreStyle::GetDefaultFontStyle("Regular", GetEquipmentTheme().MaximumMarkerFontSize))
-                .ColorAndOpacity(Tint)
+                .Font(FCoreStyle::GetDefaultFontStyle("Regular", Style.MaximumMarkerFontSize))
+                .ColorAndOpacity(*Tint)
                 .Visibility(bMaximum ? EVisibility::HitTestInvisible : EVisibility::Collapsed)
-            ]
-            + SOverlay::Slot().Padding(FMargin(0, 0, 0, MaximumInset))
-            [
-                SNew(SScaleBox).Stretch(EStretch::ScaleToFitY).StretchDirection(EStretchDirection::DownOnly)
-                .HAlign(HAlign_Center).VAlign(VAlign_Center)
-                .Visibility_Lambda([this, Id, bAttribute] {
-                    return bAttribute && GetEquipmentTheme().AttributeIcons.FindRef(Id)
-                        ? EVisibility::Collapsed : EVisibility::HitTestInvisible;
-                })
-                [
-                    SNew(STextBlock).Text(FText::FromString(Glyph))
-                    .Font_Lambda([this, Size] {
-                        const float MarkerSize = Size > 0.f ? Size : GetEquipmentTheme().MarkerSize;
-                        const int32 PointSize = FMath::Max(1, FMath::RoundToInt(MarkerSize * 1.2f));
-                        return FCoreStyle::GetDefaultFontStyle("Regular", PointSize);
-                    }).ColorAndOpacity(Tint)
-                ]
             ]
         ]
     ];

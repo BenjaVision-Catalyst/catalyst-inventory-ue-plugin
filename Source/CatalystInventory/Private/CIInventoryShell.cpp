@@ -1,5 +1,6 @@
 #include "CIInventoryShell.h"
 #include "CIInventoryRowData.h"
+#include "CIInventoryAttributeIcon.h"
 
 #include "CIApparelRow.h"
 #include "CIEquipmentTile.h"
@@ -1495,6 +1496,12 @@ private:
             }
             Row->Theme = RowTheme;
             auto* EquipmentRowTheme = CastChecked<UCIEquipmentRowTheme>(RowTheme);
+            if (const auto* Palette = Cast<UCIEquipmentTileTheme>(Theme))
+            {
+                EquipmentRowTheme->Offensive = Palette->Offensive;
+                EquipmentRowTheme->Defensive = Palette->Defensive;
+                EquipmentRowTheme->Utility = Palette->Utility;
+            }
             if (!Row->IsA<UCIApparelRow>())
             {
                 EquipmentRowTheme->ThumbnailWidth = 144.f;
@@ -2021,33 +2028,15 @@ private:
             return LabelWidget;
         }
 
-        const auto* EquipmentTheme = Cast<UCIEquipmentTileTheme>(Theme);
-        const auto& Palette = EquipmentTheme ? *EquipmentTheme : *GetDefault<UCIEquipmentTileTheme>();
-        const FLinearColor* Tint = nullptr;
-        if (*Type == "offensive")
-        {
-            Tint = &Palette.Offensive;
-        }
-        else if (*Type == "defensive")
-        {
-            Tint = &Palette.Defensive;
-        }
-        else if (*Type == "utility")
-        {
-            Tint = &Palette.Utility;
-        }
+        const auto Tint = CIInventoryAttributeIcon::Tint(*Theme, UTF8_TO_TCHAR(Type->c_str()));
         if (!Tint)
         {
             return LabelWidget;
         }
 
-        const FLinearColor IconTint = (*Tint * .6f).CopyWithNewOpacity(.65f);
         return SNew(SHorizontalBox)
             + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 6.f, 0.f)
-            [
-                SNew(SBox).WidthOverride(InspectorAttributeIconSize).HeightOverride(InspectorAttributeIconSize)
-                [SNew(SImage).Image(&InspectorAttributeIconBrush).ColorAndOpacity(IconTint)]
-            ]
+            [CIInventoryAttributeIcon::Build(*Tint)]
             + SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)[LabelWidget];
     }
 
@@ -2810,8 +2799,6 @@ private:
     TStrongObjectPtr<UTextureRenderTarget2D> MenuTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> MainTexture;
     TArray<FInventoryTileLift> LiftedTiles;
-    static constexpr float InspectorAttributeIconSize = 15.f;
-    FSlateRoundedBoxBrush InspectorAttributeIconBrush{FLinearColor::White, InspectorAttributeIconSize * .5f};
     FSlateRoundedBoxBrush InspectorBrush{FLinearColor::Transparent, 0.f};
     TSharedPtr<SBorder> InspectorWidget;
     TWeakObjectPtr<const UCIInventoryTile> InspectorTile;
