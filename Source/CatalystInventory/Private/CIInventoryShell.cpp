@@ -1,5 +1,6 @@
 #include "CIInventoryShell.h"
 
+#include "CIEquipmentTile.h"
 #include "CIInspectorIdentityTile.h"
 #include "CIInventoryNavigation.h"
 #include "CIInventorySavedSetRows.h"
@@ -1654,6 +1655,46 @@ private:
         return Grid;
     }
 
+    TSharedRef<SWidget> BuildInspectorAttributeLabel(const magritte::Description& Field, const FText& Label) const
+    {
+        const auto* Theme = InventoryTheme.Get();
+        const auto TypeValue = Field.property("metadata:ciAttributeType");
+        const auto* Type = std::get_if<std::string>(&TypeValue.data);
+        const auto LabelWidget = InspectorText(Label, Theme->LabelFont, true);
+        if (!Type)
+        {
+            return LabelWidget;
+        }
+
+        const auto* EquipmentTheme = Cast<UCIEquipmentTileTheme>(Theme);
+        const auto& Palette = EquipmentTheme ? *EquipmentTheme : *GetDefault<UCIEquipmentTileTheme>();
+        const FLinearColor* Tint = nullptr;
+        if (*Type == "offensive")
+        {
+            Tint = &Palette.Offensive;
+        }
+        else if (*Type == "defensive")
+        {
+            Tint = &Palette.Defensive;
+        }
+        else if (*Type == "utility")
+        {
+            Tint = &Palette.Utility;
+        }
+        if (!Tint)
+        {
+            return LabelWidget;
+        }
+
+        return SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 6.f, 0.f)
+            [
+                SNew(SBox).WidthOverride(InspectorAttributeIconSize).HeightOverride(InspectorAttributeIconSize)
+                [SNew(SImage).Image(&InspectorAttributeIconBrush).ColorAndOpacity(*Tint)]
+            ]
+            + SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)[LabelWidget];
+    }
+
     TSharedRef<SWidget> BuildInspectorCard(
         const magritte::Description& Field, const FCFMagritteBinding& Section, bool bWeapon)
     {
@@ -1688,6 +1729,7 @@ private:
 
             const auto Data = Section.Read(*Row);
             const auto Value = InspectorValue(Data);
+            const auto LabelWidget = BuildInspectorAttributeLabel(*Row, Label);
             const auto Meter = Row->property("metadata:ciMeterMillionths");
             const auto* Millionths = std::get_if<std::int64_t>(&Meter.data);
             const auto* Percent = std::get_if<std::int64_t>(&Data.data);
@@ -1705,7 +1747,7 @@ private:
                     [
                         SNew(SHorizontalBox)
                         + SHorizontalBox::Slot().FillWidth(1.f)
-                        [InspectorText(Label, Theme->LabelFont, true)]
+                        [LabelWidget]
                         + SHorizontalBox::Slot().AutoWidth()
                         [InspectorText(MeterValue, Theme->LabelFont)]
                     ]
@@ -1760,7 +1802,6 @@ private:
                 }
                 ValueWidget = InspectorText(Value, bTier ? Theme->GroupLabelFont : Theme->LabelFont, bSlots);
             }
-            const auto LabelWidget = InspectorText(Label, Theme->LabelFont, true);
             if (bSlots)
             {
                 Content->AddSlot().AutoHeight().Padding(0.f, 3.f)
@@ -2395,6 +2436,8 @@ private:
     TStrongObjectPtr<UTextureRenderTarget2D> MenuTexture;
     TStrongObjectPtr<UTextureRenderTarget2D> MainTexture;
     TArray<FInventoryTileLift> LiftedTiles;
+    static constexpr float InspectorAttributeIconSize = 15.f;
+    FSlateRoundedBoxBrush InspectorAttributeIconBrush{FLinearColor::White, InspectorAttributeIconSize * .5f};
     FSlateRoundedBoxBrush InspectorBrush{FLinearColor::Transparent, 0.f};
     TSharedPtr<SBorder> InspectorWidget;
     TWeakObjectPtr<const UCIInventoryTile> InspectorTile;
