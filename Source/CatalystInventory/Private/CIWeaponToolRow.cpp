@@ -108,36 +108,6 @@ TArray<UCIWeaponToolRow::FStat> UCIWeaponToolRow::ReadStats(const FCFMagritteBin
     }
     if (CIInventoryRowData::Read(Item, "presentationKind").ToString() == TEXT("gadget"))
     {
-        auto Utility = CIInventoryRowData::Card(Item, "utility");
-        if (!Utility)
-        {
-            Utility = CIInventoryRowData::Card(Item, "tier");
-        }
-        if (Utility)
-        {
-            const FText UtilityLabel = NSLOCTEXT("CatalystInventory", "UtilityLabel", "Utility");
-            for (const auto& Field : Utility->Describe().orderedChildren())
-            {
-                if (!CIInventoryRowData::NormalizeLabel(CIInventoryRowData::DisplayValue(Field->property("label")))
-                    .EqualTo(UtilityLabel))
-                {
-                    continue;
-                }
-                const FText Display = CIInventoryRowData::DisplayValue(Utility->Read(*Field));
-                if (!Display.IsEmpty())
-                {
-                    TOptional<double> Score;
-                    double Number;
-                    if (Display.ToString().IsNumeric() && LexTryParseString(Number, *Display.ToString()))
-                    {
-                        Score = Number;
-                    }
-                    Result.Insert({TEXT("utility"), UtilityLabel, Score, Display}, 0);
-                }
-                break;
-            }
-        }
-
         for (FStat& Stat : Result)
         {
             const FString Name = Stat.Label.ToString();

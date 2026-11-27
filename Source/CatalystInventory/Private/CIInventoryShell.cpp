@@ -1504,7 +1504,7 @@ private:
             }
             if (auto* WeaponTheme = Cast<UCIWeaponToolRowTheme>(RowTheme))
             {
-                WeaponTheme->StatWidth = Kind == TEXT("gadget") ? 52.f : 66.f;
+                WeaponTheme->StatWidth = 66.f;
                 WeaponTheme->TalentAreaWidth = 36.f;
             }
             if (auto* GearTheme = Cast<UCIGearRowTheme>(RowTheme))

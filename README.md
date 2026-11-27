@@ -86,8 +86,8 @@ list has no selection. The widget matches numeric stats by Catalyst
 identifier. Higher and lower values have distinct tints and arrows.
 Equal or unavailable comparisons keep the normal value style. When the binding
 supplies an inspector instead, the row displays its compact stats and uses
-`inspectorConsumableIcon` for cartridge or fuel. Gadget rows also read the
-current Utility from the inspector and display it with the other row stats.
+`inspectorConsumableIcon` for cartridge or fuel. Gadget rows use the same compact layout for cooldown, duration and range. The
+inspector displays Utility calculated from equipped gear.
 
 The row accepts the compact equipment fields plus `consumableTypeIdentifier`,
 `requiredPlayerLevel`, `isProficient`, `maximumAttributes`,
