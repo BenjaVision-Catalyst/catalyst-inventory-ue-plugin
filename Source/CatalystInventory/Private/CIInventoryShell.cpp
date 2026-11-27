@@ -37,7 +37,6 @@
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/SLeafWidget.h"
 #include "Widgets/SBoxPanel.h"
-#include "Widgets/Notifications/SProgressBar.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/SWindow.h"
 #include "Widgets/Text/STextBlock.h"
@@ -106,50 +105,72 @@ struct FInventoryTileLift
     FIntPoint Cell;
 };
 
-class SCIFalloffPlot final : public SLeafWidget
+struct FInspectorStroke
+{
+    TArray<FVector2D> Points;
+    FLinearColor Tint;
+    float Thickness;
+};
+
+using FInspectorStrokeSink = TFunction<void(FInspectorStroke)>;
+
+class SCIInspectorLines final : public SLeafWidget
 {
 public:
-    SLATE_BEGIN_ARGS(SCIFalloffPlot) {}
-        SLATE_ARGUMENT(TArray<FVector2D>, Points)
+    SLATE_BEGIN_ARGS(SCIInspectorLines) : _Height(64.f), _Thickness(1.5f) {}
+        SLATE_ARGUMENT(TArray<FVector2D>, Stroke)
+        SLATE_ARGUMENT(TArray<TArray<FVector2D>>, Tracks)
         SLATE_ARGUMENT(FLinearColor, Tint)
+        SLATE_ARGUMENT(float, Height)
+        SLATE_ARGUMENT(float, Thickness)
+        SLATE_ARGUMENT(FInspectorStrokeSink, Sink)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& Args)
     {
-        Points = Args._Points;
+        Stroke = Args._Stroke;
+        Tracks = Args._Tracks;
         Tint = Args._Tint;
+        Height = Args._Height;
+        Thickness = Args._Thickness;
+        Sink = Args._Sink;
     }
 
-    FVector2D ComputeDesiredSize(float) const override { return {80.0, 64.0}; }
+    FVector2D ComputeDesiredSize(float) const override { return {80.0, Height}; }
 
     int32 OnPaint(const FPaintArgs&, const FGeometry& Geometry, const FSlateRect&,
-        FSlateWindowElementList& Elements, int32 Layer, const FWidgetStyle&, bool) const override
+        FSlateWindowElementList&, int32 Layer, const FWidgetStyle&, bool) const override
     {
-        const FVector2D Inset(1.0, 1.0);
-        const FVector2D Size = (FVector2D(Geometry.GetLocalSize()) - Inset * 2.0).ComponentMax(FVector2D(1.0, 1.0));
-        const auto Paint = Geometry.ToPaintGeometry();
-        const FLinearColor GridInk = Tint.CopyWithNewOpacity(Tint.A * .25f);
-        for (const double Y : {0.0, .5, 1.0})
+        if (Sink)
         {
-            const TArray<FVector2D> Line{Inset + FVector2D(0.0, Size.Y * Y), Inset + FVector2D(Size.X, Size.Y * Y)};
-            FSlateDrawElement::MakeLines(Elements, Layer, Paint, Line,
-                ESlateDrawEffect::NoPixelSnapping, GridInk, true, 1.f);
+            const FVector2D Inset(1.0, 1.0);
+            const FVector2D Size = (FVector2D(Geometry.GetLocalSize()) - Inset * 2.0).ComponentMax(FVector2D(1.0, 1.0));
+            const auto Queue = [&](const TArray<FVector2D>& UnitPoints, FLinearColor Color, float Weight)
+            {
+                FInspectorStroke Line{{}, Color, Weight};
+                Line.Points.Reserve(UnitPoints.Num());
+                for (const auto& Point : UnitPoints)
+                {
+                    Line.Points.Add(Geometry.LocalToAbsolute(Inset + Point * Size));
+                }
+                Sink(MoveTemp(Line));
+            };
+            for (const auto& Track : Tracks)
+            {
+                Queue(Track, Tint.CopyWithNewOpacity(Tint.A * .25f), 1.f);
+            }
+            Queue(Stroke, Tint, Thickness);
         }
-
-        TArray<FVector2D> Curve;
-        Curve.Reserve(Points.Num());
-        for (const auto& Point : Points)
-        {
-            Curve.Add(Inset + FVector2D(Point.X / Points.Last().X, 1.0 - Point.Y / 100.0) * Size);
-        }
-        FSlateDrawElement::MakeLines(Elements, Layer + 1, Paint, Curve,
-            ESlateDrawEffect::NoPixelSnapping, Tint, true, 2.f);
-        return Layer + 1;
+        return Layer;
     }
 
 private:
-    TArray<FVector2D> Points;
+    TArray<FVector2D> Stroke;
+    TArray<TArray<FVector2D>> Tracks;
     FLinearColor Tint = FLinearColor::White;
+    float Height = 64.f;
+    float Thickness = 1.5f;
+    FInspectorStrokeSink Sink;
 };
 
 class SCIProjectedBlur : public SBackgroundBlur
@@ -549,6 +570,8 @@ public:
     FIntPoint GetGridFocus() const { return GridFocus; }
 
 #if WITH_DEV_AUTOMATION_TESTS
+    int32 GetInspectorStrokeCount() const { return InspectorStrokes.Num(); }
+
     FVector GetInspectorScrollState(const FVector2D& ViewSize) const
     {
         const auto Layout = GetLayout(ViewSize);
@@ -1116,6 +1139,7 @@ public:
         {
             DrawSurface(Geometry, Elements, Layer + 1, Layout.Right, InspectorTexture.Get(),
                 Layout.InspectorOrigin, Layout.InspectorExtent);
+            DrawInspectorStrokes(Geometry, Elements, Layer + 2, Layout);
         }
 
         if (MenuTexture.IsValid() && Layout.MenuExtent.GetMin() > 0.0)
@@ -1424,7 +1448,56 @@ private:
         return FText::GetEmpty();
     }
 
-    TSharedPtr<SWidget> BuildFalloffPlot(const FCFMagritteBinding& Section) const
+    void DrawInspectorStrokes(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
+        const FInventoryShellLayout& Layout) const
+    {
+        if (InspectorStrokes.IsEmpty() || !InspectorWidget || !InspectorScroll)
+        {
+            return;
+        }
+
+        const auto& Root = InspectorWidget->GetPaintSpaceGeometry();
+        const auto& Body = InspectorScroll->GetPaintSpaceGeometry();
+        const FVector2D RootSize(Root.GetLocalSize());
+        const FVector2D BodySize(Body.GetLocalSize());
+        if (RootSize.GetMin() <= 0.0 || BodySize.GetMin() <= 0.0)
+        {
+            return;
+        }
+        const auto Project = [&](FVector2D RasterPoint)
+        {
+            const FVector2D Position(Root.AbsoluteToLocal(RasterPoint));
+            return Layout.Right.Project(Layout.InspectorOrigin + Position / RootSize * Layout.InspectorExtent);
+        };
+        const auto ClipPoint = [&](FVector2D BodyPoint)
+        {
+            return Geometry.LocalToAbsolute(Project(Body.LocalToAbsolute(BodyPoint)));
+        };
+
+        // Stroke in the final Slate pass so the projected render target does
+        // not resample the antialiased edges.
+        Elements.PushClip(FSlateClippingZone(ClipPoint({0.0, 0.0}), ClipPoint({BodySize.X, 0.0}),
+            ClipPoint({0.0, BodySize.Y}), ClipPoint(BodySize)));
+        for (const auto& Stroke : InspectorStrokes)
+        {
+            TArray<FVector2D> Projected;
+            Projected.Reserve(Stroke.Points.Num());
+            for (const auto& Point : Stroke.Points)
+            {
+                Projected.Add(Project(Point));
+            }
+            FSlateDrawElement::MakeLines(Elements, Layer, Geometry.ToPaintGeometry(), Projected,
+                ESlateDrawEffect::NoPixelSnapping, Stroke.Tint, true, Stroke.Thickness);
+        }
+        Elements.PopClip();
+    }
+
+    FInspectorStrokeSink InspectorStrokeSink()
+    {
+        return [this](FInspectorStroke Stroke) { InspectorStrokes.Add(MoveTemp(Stroke)); };
+    }
+
+    TSharedPtr<SWidget> BuildFalloffPlot(const FCFMagritteBinding& Section)
     {
         TArray<FVector2D> Points;
         for (const auto& Row : Section.Describe().orderedChildren())
@@ -1454,31 +1527,30 @@ private:
         const auto Metres = [&](int64 Value) {
             return Label(FText::Format(NSLOCTEXT("Inventory", "FalloffMetres", "{0} m"), FText::AsNumber(Value)));
         };
-        const auto Upper = Label(FText::AsPercent(1.0));
-        const auto Lower = Label(FText::AsPercent(0.0));
         const auto MaxDistance = Metres(int64(Points.Last().X));
-        return SNew(SHorizontalBox)
-            + SHorizontalBox::Slot().AutoWidth().Padding(0.f, 0.f, 6.f, 18.f)
+        const double LongestRange = Points.Last().X;
+        for (auto& Point : Points)
+        {
+            Point = {Point.X / LongestRange, 1.0 - Point.Y / 100.0};
+        }
+        return SNew(SVerticalBox)
+            + SVerticalBox::Slot().AutoHeight()
             [
-                SNew(SVerticalBox)
-                + SVerticalBox::Slot().AutoHeight()[Upper]
-                + SVerticalBox::Slot().FillHeight(1.f).VAlign(VAlign_Bottom)[Lower]
+                SNew(SCIInspectorLines)
+                .Stroke(MoveTemp(Points))
+                .Tracks(TArray<TArray<FVector2D>>{{{0.0, 0.0}, {1.0, 0.0}}, {{0.0, 1.0}, {1.0, 1.0}}})
+                .Tint(Theme->TextTint)
+                .Sink(InspectorStrokeSink())
             ]
-            + SHorizontalBox::Slot().FillWidth(1.f)
+            + SVerticalBox::Slot().AutoHeight().Padding(0.f, 3.f, 0.f, 0.f)
             [
-                SNew(SVerticalBox)
-                + SVerticalBox::Slot().AutoHeight()
-                [SNew(SCIFalloffPlot).Points(MoveTemp(Points)).Tint(Theme->TextTint)]
-                + SVerticalBox::Slot().AutoHeight().Padding(0.f, 3.f, 0.f, 0.f)
-                [
-                    SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot().FillWidth(1.f)[Metres(0)]
-                    + SHorizontalBox::Slot().AutoWidth()[MaxDistance]
-                ]
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot().FillWidth(1.f)[Metres(0)]
+                + SHorizontalBox::Slot().AutoWidth()[MaxDistance]
             ];
     }
 
-    TSharedRef<SWidget> BuildInspectorCard(const magritte::Description& Field, const FCFMagritteBinding& Section) const
+    TSharedRef<SWidget> BuildInspectorCard(const magritte::Description& Field, const FCFMagritteBinding& Section)
     {
         const auto* Theme = InventoryTheme.Get();
         const auto KindValue = Field.property("metadata:ciCard");
@@ -1528,8 +1600,13 @@ private:
                         ]
                         + SVerticalBox::Slot().AutoHeight()
                         [
-                            SNew(SBox).HeightOverride(4.f)
-                            [SNew(SProgressBar).Percent(Fraction).FillColorAndOpacity(Theme->TextTint)]
+                            SNew(SCIInspectorLines)
+                            .Tracks(TArray<TArray<FVector2D>>{{{0.0, .5}, {1.0, .5}}})
+                            .Stroke(TArray<FVector2D>{{0.0, .5}, {Fraction, .5}})
+                            .Tint(Theme->TextTint)
+                            .Height(5.f)
+                            .Thickness(2.5f)
+                            .Sink(InspectorStrokeSink())
                         ]
                     ];
                 }
@@ -1694,6 +1771,7 @@ private:
         if (bInspectorScrollDirty)
         {
             bInspectorScrollDirty = false;
+            InspectorStrokes.Reset();
             DrawToTexture(InspectorTexture, InspectorWidget.ToSharedRef(), FVector2D(Size), DeltaTime, Scale);
         }
     }
@@ -2195,6 +2273,7 @@ private:
     bool bInspectorScrollDirty = false;
     FSlateBrush InspectorIconBrush;
     TStrongObjectPtr<UTextureRenderTarget2D> InspectorTexture;
+    TArray<FInspectorStroke> InspectorStrokes;
     TWeakObjectPtr<const UCIInventoryTileTheme> InspectorTheme;
     float InspectorScale = 0.f;
     TStrongObjectPtr<UTextureRenderTarget2D> FooterTexture;
@@ -2319,6 +2398,11 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
 FIntPoint UCIInventoryShell::GetFocusedGridCellForTest() const
 {
     return Shell ? Shell->GetGridFocus() : RestoredGridFocus;
+}
+
+int32 UCIInventoryShell::GetInspectorStrokeCountForTest() const
+{
+    return Shell ? Shell->GetInspectorStrokeCount() : 0;
 }
 
 FVector UCIInventoryShell::GetInspectorScrollStateForTest(FVector2D ViewSize) const

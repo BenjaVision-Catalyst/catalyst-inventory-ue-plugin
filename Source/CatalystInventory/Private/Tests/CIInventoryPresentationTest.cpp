@@ -453,7 +453,8 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
     {
         return false;
     }
-    const auto Gear = User->Follow("profile")->Follow("inventory")->Follow("gear");
+    const auto Inventory = User->Follow("profile")->Follow("inventory");
+    const auto Gear = Inventory->Follow("gear");
     if (!TestTrue(TEXT("The combined preview keeps the gadget and gear slots"), Gear
         && Gear->Related("gadgets", 2).Num() == 2 && Gear->Related("equippedGear", 6).Num() == 6))
     {
@@ -520,6 +521,29 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
             const auto* Amount = std::get_if<std::int64_t>(&Value.data);
             TestTrue(TEXT("Handling is a numeric value suitable for a meter"), Amount && *Amount == Accuracy[Index]);
         }
+    }
+    if (FApp::CanEverRender())
+    {
+        const FCFViewContext Context{*GetTransientPackage(), MakeShared<FCFViewState>()};
+        TStrongObjectPtr<UCIInventoryView> View(Cast<UCIInventoryView>(FCIInventoryModel(*Inventory).AsView(Context)));
+        if (!TestNotNull(TEXT("Build a preview with the weapon inspector"), View.Get()))
+        {
+            return false;
+        }
+        const auto ViewWidget = View->TakeWidget();
+        auto* Shell = View->GetInventoryShell();
+        const auto Widget = Shell->TakeWidget();
+        const auto Geometry = FGeometry::MakeRoot({1280.0, 720.0}, FSlateLayoutTransform());
+        Widget->Tick(Geometry, 0.0, .2f);
+        for (int32 Index = 0; Index < 2; ++Index)
+        {
+            Widget->OnKeyDown(Geometry, FKeyEvent(EKeys::Right, FModifierKeysState(), 0, false, 0, 0));
+        }
+        Widget->Tick(Geometry, .2, .2f);
+        TestEqual(TEXT("The carbine is focused"), Shell->GetInspectorLabelForTest().ToString(),
+            FString(TEXT("Pathfinder Carbine")));
+        TestEqual(TEXT("Draw two handling tracks and fills, two plot rules, and one curve"),
+            Shell->GetInspectorStrokeCountForTest(), 7);
     }
     return true;
 }
