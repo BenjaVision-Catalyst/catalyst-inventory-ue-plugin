@@ -50,7 +50,7 @@ public:
     FLinearColor Defensive = FLinearColor(.13f, .5f, 1.f);
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile")
-    FLinearColor Utility = FLinearColor(1.f, .72f, .04f);
+    FLinearColor Utility = FLinearColor(1.f, .84f, .015f);
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Equipment Tile")
     FLinearColor BrandTint = FLinearColor(1.f, 1.f, 1.f, .18f);
