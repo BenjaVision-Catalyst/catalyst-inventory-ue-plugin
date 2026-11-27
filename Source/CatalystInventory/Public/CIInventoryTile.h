@@ -116,6 +116,8 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile", meta = (ClampMin = "1.0"))
     float IconSize = 32.f;
 
+    float IconWidth = 0.f;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tile")
     FSlateFontInfo LabelFont;
 

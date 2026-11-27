@@ -300,7 +300,10 @@ TSharedRef<SWidget> UCIInventoryTile::BuildTileIcon()
         .HAlign(HAlign_Center).VAlign(VAlign_Center)
         [
             SNew(SBox).Tag(TEXT("InventoryTileIcon"))
-            .WidthOverride_Lambda(IconSize)
+            .WidthOverride_Lambda([this, IconSize] {
+                const float Width = GetInventoryTheme().IconWidth;
+                return Width > 0.f ? FOptionalSize(Width) : IconSize();
+            })
             .HeightOverride_Lambda(IconSize)
             [
                 SNew(SScaleBox).Stretch(EStretch::ScaleToFit).HAlign(HAlign_Center).VAlign(VAlign_Center)

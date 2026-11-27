@@ -9,6 +9,9 @@
 
 UCIApparelRowTheme::UCIApparelRowTheme()
 {
+    Style = GetDefault<UCIInventoryTileTheme>()->Style;
+    IconSize = 32.f;
+    IconWidth = 0.f;
     RowHeight = 76.f;
     ThumbnailWidth = 114.f;
     ThumbnailInset = FMargin(9.f, 6.f);

@@ -1,4 +1,5 @@
 #include "CIEquipmentRow.h"
+#include "CIInventoryRowData.h"
 
 #include "Engine/Texture.h"
 #include "Styling/CoreStyle.h"
@@ -19,6 +20,10 @@ FString UCIEquipmentRow::ReadIdentifier(const magritte::Value& Value)
 
 UCIEquipmentRowTheme::UCIEquipmentRowTheme()
 {
+    Style.Background = FLinearColor(.075f, .114f, .153f);
+    Style.FocusedBackground = FLinearColor(.086f, .067f, .212f);
+    IconSize = 92.f;
+    IconWidth = 144.f;
     LabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 18);
     CountFont = FCoreStyle::GetDefaultFontStyle("Bold", 18);
     StatLabelFont = FCoreStyle::GetDefaultFontStyle("Regular", 16);
@@ -150,6 +155,48 @@ void UCIEquipmentRow::BindItem(const FCFMagritteBinding& Item)
                 }
             }
         }
+    }
+    if (OffensiveAttributes.IsEmpty() && DefensiveAttributes.IsEmpty() && UtilityAttributes.IsEmpty())
+    {
+        const auto AddInspectorAttributes = [&](std::string_view CardKind)
+        {
+            const auto Card = CIInventoryRowData::Card(Item, CardKind);
+            if (!Card)
+            {
+                return;
+            }
+            for (const auto& Field : Card->Describe().orderedChildren())
+            {
+                const FString Id = ReadIdentifier(Field->property("label"));
+                const FString Type = ReadIdentifier(Field->property("metadata:ciAttributeType"));
+                if (Id.IsEmpty() || CIInventoryRowData::DisplayValue(Card->Read(*Field)).IsEmpty())
+                {
+                    continue;
+                }
+                if (Type == TEXT("offensive"))
+                {
+                    OffensiveAttributes.AddUnique(Id);
+                }
+                else if (Type == TEXT("defensive"))
+                {
+                    DefensiveAttributes.AddUnique(Id);
+                }
+                else if (Type == TEXT("utility"))
+                {
+                    UtilityAttributes.AddUnique(Id);
+                }
+                const auto Meter = Field->property("metadata:ciMeterMillionths");
+                if (const auto* Millionths = std::get_if<std::int64_t>(&Meter.data); Millionths && *Millionths == 1000000)
+                {
+                    MaximumAttributes.AddUnique(Id);
+                }
+            }
+        };
+        if (PresentationKind != TEXT("gear"))
+        {
+            AddInspectorAttributes("primary");
+        }
+        AddInspectorAttributes("modifiers");
     }
 }
 

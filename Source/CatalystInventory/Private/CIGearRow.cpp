@@ -4,6 +4,7 @@
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/SOverlay.h"
+#include "Widgets/SNullWidget.h"
 #include "Widgets/Text/STextBlock.h"
 
 #define LOCTEXT_NAMESPACE "CatalystInventoryGear"
@@ -41,7 +42,7 @@ void UCIGearRow::BindItem(const FCFMagritteBinding& Item)
     const bool bGear = PresentationKind == TEXT("gear");
     SetVisibility(bGear ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     Manufacturer = CIInventoryRowData::Manufacturer(Item);
-    Armour = CIInventoryRowData::Read(Item, "inspectorArmour");
+    GearSlot = FName(*CIInventoryRowData::Read(Item, "gearSlotIdentifier").ToString());
     Attribute.Reset();
     bJunk = false;
     bFavorite = false;
@@ -97,8 +98,13 @@ void UCIGearRow::BindItem(const FCFMagritteBinding& Item)
                     Result.Value = CIInventoryRowData::DisplayValue(PrimaryCard->Read(*Field));
                     if (!Result.Label.IsEmpty() && !Result.Value.IsEmpty())
                     {
-                        Result.Id = UTF8_TO_TCHAR(Field->id.c_str());
+                        Result.Id = Result.Label.ToString();
                         Result.Type = ReadIdentifier(Field->property("metadata:ciAttributeType"));
+                        const auto Meter = Field->property("metadata:ciMeterMillionths");
+                        if (const auto* Millionths = std::get_if<std::int64_t>(&Meter.data))
+                        {
+                            Result.bMaximum = *Millionths == 1000000;
+                        }
                         Attribute.Emplace(MoveTemp(Result));
                         break;
                     }
@@ -118,14 +124,35 @@ void UCIGearRow::RefreshDetails()
 
     const auto& Style = GetGearTheme();
     Title->ClearChildren();
-    FText Subtitle = Manufacturer;
-    if (!Armour.IsEmpty())
+    const FName Slot = GearSlot.IsNone() ? FallbackIconIdentifier : GearSlot;
+    auto* SlotArt = Style.GearSlotIcons.FindRef(Slot.ToString()).Get();
+    if (!SlotArt && Slot == TEXT("Chest"))
     {
-        const FText Contribution = LOCTEXT("ArmourContribution", "{0} Armour");
-        Subtitle = Manufacturer.IsEmpty() ? FText::Format(Contribution, Armour)
-            : FText::Format(LOCTEXT("ManufacturerAndArmour", "{0} · {1}"), Manufacturer,
-                FText::Format(Contribution, Armour));
+        SlotArt = Icon;
     }
+    const int32* SlotGlyph = Style.SlotIconGlyphs.Find(Slot);
+    auto SlotFont = Style.SlotIconFont;
+    SlotFont.Size = 16.f;
+    TSharedRef<SWidget> SlotWidget = SNullWidget::NullWidget;
+    if (!Slot.IsNone())
+    {
+        if (SlotArt || !SlotGlyph)
+        {
+            SlotWidget = MakeIcon(SlotArt, FText::FromString(TEXT("◇")), FText::FromName(Slot), Style.BadgeSize);
+        }
+        else
+        {
+            SlotWidget = SNew(STextBlock).Text(FText::AsCultureInvariant(FString::Chr(*SlotGlyph)))
+                .Font(SlotFont).ColorAndOpacity(Style.TextTint);
+        }
+    }
+    Title->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, Style.MarkerGap, 0.f)
+    [
+        SNew(SBox).WidthOverride(Style.PrimaryMarkerSize).HAlign(HAlign_Center)
+        [
+            SlotWidget
+        ]
+    ];
     Title->AddSlot().FillWidth(1.f).VAlign(VAlign_Center)
     [
         SNew(SVerticalBox)
@@ -133,19 +160,20 @@ void UCIGearRow::RefreshDetails()
         [SNew(STextBlock).Text(Label).Font(Style.LabelFont).ColorAndOpacity(Style.TextTint)
             .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Label)]
         + SVerticalBox::Slot().AutoHeight()
-        [SNew(STextBlock).Text(Subtitle).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
+        [SNew(STextBlock).Text(Manufacturer).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
             .OverflowPolicy(ETextOverflowPolicy::Ellipsis)
-            .Visibility(Subtitle.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible)]
+            .Visibility(Manufacturer.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible)]
     ];
 
     Primary->ClearChildren();
     if (Attribute)
     {
         const auto& MarkerStyle = GetEquipmentTheme();
-
+        const TCHAR* Glyph = TEXT("◆");
         FLinearColor Tint = Style.TextTint;
         if (Attribute->Type == TEXT("offensive"))
         {
+            Glyph = TEXT("●");
             Tint = MarkerStyle.Offensive;
         }
         else if (Attribute->Type == TEXT("defensive"))
@@ -154,13 +182,10 @@ void UCIGearRow::RefreshDetails()
         }
         else if (Attribute->Type == TEXT("utility"))
         {
+            Glyph = TEXT("▲");
             Tint = MarkerStyle.Utility;
         }
-        if (Tint != Style.TextTint)
-        {
-            AddMarker(*Primary, Attribute->Id, TEXT("●"), (Tint * .6f).CopyWithNewOpacity(.65f),
-                true, Attribute->bMaximum, 15.f);
-        }
+        AddMarker(*Primary, Attribute->Id, Glyph, Tint, true, Attribute->bMaximum, Style.PrimaryMarkerSize);
         Primary->AddSlot().FillWidth(1.f).VAlign(VAlign_Center)
         [
             SNew(SVerticalBox)
@@ -168,7 +193,7 @@ void UCIGearRow::RefreshDetails()
             [SNew(STextBlock).Text(Attribute->Label).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
                 .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Attribute->Label)]
             + SVerticalBox::Slot().AutoHeight()
-            [SNew(STextBlock).Text(Attribute->Value).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
+            [SNew(STextBlock).Text(Attribute->Value).Font(Style.CountFont).ColorAndOpacity(Style.PrimaryValueTint)
                 .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Attribute->Value)]
         ];
     }

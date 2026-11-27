@@ -85,7 +85,7 @@ Update the comparison item when selection changes and clear it when the
 list has no selection. The widget matches numeric stats by Catalyst
 identifier. Higher and lower values have distinct tints and arrows.
 Equal or unavailable comparisons keep the normal value style. When the binding
-supplies an inspector instead, the row displays its `stats` card and uses
+supplies an inspector instead, the row displays its compact stats and uses
 `inspectorConsumableIcon` for cartridge or fuel. Gadget rows also read the
 current Utility Tier from the inspector.
 
@@ -100,8 +100,8 @@ proficiency and talent art locally.
 Use `CIGearRow` for an individual gear item. It uses the same Equipment Row
 layout and Inventory tier band as tool and weapon rows. `CIGearRowTheme`
 resolves local brand, gear-slot, talent and junk art. The gear summary supplies
-the manufacturer, armour contribution, optional core attribute, required
-player level and item state. The row can read the core attribute from the
+the manufacturer, optional core attribute, required player level and item
+state. The row can read the core attribute from the
 inspector's `primary` card. The primary attribute specifies its identifier, display name, type,
 numeric value, format and maximum state. Use a fractional value for
 `signedPercent` (for example, 0.15 displays as +15%). Secondary attribute and
@@ -128,4 +128,5 @@ The apparel row theme uses the equipment row's visual defaults with a shorter
 layout. The view resolves preview art by definition identifier.
 
 The slot picker accepts a thumbnail from the host and can use a theme glyph
-when item artwork is unavailable.
+when item artwork is unavailable. Equipment picker rows use their dedicated
+row styles and the available width to the left of the character.

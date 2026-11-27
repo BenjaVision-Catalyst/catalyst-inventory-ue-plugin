@@ -84,6 +84,8 @@ protected:
     virtual void ReleaseSlateResources(bool bReleaseChildren) override;
 
     const UCIEquipmentTileTheme& GetEquipmentTheme() const;
+    TArray<FString> OffensiveAttributes, DefensiveAttributes, UtilityAttributes;
+
     virtual bool IsRowPresentation() const { return false; }
     virtual float GetMarkerLeftInset() const { return GetInventoryTheme().Spacing; }
     void PopulateAttributes(SHorizontalBox& Box, const TArray<FString>& MaximumAttributes,
@@ -99,7 +101,7 @@ private:
 
     TSharedPtr<class SHorizontalBox> Markers;
     TArray<TPair<FString, FString>> ModSlots;
-    TArray<FString> OffensiveAttributes, DefensiveAttributes, UtilityAttributes;
+
     FString BrandId, TalentId;
     FSlateBrush BrandBrush, TalentBrush;
 };

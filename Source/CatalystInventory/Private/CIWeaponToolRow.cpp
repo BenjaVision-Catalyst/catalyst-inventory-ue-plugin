@@ -34,10 +34,9 @@ void UCIWeaponToolRow::BindItem(const FCFMagritteBinding& Item)
     const bool bSupported = IsToolRowKind(PresentationKind);
     SetVisibility(bSupported ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     Stats.Reset();
+    UtilityTier = FText::GetEmpty();
     Consumable = CIInventoryRowData::Read(Item, "consumableTypeIdentifier").ToString();
     ConsumableIcon = CIInventoryRowData::Read(Item, "inspectorConsumableIcon").ToString();
-    Manufacturer = CIInventoryRowData::Manufacturer(Item);
-    UtilityTier = FText::GetEmpty();
     if (bSupported)
     {
         Stats = ReadStats(Item);
@@ -101,7 +100,18 @@ TArray<UCIWeaponToolRow::FStat> UCIWeaponToolRow::ReadStats(const FCFMagritteBin
                 Display.RemoveFromEnd(TEXT(" rounds"));
                 if (!Label.IsEmpty() && !Display.IsEmpty())
                 {
-                    Result.Add({Label.ToString(), Label, {}, FText::FromString(Display)});
+                    const FString Id = Label.ToString();
+                    if (Id == TEXT("Optimal Range") || Id == TEXT("Reload time"))
+                    {
+                        continue;
+                    }
+                    TOptional<double> Value;
+                    double Number;
+                    if (Display.IsNumeric() && LexTryParseString(Number, *Display))
+                    {
+                        Value = Number;
+                    }
+                    Result.Add({Id, Label, Value, FText::FromString(Display)});
                 }
             }
         }
@@ -125,17 +135,10 @@ void UCIWeaponToolRow::RefreshDetails()
 
     const auto& Style = GetWeaponToolTheme();
     Title->ClearChildren();
-    FText Subtitle = Manufacturer;
-    if (!UtilityTier.IsEmpty())
-    {
-        const FText Tier = FText::Format(LOCTEXT("UtilityTierValue", "Utility Tier {0}"), UtilityTier);
-        Subtitle = Manufacturer.IsEmpty() ? Tier
-            : FText::Format(LOCTEXT("ManufacturerAndTier", "{0} · {1}"), Manufacturer, Tier);
-    }
     if (ConsumableIcon == TEXT("cartridge") || ConsumableIcon == TEXT("fuel"))
     {
         Title->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, Style.ContentInset, 0)
-        [SNew(SCIInspectorConsumableIcon).Tint(Style.TextTint).Fuel(ConsumableIcon == TEXT("fuel"))];
+        [SNew(SCIInspectorConsumableIcon).Tint(FLinearColor(1.f, .75f, .02f)).Fuel(ConsumableIcon == TEXT("fuel"))];
     }
     else if (!Consumable.IsEmpty())
     {
@@ -145,15 +148,17 @@ void UCIWeaponToolRow::RefreshDetails()
     }
     Title->AddSlot().FillWidth(1.f).VAlign(VAlign_Center)
     [
-        SNew(SVerticalBox)
-        + SVerticalBox::Slot().AutoHeight()
-        [SNew(STextBlock).Text(Label).Font(Style.LabelFont).ColorAndOpacity(Style.TextTint)
-            .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Label)]
-        + SVerticalBox::Slot().AutoHeight()
-        [SNew(STextBlock).Text(Subtitle).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
-            .OverflowPolicy(ETextOverflowPolicy::Ellipsis)
-            .Visibility(Subtitle.IsEmpty() ? EVisibility::Collapsed : EVisibility::HitTestInvisible)]
+        SNew(STextBlock).Text(Label).Font(Style.LabelFont).ColorAndOpacity(Style.TextTint)
+        .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Label)
     ];
+    if (!UtilityTier.IsEmpty())
+    {
+        Title->AddSlot().AutoWidth().VAlign(VAlign_Center)
+        [
+            SNew(STextBlock).Text(FText::Format(LOCTEXT("UtilityTierValue", "Utility Tier {0}"), UtilityTier))
+            .Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
+        ];
+    }
 
     PopulateRowIndicators(*Indicators);
     RefreshStats();
@@ -189,7 +194,7 @@ void UCIWeaponToolRow::RefreshStats()
                 [
                     SNew(SVerticalBox)
                     + SVerticalBox::Slot().AutoHeight()
-                    [SNew(STextBlock).Text(Stat.Label).Font(Style.StatLabelFont).ColorAndOpacity(Style.TextTint)]
+                    [SNew(STextBlock).Text(Stat.Label.ToUpper()).Font(Style.StatLabelFont).ColorAndOpacity(Style.TextTint)]
                     + SVerticalBox::Slot().AutoHeight()
                     [SNew(STextBlock).Text(Display).Font(Style.CountFont).ColorAndOpacity(Tint)]
                 ]

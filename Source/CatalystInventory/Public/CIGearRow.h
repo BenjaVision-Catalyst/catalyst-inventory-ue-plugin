@@ -59,7 +59,7 @@ private:
     TSharedPtr<class STextBlock> FavoriteIndicator;
     TOptional<FPrimaryAttribute> Attribute;
     FText Manufacturer;
-    FText Armour;
+    FName GearSlot;
     bool bJunk = false;
     bool bFavorite = false;
 };
