@@ -1,5 +1,6 @@
 #include "CIInventoryShell.h"
 
+#include "CIInspectorIdentityTile.h"
 #include "CIInventoryNavigation.h"
 #include "CIInventorySavedSetRows.h"
 #include "CIInventoryTile.h"
@@ -171,49 +172,6 @@ private:
     float Height = 64.f;
     float Thickness = 1.5f;
     FInspectorStrokeSink Sink;
-};
-
-class SCIInspectorConsumableIcon final : public SLeafWidget
-{
-public:
-    SLATE_BEGIN_ARGS(SCIInspectorConsumableIcon) : _Fuel(false) {}
-        SLATE_ARGUMENT(FLinearColor, Tint)
-        SLATE_ARGUMENT(bool, Fuel)
-    SLATE_END_ARGS()
-
-    void Construct(const FArguments& Args)
-    {
-        Tint = Args._Tint;
-        bFuel = Args._Fuel;
-    }
-
-    FVector2D ComputeDesiredSize(float) const override { return {14.0, 16.0}; }
-
-    int32 OnPaint(const FPaintArgs&, const FGeometry& Geometry, const FSlateRect&,
-        FSlateWindowElementList& Elements, int32 Layer, const FWidgetStyle&, bool) const override
-    {
-        const auto Paint = [&](const TArray<FVector2D>& Points)
-        {
-            FSlateDrawElement::MakeLines(Elements, Layer, Geometry.ToPaintGeometry(), Points,
-                ESlateDrawEffect::NoPixelSnapping, Tint, true, 1.25f);
-        };
-        if (bFuel)
-        {
-            Paint({{3, 5}, {5, 5}, {5, 2}, {9, 2}, {9, 5}, {11, 5}, {11, 14}, {3, 14}, {3, 5}});
-            Paint({{5, 8}, {9, 12}});
-        }
-        else
-        {
-            Paint({{4, 14}, {4, 6}, {7, 2}, {10, 6}, {10, 14}, {4, 14}});
-            Paint({{4, 7}, {10, 7}});
-            Paint({{4, 12}, {10, 12}});
-        }
-        return Layer;
-    }
-
-private:
-    FLinearColor Tint = FLinearColor::White;
-    bool bFuel = false;
 };
 
 class SCIProjectedBlur : public SBackgroundBlur
@@ -1846,25 +1804,16 @@ private:
         if (bContentChanged)
         {
             InspectorBrush = FSlateRoundedBoxBrush(Theme->Style.Background, 0.f, Theme->Style.Border, Theme->Style.Stroke);
-            auto Identity = SNew(SVerticalBox);
-            Identity->AddSlot().AutoHeight()[InspectorText(Tile->GetItemLabel(), Theme->InspectorTitleFont, true)];
-            auto Header = SNew(SHorizontalBox);
-            if (auto* Icon = Tile->GetInspectorIcon())
-            {
-                InspectorIconBrush.DrawAs = ESlateBrushDrawType::Image;
-                InspectorIconBrush.SetResourceObject(Icon);
-                Header->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 8.f, 0.f)
-                [
-                    SNew(SBox).WidthOverride(Theme->IconSize).HeightOverride(Theme->IconSize)
-                    [SNew(SImage).Image(&InspectorIconBrush)]
-                ];
-            }
-            Header->AddSlot().FillWidth(1.f)[Identity];
+            auto Identity = TStrongObjectPtr<UCIInspectorIdentityTile>(NewObject<UCIInspectorIdentityTile>());
+            Identity->Theme = Theme->CreateProjectedSurfaceTheme(Identity.Get());
+            Identity->InitializeFrom(*Tile);
+            InspectorHeader = Identity->TakeWidget();
+            InspectorIdentityTile = MoveTemp(Identity);
+
             auto Content = SNew(SVerticalBox);
             if (Item)
             {
                 bool bWeapon = false;
-                FText Manufacturer, Category, Armour, Consumable, ConsumableIcon;
                 for (const auto& Field : Item->Describe().orderedChildren())
                 {
                     if (Field->id == "presentationKind")
@@ -1872,62 +1821,8 @@ private:
                         const auto Kind = Item->Read(*Field);
                         const auto* Name = std::get_if<std::string>(&Kind.data);
                         bWeapon = Name && *Name == "weapon";
+                        break;
                     }
-                    else if (Field->id == "inspectorManufacturer")
-                    {
-                        Manufacturer = InspectorValue(Item->Read(*Field));
-                    }
-                    else if (Field->id == "inspectorCategory")
-                    {
-                        Category = InspectorValue(Item->Read(*Field));
-                    }
-                    else if (Field->id == "inspectorArmour")
-                    {
-                        Armour = InspectorValue(Item->Read(*Field));
-                    }
-                    else if (Field->id == "inspectorConsumable")
-                    {
-                        Consumable = InspectorValue(Item->Read(*Field));
-                    }
-                    else if (Field->id == "inspectorConsumableIcon")
-                    {
-                        ConsumableIcon = InspectorValue(Item->Read(*Field));
-                    }
-                }
-                if (!Manufacturer.IsEmpty())
-                {
-                    Identity->AddSlot().AutoHeight()
-                    [
-                        SNew(STextBlock).Text(Manufacturer).Font(Theme->GroupLabelFont)
-                        .ColorAndOpacity(FSlateColor(Theme->GroupLabelTint)).AutoWrapText(true)
-                    ];
-                }
-                if (!Armour.IsEmpty())
-                {
-                    const FText ArmourLine = FText::Format(NSLOCTEXT("Inventory", "InspectorArmour", "{0} Armour"), Armour);
-                    Identity->AddSlot().AutoHeight()[InspectorText(ArmourLine, Theme->GroupLabelFont, true)];
-                }
-                if (!Category.IsEmpty() || !Consumable.IsEmpty())
-                {
-                    auto TypeLine = SNew(SHorizontalBox);
-                    if (!Category.IsEmpty())
-                    {
-                        TypeLine->AddSlot().AutoWidth().VAlign(VAlign_Center)[InspectorText(Category, Theme->LabelFont)];
-                    }
-                    const FString Icon = ConsumableIcon.ToString();
-                    if (Icon == TEXT("cartridge") || Icon == TEXT("fuel"))
-                    {
-                        TypeLine->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(5.f, 0.f)
-                        [
-                            SNew(SCIInspectorConsumableIcon).Tint(Theme->TextTint).Fuel(Icon == TEXT("fuel"))
-                        ];
-                    }
-                    if (!Consumable.IsEmpty())
-                    {
-                        TypeLine->AddSlot().FillWidth(1.f).VAlign(VAlign_Center)
-                        [InspectorText(Consumable, Theme->LabelFont, true)];
-                    }
-                    Identity->AddSlot().AutoHeight()[TypeLine];
                 }
                 if (const auto Inspector = Item->Follow("inspector"))
                 {
@@ -1969,9 +1864,7 @@ private:
                     SNew(SVerticalBox)
                     + SVerticalBox::Slot().AutoHeight()
                     [
-                        SAssignNew(InspectorHeader, SBorder)
-                        .BorderImage(&InspectorBrush).Padding(8.f)
-                        [Header]
+                        InspectorHeader.ToSharedRef()
                     ]
                     + SVerticalBox::Slot().FillHeight(1.f)
                     [
@@ -2507,10 +2400,10 @@ private:
     TWeakObjectPtr<const UCIInventoryTile> InspectorTile;
     TOptional<FCFMagritteBinding> InspectorItem;
     TSharedPtr<SScrollBox> InspectorScroll;
-    TSharedPtr<SBorder> InspectorHeader;
+    TStrongObjectPtr<UCIInspectorIdentityTile> InspectorIdentityTile;
+    TSharedPtr<SWidget> InspectorHeader;
     float InspectorScrollRate = 0.f;
     bool bInspectorScrollDirty = false;
-    FSlateBrush InspectorIconBrush;
     TStrongObjectPtr<UTextureRenderTarget2D> InspectorTexture;
     TArray<FInspectorStroke> InspectorStrokes;
     TWeakObjectPtr<const UCIInventoryTileTheme> InspectorTheme;
