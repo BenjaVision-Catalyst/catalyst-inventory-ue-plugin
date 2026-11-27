@@ -469,6 +469,13 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
     const char* Damage[] = {"52.8", "34.0", "28.0"};
     const int32 AttachmentCount[] = {0, 2, 3};
     const int64 Accuracy[] = {0, 72, 82};
+    const int64 DamageRollFill[] = {666667, 416667, 800000};
+    const auto ReadMeterFill = [](const magritte::Description& Field)
+    {
+        const auto Value = Field.property("metadata:ciMeterMillionths");
+        const auto* Millionths = std::get_if<std::int64_t>(&Value.data);
+        return Millionths ? *Millionths : std::int64_t(-1);
+    };
     for (int32 Index = 0; Index < Weapons.Num(); ++Index)
     {
         const auto Inspector = Weapons[Index].Follow("inspector");
@@ -500,7 +507,11 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
             TestTrue(TEXT("The curve shows the catalog's retained damage"), Retained && *Retained == (Index == 1 ? 55 : 65));
         }
         const auto Attachments = Inspector->Follow(Inspector->ObjectId() + ":slots:section");
-        TestTrue(TEXT("The owned weapon exposes its core roll"), Core.IsSet());
+        if (TestTrue(TEXT("The owned weapon exposes its core roll"), Core && !Core->Describe().children.empty()))
+        {
+            TestEqual(TEXT("The weapon damage meter uses the catalog roll maximum"),
+                ReadMeterFill(*Core->Describe().children.front()), DamageRollFill[Index]);
+        }
         TestEqual(TEXT("The attachment card uses the type's sockets"),
             Attachments ? int32(Attachments->Describe().children.size()) : 0, AttachmentCount[Index]);
         TestEqual(TEXT("Only ranged weapons have accuracy and stability"),
@@ -520,6 +531,23 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
             const auto Value = Handling->Read(*Handling->Describe().children.front());
             const auto* Amount = std::get_if<std::int64_t>(&Value.data);
             TestTrue(TEXT("Handling is a numeric value suitable for a meter"), Amount && *Amount == Accuracy[Index]);
+        }
+    }
+    for (const auto& Card : Gear->Related("equippedGear", 6))
+    {
+        const auto Inspector = Card.Follow("inspector");
+        if (Inspector && Inspector->ObjectId() == "item:pack-fixture:inspector")
+        {
+            const auto Core = Inspector->Follow(Inspector->ObjectId() + ":primary:section");
+            const auto Rolls = Inspector->Follow(Inspector->ObjectId() + ":modifiers:section");
+            if (TestTrue(TEXT("The pack has core and rolled attributes"), Core && Rolls
+                && Core->Describe().children.size() == 1 && Rolls->Describe().children.size() == 2))
+            {
+                TestEqual(TEXT("80 armor fills 80% of the 100 armor track"),
+                    ReadMeterFill(*Core->Describe().children.front()), int64(800000));
+                TestEqual(TEXT("8% hazard resistance fills two thirds of its 12% track"),
+                    ReadMeterFill(*Rolls->Describe().children.front()), int64(666667));
+            }
         }
     }
     if (FApp::CanEverRender())
@@ -542,8 +570,8 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         Widget->Tick(Geometry, .2, .2f);
         TestEqual(TEXT("The carbine is focused"), Shell->GetInspectorLabelForTest().ToString(),
             FString(TEXT("Pathfinder Carbine")));
-        TestEqual(TEXT("Draw two handling tracks and fills, two plot rules, and one curve"),
-            Shell->GetInspectorStrokeCountForTest(), 7);
+        TestEqual(TEXT("Draw three attribute and handling meters, two plot rules, and one curve"),
+            Shell->GetInspectorStrokeCountForTest(), 9);
     }
     return true;
 }

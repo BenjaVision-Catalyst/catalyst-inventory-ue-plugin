@@ -1581,38 +1581,41 @@ private:
             }
 
             const auto Data = Section.Read(*Row);
-            if (bMeters)
+            const auto Value = InspectorValue(Data);
+            const auto Meter = Row->property("metadata:ciMeterMillionths");
+            const auto* Millionths = std::get_if<std::int64_t>(&Meter.data);
+            const auto* Percent = std::get_if<std::int64_t>(&Data.data);
+            const bool bHandlingMeter = bMeters && Percent && *Percent >= 0 && *Percent <= 100;
+            if (Millionths || bHandlingMeter)
             {
-                if (const auto* Percent = std::get_if<std::int64_t>(&Data.data);
-                    Percent && *Percent >= 0 && *Percent <= 100)
-                {
-                    const float Fraction = static_cast<float>(*Percent) / 100.f;
-                    Content->AddSlot().AutoHeight().Padding(0.f, 3.f)
+                const float Fraction = Millionths
+                    ? FMath::Clamp(static_cast<float>(*Millionths) / 1000000.f, 0.f, 1.f)
+                    : static_cast<float>(*Percent) / 100.f;
+                const FText MeterValue = bHandlingMeter ? FText::AsPercent(Fraction) : Value;
+                Content->AddSlot().AutoHeight().Padding(0.f, 3.f)
+                [
+                    SNew(SVerticalBox)
+                    + SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 3.f)
                     [
-                        SNew(SVerticalBox)
-                        + SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 3.f)
-                        [
-                            SNew(SHorizontalBox)
-                            + SHorizontalBox::Slot().FillWidth(1.f)
-                            [InspectorText(Label, Theme->LabelFont, true)]
-                            + SHorizontalBox::Slot().AutoWidth()
-                            [InspectorText(FText::AsPercent(Fraction), Theme->LabelFont)]
-                        ]
-                        + SVerticalBox::Slot().AutoHeight()
-                        [
-                            SNew(SCIInspectorLines)
-                            .Tracks(TArray<TArray<FVector2D>>{{{0.0, .5}, {1.0, .5}}})
-                            .Stroke(TArray<FVector2D>{{0.0, .5}, {Fraction, .5}})
-                            .Tint(Theme->TextTint)
-                            .Height(5.f)
-                            .Thickness(2.5f)
-                            .Sink(InspectorStrokeSink())
-                        ]
-                    ];
-                }
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot().FillWidth(1.f)
+                        [InspectorText(Label, Theme->LabelFont, true)]
+                        + SHorizontalBox::Slot().AutoWidth()
+                        [InspectorText(MeterValue, Theme->LabelFont)]
+                    ]
+                    + SVerticalBox::Slot().AutoHeight()
+                    [
+                        SNew(SCIInspectorLines)
+                        .Tracks(TArray<TArray<FVector2D>>{{{0.0, .5}, {1.0, .5}}})
+                        .Stroke(Fraction > 0.f ? TArray<FVector2D>{{0.0, .5}, {Fraction, .5}} : TArray<FVector2D>{})
+                        .Tint(Theme->TextTint)
+                        .Height(5.f)
+                        .Thickness(2.5f)
+                        .Sink(InspectorStrokeSink())
+                    ]
+                ];
                 continue;
             }
-            const auto Value = InspectorValue(Data);
             TSharedPtr<SWidget> ValueWidget;
             if (bControls)
             {
