@@ -201,6 +201,6 @@ private:
     FText ItemLabel;
     FName EmptySlotIdentifier;
     FString DefinitionIdentifier;
-    int64 InventoryStorageCapacity = 0;
+    TOptional<int64> InventoryStorageCapacity;
     FSlateBrush IconBrush;
 };

@@ -84,7 +84,7 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
     bShowCount = false;
     Count = 0;
     InventoryTypeCount = 0;
-    InventoryStorageCapacity = 0;
+    InventoryStorageCapacity.Reset();
     for (const auto& Field : Item.Describe().orderedChildren())
     {
         const auto Value = Item.Read(*Field);
@@ -130,9 +130,9 @@ void UCIInventoryTile::BindItem(const FCFMagritteBinding& Item)
                 InventoryTypeCount = *Quantity;
             }
         }
-        else if (Field->id == "storageCapacity")
+        else if (Field->id == "storageCapacity" || Field->id == "modStorageAllowance")
         {
-            if (const auto* Capacity = std::get_if<std::int64_t>(&Value.data); Capacity && *Capacity > 0)
+            if (const auto* Capacity = std::get_if<std::int64_t>(&Value.data); Capacity && *Capacity >= 0)
             {
                 InventoryStorageCapacity = *Capacity;
             }
@@ -257,10 +257,10 @@ TSharedRef<SWidget> UCIInventoryTile::BuildInventoryContent()
             [
                 SNew(STextBlock).Tag(TEXT("InventoryTileTypeCount"))
                 .Text_Lambda([this] {
-                    if (InventoryStorageCapacity > 0)
+                    if (InventoryStorageCapacity.IsSet())
                     {
                         return FText::Format(NSLOCTEXT("CatalystInventory", "StorageUsage", "{0}/{1}"),
-                            FText::AsNumber(InventoryTypeCount), FText::AsNumber(InventoryStorageCapacity));
+                            FText::AsNumber(InventoryTypeCount), FText::AsNumber(*InventoryStorageCapacity));
                     }
                     return InventoryTypeCount > 0 && ShowsTypeCount() ? FText::AsNumber(InventoryTypeCount) : FText::GetEmpty();
                 })
@@ -268,7 +268,7 @@ TSharedRef<SWidget> UCIInventoryTile::BuildInventoryContent()
                 .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
                 .ToolTipText(NSLOCTEXT("CatalystInventory", "TypeCount", "Items of this type in Inventory"))
                 .Visibility_Lambda([this] {
-                    return ShowsTypeCount() && (InventoryTypeCount > 0 || InventoryStorageCapacity > 0)
+                    return ShowsTypeCount() && (InventoryTypeCount > 0 || InventoryStorageCapacity.IsSet())
                         ? EVisibility::HitTestInvisible : EVisibility::Collapsed;
                 })
             ]
