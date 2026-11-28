@@ -191,17 +191,21 @@ void UCIEquipmentRow::BindItem(const FCFMagritteBinding& Item)
     AddInspectorAttributes("modifiers");
 }
 
-void UCIEquipmentRow::PopulateRowIndicators(SHorizontalBox& Box, const FString& ExcludedAttribute)
+void UCIEquipmentRow::PopulateRowIndicators(SHorizontalBox& Box, const FString& CoreAttribute, FStringView CoreAttributeType)
 {
     const auto& Style = GetRowTheme();
     Box.ClearChildren();
+    if (!CoreAttribute.IsEmpty())
+    {
+        AddAttributeMarker(Box, CoreAttribute, CoreAttributeType);
+    }
     if (InspectorAttributes.IsEmpty())
     {
-        PopulateAttributes(Box, MaximumAttributes, ExcludedAttribute);
+        PopulateAttributes(Box, MaximumAttributes, CoreAttribute);
     }
     for (const auto& Attribute : InspectorAttributes)
     {
-        if (Attribute.Id != ExcludedAttribute)
+        if (Attribute.Id != CoreAttribute)
         {
             AddAttributeMarker(Box, Attribute.Id, Attribute.Type, MaximumAttributes.Contains(Attribute.Id));
         }

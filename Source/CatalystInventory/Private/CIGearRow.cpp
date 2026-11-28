@@ -42,6 +42,7 @@ void UCIGearRow::BindItem(const FCFMagritteBinding& Item)
     const bool bGear = PresentationKind == TEXT("gear");
     SetVisibility(bGear ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     Manufacturer = CIInventoryRowData::Manufacturer(Item);
+    BaseArmour = CIInventoryRowData::Read(Item, "inspectorArmour");
     GearSlot = FName(*CIInventoryRowData::Read(Item, "gearSlotIdentifier").ToString());
     Attribute.Reset();
     bJunk = false;
@@ -56,34 +57,10 @@ void UCIGearRow::BindItem(const FCFMagritteBinding& Item)
         if (const auto PrimaryBinding = Item.Follow("primaryAttribute"))
         {
             FPrimaryAttribute Result;
-            FString Format;
-            TOptional<double> Amount;
-            for (const auto& Field : PrimaryBinding->Describe().orderedChildren())
+            Result.Id = CIInventoryRowData::Read(*PrimaryBinding, "attributeIdentifier").ToString();
+            Result.Type = CIInventoryRowData::Read(*PrimaryBinding, "attributeType").ToString();
+            if (!Result.Id.IsEmpty() && !Result.Type.IsEmpty())
             {
-                const auto Value = PrimaryBinding->Read(*Field);
-                if (Field->id == "attributeIdentifier") { Result.Id = ReadIdentifier(Value); }
-                else if (Field->id == "displayName") { Result.Label = FText::FromString(ReadIdentifier(Value)); }
-                else if (Field->id == "attributeType") { Result.Type = ReadIdentifier(Value); }
-                else if (Field->id == "valueFormat") { Format = ReadIdentifier(Value); }
-                else if (Field->id == "isMaximum") { Result.bMaximum = ReadFlag(Value); }
-                else if (Field->id == "value")
-                {
-                    if (const auto* Real = std::get_if<double>(&Value.data); Real && FMath::IsFinite(*Real))
-                    {
-                        Amount = *Real;
-                    }
-                    else if (const auto* Integer = std::get_if<std::int64_t>(&Value.data))
-                    {
-                        Amount = static_cast<double>(*Integer);
-                    }
-                }
-            }
-            if (Amount && !Result.Id.IsEmpty() && !Result.Label.IsEmpty())
-            {
-                FNumberFormattingOptions Options;
-                Options.SetAlwaysSign(Format == TEXT("signedNumber") || Format == TEXT("signedPercent"));
-                Result.Value = Format == TEXT("signedPercent") ? FText::AsPercent(*Amount, &Options)
-                    : FText::AsNumber(*Amount, &Options);
                 Attribute.Emplace(MoveTemp(Result));
             }
         }
@@ -94,17 +71,11 @@ void UCIGearRow::BindItem(const FCFMagritteBinding& Item)
                 for (const auto& Field : PrimaryCard->Describe().orderedChildren())
                 {
                     FPrimaryAttribute Result;
-                    Result.Label = CIInventoryRowData::DisplayValue(Field->property("label"));
-                    Result.Value = CIInventoryRowData::DisplayValue(PrimaryCard->Read(*Field));
-                    if (!Result.Label.IsEmpty() && !Result.Value.IsEmpty())
+                    Result.Id = ReadIdentifier(Field->property("label"));
+                    Result.Type = ReadIdentifier(Field->property("metadata:ciAttributeType"));
+                    if (!Result.Id.IsEmpty() && !Result.Type.IsEmpty()
+                        && !CIInventoryRowData::DisplayValue(PrimaryCard->Read(*Field)).IsEmpty())
                     {
-                        Result.Id = Result.Label.ToString();
-                        Result.Type = ReadIdentifier(Field->property("metadata:ciAttributeType"));
-                        const auto Meter = Field->property("metadata:ciMeterMillionths");
-                        if (const auto* Millionths = std::get_if<std::int64_t>(&Meter.data))
-                        {
-                            Result.bMaximum = *Millionths == 1000000;
-                        }
                         Attribute.Emplace(MoveTemp(Result));
                         break;
                     }
@@ -168,28 +139,18 @@ void UCIGearRow::RefreshDetails()
     ];
 
     Primary->ClearChildren();
-    if (Attribute)
-    {
-        AddAttributeMarker(*Primary, Attribute->Id, Attribute->Type, Attribute->bMaximum, Style.PrimaryMarkerSize);
-        const FString AttributeName = Attribute->Label.ToString();
-        const bool bArmour = Attribute->Id.Equals(TEXT("armor"), ESearchCase::IgnoreCase)
-            || Attribute->Id.Equals(TEXT("armour"), ESearchCase::IgnoreCase)
-            || AttributeName.Equals(TEXT("armor"), ESearchCase::IgnoreCase)
-            || AttributeName.Equals(TEXT("armour"), ESearchCase::IgnoreCase);
-        const FText AttributeLabel = CIInventoryRowData::NormalizeLabel(Attribute->Label);
-        const FText StatLabel = bArmour ? LOCTEXT("ArmourAbbreviation", "ARM") : AttributeLabel;
-        Primary->AddSlot().FillWidth(1.f).HAlign(HAlign_Left).VAlign(VAlign_Center)
-        [
-            SNew(SVerticalBox)
-            + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.f, 0.f, 0.f, -2.f)
-            [SNew(STextBlock).Text(StatLabel).Font(Style.StatLabelFont).ColorAndOpacity(Style.TextTint)
-                .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(AttributeLabel)]
-            + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
-            [SNew(STextBlock).Text(Attribute->Value).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)
-                .OverflowPolicy(ETextOverflowPolicy::Ellipsis).ToolTipText(Attribute->Value)]
-        ];
-    }
-    PopulateRowIndicators(*Indicators, Attribute ? Attribute->Id : FString());
+    const FText ArmourValue = BaseArmour.IsEmpty() ? LOCTEXT("MissingArmour", "—") : BaseArmour;
+    Primary->AddSlot().AutoWidth().VAlign(VAlign_Center)
+    [
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.f, 0.f, 0.f, -2.f)
+        [SNew(STextBlock).Text(LOCTEXT("ArmourAbbreviation", "ARM")).Font(Style.StatLabelFont)
+            .ColorAndOpacity(Style.TextTint).ToolTipText(LOCTEXT("BaseArmour", "Base armour"))]
+        + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+        [SNew(STextBlock).Text(ArmourValue).Font(Style.CountFont).ColorAndOpacity(Style.TextTint)]
+    ];
+    PopulateRowIndicators(*Indicators, Attribute ? Attribute->Id : FString(),
+        Attribute ? FStringView(Attribute->Type) : FStringView());
     if (FavoriteIndicator)
     {
         FavoriteIndicator->SetVisibility(bFavorite ? EVisibility::Visible : EVisibility::Collapsed);

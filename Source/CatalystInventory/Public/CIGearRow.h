@@ -50,15 +50,13 @@ private:
     struct FPrimaryAttribute
     {
         FString Id;
-        FText Label, Value;
         FString Type;
-        bool bMaximum = false;
     };
 
     TSharedPtr<SHorizontalBox> Title, Primary, Indicators;
     TSharedPtr<class STextBlock> FavoriteIndicator;
     TOptional<FPrimaryAttribute> Attribute;
-    FText Manufacturer;
+    FText Manufacturer, BaseArmour;
     FName GearSlot;
     bool bJunk = false;
     bool bFavorite = false;

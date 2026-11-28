@@ -69,7 +69,8 @@ protected:
     TSharedRef<SWidget> BuildRow(const TSharedRef<SWidget>& Thumbnail,
         const TSharedRef<SWidget>& Title, const TSharedRef<SWidget>& Details,
         const TSharedRef<SWidget>& Indicators);
-    void PopulateRowIndicators(SHorizontalBox& Box, const FString& ExcludedAttribute = FString());
+    void PopulateRowIndicators(SHorizontalBox& Box, const FString& CoreAttribute = FString(),
+        FStringView CoreAttributeType = FStringView());
     TSharedRef<SWidget> MakeIcon(UTexture* Texture, const FText& Fallback, const FText& Tooltip, float Size);
     static FString ReadIdentifier(const magritte::Value& Value);
 

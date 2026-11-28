@@ -102,7 +102,8 @@ Use `CIGearRow` for an individual gear item. It uses the same Equipment Row
 layout and Inventory tier band as tool and weapon rows. `CIGearRowTheme`
 resolves local brand, gear-slot, talent and junk art. The gear summary supplies
 the manufacturer, optional core attribute, required player level and item
-state. The row can read the core attribute from the
+state. ARM displays the base armour from `inspectorArmour`. The core attribute
+is the first icon in the attribute strip. The row can read it from the
 inspector's `primary` card. The primary attribute specifies its identifier, display name, type,
 numeric value, format and maximum state. Use a fractional value for
 `signedPercent` (for example, 0.15 displays as +15%). Secondary attribute and
