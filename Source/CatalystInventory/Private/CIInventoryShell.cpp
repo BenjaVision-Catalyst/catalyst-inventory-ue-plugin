@@ -405,7 +405,7 @@ public:
             Right -= ActionPromptGap;
         };
 
-        DrawPrompt(SlotPickerOpen.Get() || ResourceOpen.Get() || RadialsOpen.Get() ? NSLOCTEXT("Inventory", "SlotPickerBack", "Back")
+        DrawPrompt(SlotPickerOpen.Get() || ResourceOpen.Get() ? NSLOCTEXT("Inventory", "SlotPickerBack", "Back")
             : NSLOCTEXT("Inventory", "CloseActionLabel", "Close"), EKeys::BackSpace, EKeys::Gamepad_FaceButton_Right);
         CloseBounds = FSlateRect(Right + ActionPromptGap, 0.0, Geometry.GetLocalSize().X, 25.0);
         if (SlotPickerOpen.Get())
@@ -643,7 +643,7 @@ public:
         ResourceRadialInput.bPlace = ResourceRadialInput.bClear = false;
         ResourceRadialAvailability = {};
         NavigationInput = {};
-        RightStickScrollRate = 0.f;
+        RightStickScroll = 0.f;
         if (ResourceActions.SetRadialsOpen)
         {
             ResourceActions.SetRadialsOpen(bOpen);
@@ -1125,7 +1125,7 @@ public:
         {
             const float Axis = Event.GetAnalogValue();
             const float Strength = FMath::Clamp((FMath::Abs(Axis) - .2f) / .8f, 0.f, 1.f);
-            RightStickScrollRate = -FMath::Sign(Axis) * Strength * 640.f;
+            RightStickScroll = -FMath::Sign(Axis) * Strength;
             return HasNavigableGrid(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
         }
         if (Key == EKeys::Gamepad_LeftTriggerAxis)
@@ -1150,7 +1150,7 @@ public:
 
     void OnFocusLost(const FFocusEvent&) override
     {
-        RightStickScrollRate = 0.f;
+        RightStickScroll = 0.f;
         ResourceStickX = ResourceStickY = 0.f;
         NavigationInput = {};
         for (const auto Action : SavedSetHoldActions)
@@ -1478,9 +1478,10 @@ public:
         UWidget* ActivePanel = MainPanel.IsValid() ? MainPanel->GetActiveWidget() : nullptr;
         UWidget* Content = GetPanelContent(ActivePanel);
         SetNavigationGrid(HasNavigableGrid(ActionSection.Get()) ? Cast<UCFSpanGrid>(Content) : nullptr);
-        if (ActionSection.Get() == ResourcesSection && RightStickScrollRate != 0.f && !OptionsWindow.IsValid() && !HasResourceInteraction())
+        if (ActionSection.Get() == ResourcesSection && RightStickScroll != 0.f && !OptionsWindow.IsValid() && !HasResourceInteraction())
         {
-            ScrollResources(RightStickScrollRate * DeltaTime);
+            const float Speed = 640.f * (1.f + 2.f * FMath::Square(RightStickScroll));
+            ScrollResources(RightStickScroll * Speed * DeltaTime);
         }
         UpdateGridFocus(DeltaTime);
         LiftedTiles.Reset();
@@ -3508,10 +3509,10 @@ private:
         {
             bInspectorScrollDirty = true;
         }
-        if (ActionSection.Get() != ResourcesSection && RightStickScrollRate != 0.f
+        if (ActionSection.Get() != ResourcesSection && RightStickScroll != 0.f
             && !bSavedSetsOpen && !OptionsWindow.IsValid())
         {
-            ScrollInspector(RightStickScrollRate * DeltaTime);
+            ScrollInspector(RightStickScroll * 640.f * DeltaTime);
         }
         if (bInspectorScrollDirty || !InspectorTexture.IsValid() || InspectorScale != Scale)
         {
@@ -4118,7 +4119,7 @@ private:
     TSharedPtr<SScrollBox> InspectorScroll;
     TStrongObjectPtr<UCIInspectorIdentityTile> InspectorIdentityTile;
     TSharedPtr<SWidget> InspectorHeader;
-    float RightStickScrollRate = 0.f;
+    float RightStickScroll = 0.f;
     bool bInspectorScrollDirty = false;
     TStrongObjectPtr<UTextureRenderTarget2D> InspectorTexture;
     TArray<FInspectorStroke> InspectorStrokes;

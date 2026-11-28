@@ -662,9 +662,10 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
                     FAnalogInputEvent(EKeys::Gamepad_RightY, FModifierKeysState(), 0, false, 0, 0, Axis)).IsEventHandled();
             };
             TestTrue(TEXT("Resources handles right-stick scrolling"), RightStick(-1.f));
-            Widget->Tick(Geometry, 2.12, .2f);
+            Widget->Tick(Geometry, 2.12, .02f);
             RightStick(0.f);
-            TestTrue(TEXT("The right stick scrolls Resources down"), ResourceGrid->GetScrollOffset() > 0.f);
+            TestTrue(TEXT("Full right-stick deflection scrolls Resources at three times the original speed"),
+                FMath::IsNearlyEqual(ResourceGrid->GetScrollOffset(), 38.4f, .1f));
             Press(EKeys::Gamepad_DPad_Up);
             Release(EKeys::Gamepad_DPad_Up);
             Widget->Tick(Geometry, 2.15, .2f);
