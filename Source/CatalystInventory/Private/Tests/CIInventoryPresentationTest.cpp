@@ -783,8 +783,10 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         Press(EKeys::Enter);
         Press(EKeys::Down);
         Press(EKeys::S);
-        Widget->Tick(Geometry, 2.8, .25f);
-        TestFalse(TEXT("A landed split releases the inventory refresh"), Shell->HasResourceInteraction());
+        Widget->Tick(Geometry, 2.8, .08f);
+        TestTrue(TEXT("The committed split is still animating"), Shell->HasResourceInteraction());
+        Press(EKeys::Enter);
+        TestFalse(TEXT("Select releases the committed split before the animation ends"), Shell->HasResourceInteraction());
         const auto GetActiveGrid = [](UCIInventoryShell* InShell)
         {
             auto* Panel = InShell->GetMainPanel()->GetActiveWidget();
@@ -806,11 +808,18 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
                 const auto RefreshedWidget = RefreshedShell->TakeWidget();
                 RefreshedShell->GetMenu()->SelectItem(2);
                 RefreshedShell->RestoreSavedSetsState(*Shell);
+                FCIInventoryResourceActions FollowupActions;
+                FollowupActions.Read = [](const FString&) -> TOptional<FCIInventoryStackState> {
+                    return FCIInventoryStackState{1, false, true};
+                };
+                RefreshedShell->SetResourceActions(MoveTemp(FollowupActions));
                 RefreshedWidget->Tick(Geometry, 2.9, .01f);
                 TestEqual(TEXT("The refreshed selection is the split destination"),
                     RefreshedShell->GetInspectorLabelForTest().ToString(), FString(TEXT("Relay Key")));
                 TestTrue(TEXT("The split destination is fully lifted on the first refreshed frame"),
                     RefreshedShell->GetGridTileLiftForTest(RefreshedShell->GetFocusedGridCellForTest()) > 10.0);
+                TestTrue(TEXT("Select opens the committed stack on the first refreshed frame"),
+                    RefreshedShell->HasResourceInteraction());
                 auto* AfterRefresh = GetActiveGrid(RefreshedShell);
                 if (TestNotNull(TEXT("The rebuilt Resources tab has a scrollable grid"), AfterRefresh))
                 {

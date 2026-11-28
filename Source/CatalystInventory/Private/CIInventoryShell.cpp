@@ -563,7 +563,7 @@ public:
                 .SlotPickerOpen_Lambda([this] { return SlotPicker.IsSet(); })
                 .SlotPickerAvailable_Lambda([this] { return SlotPickerSource && HasSavedSets(ActionSection.Get()); })
                 .SlotChoiceAvailable_Lambda([this] { return SlotPicker && SlotPicker->Choices.IsValidIndex(SlotChoice); })
-                .ResourceOpen_Lambda([this] { return HasResourceInteraction(); })
+                .ResourceOpen_Lambda([this] { return HasResourceInteraction() && !IsResourceCommitted(); })
                 .ResourceAvailable_Lambda([this] { return ResourceActions.Read && GetSelectedTile(); })
                 .ResourceCanSplit_Lambda([this] { return CanCommitResource(false); })
                 .ResourceCanJoin_Lambda([this] { return CanCommitResource(true); })
@@ -600,6 +600,26 @@ public:
     void SetSlotPickerSource(FCIInventorySlotPickerSource Source) { SlotPickerSource = MoveTemp(Source); }
     void SetResourceActions(FCIInventoryResourceActions Actions) { ResourceActions = MoveTemp(Actions); }
     bool HasResourceInteraction() const { return ResourcePreviewTile.IsValid() && ResourceFrameHoldUntil == 0.0; }
+
+    bool IsResourceCommitted() const { return ResourceResult.IsSet() && ResourceActions.bPublishesAfterLanding; }
+    FKey GetResourceFollowupKey() const { return ResourceFollowupKey; }
+
+    bool AcceptResourceFollowup(FKey Key)
+    {
+        if (!IsResourceCommitted())
+        {
+            return false;
+        }
+        if (ResourceFollowupKey.IsValid())
+        {
+            return true;
+        }
+        ResourceFollowupKey = Key;
+        ResourceLandingId = ResourceResult->Destination;
+        // Release publication immediately. The rebuilt grid will dispatch the input against the committed stack.
+        ResourceFrameHoldUntil = FPlatformTime::Seconds() + .5;
+        return true;
+    }
 
     void SetSavedSets(const TArray<FCIInventorySavedSet>& Sets)
     {
@@ -712,9 +732,11 @@ public:
     }
 
     void RestoreNavigation(FIntPoint Focus, const TMap<FName, TPair<FIntPoint, FString>>& Selections,
-        const TSharedPtr<const FCIInventoryNavigationInput>& Input, const FString& LiftedResourceId = {})
+        const TSharedPtr<const FCIInventoryNavigationInput>& Input, const FString& LiftedResourceId = {},
+        FKey FollowupKey = {})
     {
         PendingLiftedResourceId = LiftedResourceId;
+        PendingResourceFollowupKey = FollowupKey;
         TabSelections = Selections;
         RestoreTabSelection(ActionSection.Get());
         if (!TabSelections.Contains(ActionSection.Get()))
@@ -814,6 +836,15 @@ public:
         const FKey Key = Event.GetKey();
         const bool bConfirmSlot = Key == EKeys::Enter || Key == EKeys::Gamepad_FaceButton_Bottom;
         const bool bBackSlot = Key == EKeys::BackSpace || Key == EKeys::Escape || Key == EKeys::Gamepad_FaceButton_Right;
+        if (!Event.IsRepeat() && IsResourceCommitted()
+            && (bConfirmSlot || bBackSlot || Key == EKeys::Tab || Key == EKeys::Gamepad_Special_Right
+                || Key == EKeys::C || Key == EKeys::Gamepad_LeftTrigger || Key == EKeys::Q || Key == EKeys::E
+                || Key == EKeys::Gamepad_LeftShoulder || Key == EKeys::Gamepad_RightShoulder
+                || NavigationDirection(Key) != FIntPoint::ZeroValue))
+        {
+            AcceptResourceFollowup(Key);
+            return FReply::Handled();
+        }
         if (HasResourceInteraction())
         {
             if (bBackSlot || Key == EKeys::Tab || Key == EKeys::Gamepad_Special_Right)
@@ -1102,6 +1133,13 @@ public:
             const auto Layout = GetLayout(Geometry.GetLocalSize());
             const FVector2D PlanePoint = Layout.Left.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()));
             const FVector2D FooterPoint = (PlanePoint - Layout.FooterOrigin) / Layout.Scale;
+            if (IsResourceCommitted())
+            {
+                if (FooterWidget->IsOverConfirm(FooterPoint)) { AcceptResourceFollowup(EKeys::Enter); }
+                else if (FooterWidget->IsOverClose(FooterPoint)) { AcceptResourceFollowup(EKeys::BackSpace); }
+                else if (FooterWidget->IsOverSavedSets(FooterPoint)) { AcceptResourceFollowup(EKeys::C); }
+                return FReply::Handled();
+            }
             if (HasResourceInteraction())
             {
                 if (FooterWidget->IsOverClose(FooterPoint) && !ResourceRequest.IsValid() && !ResourceResult)
@@ -1479,6 +1517,25 @@ public:
                 DrawToTexture(SavedSetsTexture, SavedSetsCanvas->TakeWidget(), SidebarTargetSize, DeltaTime, PaintScale);
             }
             Invalidate(EInvalidateWidgetReason::Paint);
+        }
+        if (NavigationGrid.IsValid() && PendingResourceFollowupKey.IsValid())
+        {
+            const FKey Key = PendingResourceFollowupKey;
+            PendingResourceFollowupKey = FKey();
+            const auto Direction = NavigationDirection(Key);
+            if (Direction != FIntPoint::ZeroValue)
+            {
+                MoveNavigation(Direction);
+            }
+            else if (Key == EKeys::Gamepad_LeftTrigger)
+            {
+                ToggleResourceCategories();
+            }
+            else
+            {
+                const FKey ActionKey = Key == EKeys::Escape ? EKeys::BackSpace : Key;
+                OnKeyDown(Geometry, FKeyEvent(ActionKey, FModifierKeysState(), 0, false, 0, 0));
+            }
         }
     }
 
@@ -2094,6 +2151,7 @@ private:
         SelectedResourceReceiver.Reset();
         ResourceReceiverTiles.Reset();
         ResourceFrameHoldUntil = 0.0;
+        ResourceFollowupKey = FKey();
         ResourcePreviewTile.Reset();
         ResourceRemainderTile.Reset();
         ResourcePreviewTexture.Reset();
@@ -3946,6 +4004,7 @@ private:
     double ResourceDeadline = 0.0, ResourceOpenBlend = 0.0, ResourceAnimationTime = 0.0;
     double ResourcePreviewDepth = 0.0;
     double ResourceFrameHoldUntil = 0.0;
+    FKey ResourceFollowupKey, PendingResourceFollowupKey;
     TOptional<float> ResourceCollapseScrollStart, ResourceScrollToRestore;
     double ResourceQuantityFraction = 0.0, ResourceRemainderAlpha = 0.0, ResourceMovingAlpha = 1.0;
     bool bResourceClosing = false;
@@ -4076,6 +4135,8 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
     }
     RestoredLiftedResourceId = Previous.Shell ? Previous.Shell->GetLiftedResourceLandingId()
         : Previous.RestoredLiftedResourceId;
+    RestoredResourceFollowupKey = Previous.Shell ? Previous.Shell->GetResourceFollowupKey()
+        : Previous.RestoredResourceFollowupKey;
     RestoredResourceScrollOffset = Previous.Shell ? Previous.Shell->GetResourceScrollOffset()
         : Previous.RestoredResourceScrollOffset;
     RestoredGridFocus = Previous.Shell ? Previous.Shell->GetGridFocus() : Previous.RestoredGridFocus;
@@ -4097,7 +4158,7 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
     if (Shell)
     {
         Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput,
-            RestoredLiftedResourceId);
+            RestoredLiftedResourceId, RestoredResourceFollowupKey);
         Shell->RestoreResourceScrollOffset(RestoredResourceScrollOffset);
         Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
         Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
@@ -4211,7 +4272,7 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
     UpdateContent();
     Shell->SetSavedSets(SavedSets);
     Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput,
-        RestoredLiftedResourceId);
+        RestoredLiftedResourceId, RestoredResourceFollowupKey);
     Shell->RestoreResourceScrollOffset(RestoredResourceScrollOffset);
     Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
     Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);

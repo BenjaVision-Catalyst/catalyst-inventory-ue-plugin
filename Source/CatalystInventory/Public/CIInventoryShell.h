@@ -90,6 +90,7 @@ private:
     bool bRestoreSavedSetsOpen = false;
     int32 RestoredSavedSetIndex = 0;
     FString RestoredLiftedResourceId;
+    FKey RestoredResourceFollowupKey;
     TOptional<float> RestoredResourceScrollOffset;
     FIntPoint RestoredGridFocus = FIntPoint::ZeroValue;
     TMap<FName, TPair<FIntPoint, FString>> RestoredTabSelections;
