@@ -89,6 +89,7 @@ private:
     bool bConfirmEquips = false;
     bool bRestoreSavedSetsOpen = false;
     int32 RestoredSavedSetIndex = 0;
+    bool bRestoreResourceRadialsOpen = false;
     FString RestoredLiftedResourceId;
     FKey RestoredResourceFollowupKey;
     TOptional<float> RestoredResourceScrollOffset;

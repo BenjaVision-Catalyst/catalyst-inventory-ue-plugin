@@ -22,11 +22,32 @@ struct FCIInventoryStackResult
     TArray<FCIInventoryStackTransfer> Transfers;
 };
 
+struct FCIInventoryResourceRadialInput
+{
+    FString StackId;
+    FName DefinitionId;
+    FVector2D IconCenter = FVector2D::ZeroVector;
+    double IconSize = 0.0;
+    FVector2D Sticks[2]{FVector2D::ZeroVector, FVector2D::ZeroVector};
+    FVector2D ViewSize = FVector2D::ZeroVector;
+    double Scale = 1.0;
+    bool bPlace = false;
+    bool bClear = false;
+};
+
+struct FCIInventoryResourceRadialAvailability
+{
+    bool bCanPlace = false;
+    bool bCanClear = false;
+};
+
 struct FCIInventoryResourceActions
 {
     TFunction<TOptional<FCIInventoryStackState>(const FString&)> Read;
     TFunction<bool(const FGuid&, const FString&, int32, int32, bool)> Commit;
     TFunction<TOptional<FCIInventoryStackResult>(const FGuid&)> Poll;
+    TFunction<void(bool)> SetRadialsOpen;
+    TFunction<FCIInventoryResourceRadialAvailability(const FCIInventoryResourceRadialInput&)> UpdateRadials;
     bool bPublishesAfterLanding = false;
 };
 

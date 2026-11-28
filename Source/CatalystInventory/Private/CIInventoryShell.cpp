@@ -317,6 +317,10 @@ public:
         SLATE_ATTRIBUTE(bool, ResourceAvailable)
         SLATE_ATTRIBUTE(bool, ResourceCanSplit)
         SLATE_ATTRIBUTE(bool, ResourceCanJoin)
+        SLATE_ATTRIBUTE(bool, RadialsAvailable)
+        SLATE_ATTRIBUTE(bool, RadialsOpen)
+        SLATE_ATTRIBUTE(bool, RadialsCanPlace)
+        SLATE_ATTRIBUTE(bool, RadialsCanClear)
         SLATE_ATTRIBUTE(bool, ConfirmEquips)
         SLATE_ATTRIBUTE(bool, ConfirmAvailable)
         SLATE_ATTRIBUTE(bool, OverwriteAvailable)
@@ -338,6 +342,10 @@ public:
         ResourceAvailable = Args._ResourceAvailable;
         ResourceCanSplit = Args._ResourceCanSplit;
         ResourceCanJoin = Args._ResourceCanJoin;
+        RadialsAvailable = Args._RadialsAvailable;
+        RadialsOpen = Args._RadialsOpen;
+        RadialsCanPlace = Args._RadialsCanPlace;
+        RadialsCanClear = Args._RadialsCanClear;
         ConfirmEquips = Args._ConfirmEquips;
         ConfirmAvailable = Args._ConfirmAvailable;
         OverwriteAvailable = Args._OverwriteAvailable;
@@ -397,7 +405,7 @@ public:
             Right -= ActionPromptGap;
         };
 
-        DrawPrompt(SlotPickerOpen.Get() || ResourceOpen.Get() ? NSLOCTEXT("Inventory", "SlotPickerBack", "Back")
+        DrawPrompt(SlotPickerOpen.Get() || ResourceOpen.Get() || RadialsOpen.Get() ? NSLOCTEXT("Inventory", "SlotPickerBack", "Back")
             : NSLOCTEXT("Inventory", "CloseActionLabel", "Close"), EKeys::BackSpace, EKeys::Gamepad_FaceButton_Right);
         CloseBounds = FSlateRect(Right + ActionPromptGap, 0.0, Geometry.GetLocalSize().X, 25.0);
         if (SlotPickerOpen.Get())
@@ -419,9 +427,28 @@ public:
         }
         if (bResources)
         {
-            DrawPrompt(NSLOCTEXT("Inventory", "ResourceRadials", "Radials"), EKeys::F2, EKeys::Gamepad_FaceButton_Left, false);
+            const bool bCanToggleRadials = RadialsAvailable.Get() && !bResourceSelected;
+            const double RadialsRight = Right;
+            DrawPrompt(NSLOCTEXT("Inventory", "ResourceRadials", "Radials"), EKeys::F2,
+                EKeys::Gamepad_FaceButton_Left, bCanToggleRadials);
+            if (bCanToggleRadials)
+            {
+                OptionsBounds = FSlateRect(Right + ActionPromptGap, 0.0, RadialsRight, 25.0);
+            }
             Right = Geometry.GetLocalSize().X;
             Y += 28.0;
+            if (RadialsOpen.Get())
+            {
+                const double ClearRight = Right;
+                DrawPrompt(NSLOCTEXT("Inventory", "ClearResourceRadials", "Clear"), EKeys::Delete,
+                    EKeys::Gamepad_RightThumbstick, RadialsCanClear.Get());
+                DeleteBounds = FSlateRect(Right + ActionPromptGap, 25.0, ClearRight, FooterHeight);
+                const double PlaceRight = Right;
+                DrawPrompt(NSLOCTEXT("Inventory", "PlaceResourceRadials", "Place"), EKeys::Enter,
+                    EKeys::Gamepad_FaceButton_Bottom, RadialsCanPlace.Get());
+                ConfirmBounds = FSlateRect(Right + ActionPromptGap, 25.0, PlaceRight, FooterHeight);
+                return Layer + 2;
+            }
             const double SelectRight = Right;
             DrawPrompt(NSLOCTEXT("Inventory", "SelectResourceStack", "Select"), EKeys::Enter,
                 EKeys::Gamepad_FaceButton_Bottom, ResourceAvailable.Get() && !SavedSetsOpen.Get() && !bResourceSelected);
@@ -484,6 +511,7 @@ private:
     TAttribute<bool> ResourceAvailable;
     TAttribute<bool> ResourceCanSplit;
     TAttribute<bool> ResourceCanJoin;
+    TAttribute<bool> RadialsAvailable, RadialsOpen, RadialsCanPlace, RadialsCanClear;
     TAttribute<bool> ConfirmEquips;
     TAttribute<bool> ConfirmAvailable;
     TAttribute<bool> OverwriteAvailable;
@@ -567,6 +595,10 @@ public:
                 .ResourceAvailable_Lambda([this] { return ResourceActions.Read && GetSelectedTile(); })
                 .ResourceCanSplit_Lambda([this] { return CanCommitResource(false); })
                 .ResourceCanJoin_Lambda([this] { return CanCommitResource(true); })
+                .RadialsAvailable_Lambda([this] { return ResourceActions.UpdateRadials && ResourceActions.SetRadialsOpen; })
+                .RadialsOpen_Lambda([this] { return bResourceRadialsOpen; })
+                .RadialsCanPlace_Lambda([this] { return ResourceRadialAvailability.bCanPlace; })
+                .RadialsCanClear_Lambda([this] { return ResourceRadialAvailability.bCanClear; })
                 .ConfirmEquips(ConfirmEquips)
                 .ConfirmAvailable(ConfirmAvailable)
                 .OverwriteAvailable_Lambda([this] { return HoldTarget(ESavedSetHold::Overwrite).IsValid(); })
@@ -601,6 +633,24 @@ public:
     void SetResourceActions(FCIInventoryResourceActions Actions) { ResourceActions = MoveTemp(Actions); }
     bool HasResourceInteraction() const { return ResourcePreviewTile.IsValid() && ResourceFrameHoldUntil == 0.0; }
 
+    void SetResourceRadialsOpen(bool bOpen)
+    {
+        if (bResourceRadialsOpen == bOpen)
+        {
+            return;
+        }
+        bResourceRadialsOpen = bOpen;
+        ResourceRadialInput.bPlace = ResourceRadialInput.bClear = false;
+        ResourceRadialAvailability = {};
+        NavigationInput = {};
+        RightStickScrollRate = 0.f;
+        if (ResourceActions.SetRadialsOpen)
+        {
+            ResourceActions.SetRadialsOpen(bOpen);
+        }
+    }
+
+    bool AreResourceRadialsOpen() const { return bResourceRadialsOpen; }
     bool IsResourceCommitted() const { return ResourceResult.IsSet() && ResourceActions.bPublishesAfterLanding; }
     FKey GetResourceFollowupKey() const { return ResourceFollowupKey; }
 
@@ -662,6 +712,7 @@ public:
 
     void SwitchSectionNavigation(FName Section)
     {
+        SetResourceRadialsOpen(false);
         TabSelections = GetTabSelections();
         SlotPicker.Reset();
         SetSavedSetsState(false, 0);
@@ -836,9 +887,27 @@ public:
         const FKey Key = Event.GetKey();
         const bool bConfirmSlot = Key == EKeys::Enter || Key == EKeys::Gamepad_FaceButton_Bottom;
         const bool bBackSlot = Key == EKeys::BackSpace || Key == EKeys::Escape || Key == EKeys::Gamepad_FaceButton_Right;
+        const bool bRadials = Key == EKeys::F2 || Key == EKeys::Gamepad_FaceButton_Left;
+        if (bResourceRadialsOpen)
+        {
+            if (bBackSlot || bRadials)
+            {
+                if (!Event.IsRepeat()) { SetResourceRadialsOpen(false); }
+                return FReply::Handled();
+            }
+            if (bConfirmSlot || Key == EKeys::Delete || Key == EKeys::Gamepad_RightThumbstick)
+            {
+                if (!Event.IsRepeat())
+                {
+                    ResourceRadialInput.bPlace |= bConfirmSlot && ResourceRadialAvailability.bCanPlace;
+                    ResourceRadialInput.bClear |= !bConfirmSlot && ResourceRadialAvailability.bCanClear;
+                }
+                return FReply::Handled();
+            }
+        }
         if (!Event.IsRepeat() && IsResourceCommitted()
             && (bConfirmSlot || bBackSlot || Key == EKeys::Tab || Key == EKeys::Gamepad_Special_Right
-                || Key == EKeys::C || Key == EKeys::Gamepad_LeftTrigger || Key == EKeys::Q || Key == EKeys::E
+                || bRadials || Key == EKeys::C || Key == EKeys::Gamepad_LeftTrigger || Key == EKeys::Q || Key == EKeys::E
                 || Key == EKeys::Gamepad_LeftShoulder || Key == EKeys::Gamepad_RightShoulder
                 || NavigationDirection(Key) != FIntPoint::ZeroValue))
         {
@@ -875,6 +944,12 @@ public:
             {
                 ChangeResourceQuantity(Direction);
             }
+            return FReply::Handled();
+        }
+        if (ActionSection.Get() == ResourcesSection && bRadials
+            && ResourceActions.UpdateRadials && ResourceActions.SetRadialsOpen)
+        {
+            if (!Event.IsRepeat()) { SetResourceRadialsOpen(true); }
             return FReply::Handled();
         }
         if (ActionSection.Get() == ResourcesSection && !bSavedSetsOpen && bConfirmSlot
@@ -1036,6 +1111,15 @@ public:
     FReply OnAnalogValueChanged(const FGeometry&, const FAnalogInputEvent& Event) override
     {
         const FKey Key = Event.GetKey();
+        if (Key == EKeys::Gamepad_LeftX) { ResourceRadialInput.Sticks[0].X = Event.GetAnalogValue(); }
+        else if (Key == EKeys::Gamepad_LeftY) { ResourceRadialInput.Sticks[0].Y = Event.GetAnalogValue(); }
+        else if (Key == EKeys::Gamepad_RightX) { ResourceRadialInput.Sticks[1].X = Event.GetAnalogValue(); }
+        else if (Key == EKeys::Gamepad_RightY) { ResourceRadialInput.Sticks[1].Y = -Event.GetAnalogValue(); }
+        if (bResourceRadialsOpen && (Key == EKeys::Gamepad_LeftX || Key == EKeys::Gamepad_LeftY
+            || Key == EKeys::Gamepad_RightX || Key == EKeys::Gamepad_RightY))
+        {
+            return FReply::Handled();
+        }
         if (Key == EKeys::Gamepad_RightY)
         {
             const float Axis = Event.GetAnalogValue();
@@ -1133,11 +1217,30 @@ public:
             const auto Layout = GetLayout(Geometry.GetLocalSize());
             const FVector2D PlanePoint = Layout.Left.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()));
             const FVector2D FooterPoint = (PlanePoint - Layout.FooterOrigin) / Layout.Scale;
+            if (bResourceRadialsOpen)
+            {
+                if (FooterWidget->IsOverOptions(FooterPoint) || FooterWidget->IsOverClose(FooterPoint))
+                {
+                    SetResourceRadialsOpen(false);
+                    return FReply::Handled();
+                }
+                if (FooterWidget->IsOverConfirm(FooterPoint))
+                {
+                    ResourceRadialInput.bPlace |= ResourceRadialAvailability.bCanPlace;
+                    return FReply::Handled();
+                }
+                if (FooterWidget->IsOverHold(ESavedSetHold::Delete, FooterPoint))
+                {
+                    ResourceRadialInput.bClear |= ResourceRadialAvailability.bCanClear;
+                    return FReply::Handled();
+                }
+            }
             if (IsResourceCommitted())
             {
                 if (FooterWidget->IsOverConfirm(FooterPoint)) { AcceptResourceFollowup(EKeys::Enter); }
                 else if (FooterWidget->IsOverClose(FooterPoint)) { AcceptResourceFollowup(EKeys::BackSpace); }
                 else if (FooterWidget->IsOverSavedSets(FooterPoint)) { AcceptResourceFollowup(EKeys::C); }
+                else if (FooterWidget->IsOverOptions(FooterPoint)) { AcceptResourceFollowup(EKeys::F2); }
                 return FReply::Handled();
             }
             if (HasResourceInteraction())
@@ -1148,6 +1251,12 @@ public:
                 }
                 else if (FooterWidget->IsOverOptions(FooterPoint)) { CommitResource(false); }
                 else if (FooterWidget->IsOverConfirm(FooterPoint)) { CommitResource(true); }
+                return FReply::Handled();
+            }
+            if (ActionSection.Get() == ResourcesSection && FooterWidget->IsOverOptions(FooterPoint)
+                && ResourceActions.UpdateRadials && ResourceActions.SetRadialsOpen)
+            {
+                SetResourceRadialsOpen(true);
                 return FReply::Handled();
             }
             if (ActionSection.Get() == ResourcesSection && !bSavedSetsOpen
@@ -1473,6 +1582,7 @@ public:
             DrawToTexture(MainTexture, MainRenderRoot.ToSharedRef(), TargetSize, DeltaTime, PaintScale);
             UpdateLiftedTiles(Layout);
             TickResourcePreview(Layout, DeltaTime);
+            UpdateResourceRadials(Layout, Size);
             if (FooterWidget && (Section == GearSection || Section == ApparelSection || Section == ResourcesSection))
             {
                 DrawToTexture(FooterTexture, FooterWidget.ToSharedRef(),
@@ -2057,8 +2167,42 @@ private:
         return Item ? CIInventoryRowData::Read(*Item, "itemIdentifier").ToString() : FString();
     }
 
+    void UpdateResourceRadials(const FInventoryShellLayout& Layout, FVector2D ViewSize)
+    {
+        if (!bResourceRadialsOpen || !ResourceActions.UpdateRadials)
+        {
+            return;
+        }
+        const auto* Tile = bSavedSetsOpen ? nullptr : GetSelectedTile();
+        const auto Widget = Tile ? Tile->GetCachedWidget() : nullptr;
+        const auto* Grid = NavigationGrid.Get();
+        const auto GridWidget = Grid ? Grid->GetCachedWidget() : nullptr;
+        ResourceRadialInput.StackId.Reset();
+        ResourceRadialInput.DefinitionId = NAME_None;
+        ResourceRadialInput.ViewSize = ViewSize;
+        ResourceRadialInput.Scale = Layout.Scale;
+        if (Widget && GridWidget)
+        {
+            const auto Bounds = TileBounds(*Widget, *GridWidget, Layout.Scale);
+            const auto Lift = FocusedTilePlacement(Layout, Bounds, GridFocus, 1.0);
+            ResourceRadialInput.StackId = ResourceItemId(*Tile);
+            if (const auto& Item = Tile->GetInspectorItem())
+            {
+                ResourceRadialInput.DefinitionId = FName(*CIInventoryRowData::Read(*Item, "definitionIdentifier").ToString());
+            }
+            ResourceRadialInput.IconCenter = Layout.Left.Project(Lift.Origin + Lift.Extent * .5, Lift.Depth);
+            ResourceRadialInput.IconSize = Bounds.GetSize().GetMin() * .4;
+        }
+        ResourceRadialAvailability = ResourceActions.UpdateRadials(ResourceRadialInput);
+        ResourceRadialInput.bPlace = ResourceRadialInput.bClear = false;
+    }
+
     bool OpenResourcePreview()
     {
+        if (bResourceRadialsOpen)
+        {
+            return false;
+        }
         auto* Tile = const_cast<UCIInventoryTile*>(GetSelectedTile());
         if (!Tile || !ResourceActions.Read)
         {
@@ -3989,6 +4133,9 @@ private:
     FVector2D SlotPickerWidgetSize = FVector2D::ZeroVector;
     FCIInventorySlotPickerSource SlotPickerSource;
     FCIInventoryResourceActions ResourceActions;
+    FCIInventoryResourceRadialInput ResourceRadialInput;
+    FCIInventoryResourceRadialAvailability ResourceRadialAvailability;
+    bool bResourceRadialsOpen = false;
     FCIInventoryStackState ResourceState;
     TOptional<FCIInventoryStackResult> ResourceResult;
     TWeakObjectPtr<UCIInventoryTile> ResourceSourceTile;
@@ -4133,6 +4280,8 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
         }
         return;
     }
+    bRestoreResourceRadialsOpen = Previous.Shell ? Previous.Shell->AreResourceRadialsOpen()
+        : Previous.bRestoreResourceRadialsOpen;
     RestoredLiftedResourceId = Previous.Shell ? Previous.Shell->GetLiftedResourceLandingId()
         : Previous.RestoredLiftedResourceId;
     RestoredResourceFollowupKey = Previous.Shell ? Previous.Shell->GetResourceFollowupKey()
@@ -4160,6 +4309,7 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
         Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput,
             RestoredLiftedResourceId, RestoredResourceFollowupKey);
         Shell->RestoreResourceScrollOffset(RestoredResourceScrollOffset);
+        Shell->SetResourceRadialsOpen(bRestoreResourceRadialsOpen);
         Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
         Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
         Shell->RestoreHoldConfirmation(ESavedSetHold::Overwrite, RestoredOverwriteConfirmation);
@@ -4274,6 +4424,7 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
     Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput,
         RestoredLiftedResourceId, RestoredResourceFollowupKey);
     Shell->RestoreResourceScrollOffset(RestoredResourceScrollOffset);
+    Shell->SetResourceRadialsOpen(bRestoreResourceRadialsOpen);
     Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
     Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
     Shell->SetSlotPickerSource(SlotPickerSource);
