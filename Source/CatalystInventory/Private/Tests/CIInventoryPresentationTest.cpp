@@ -466,6 +466,34 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         return false;
     }
 
+    const auto Resources = Inventory->Follow("resources");
+    if (TestTrue(TEXT("The catalog includes resource stacks"), Resources.IsSet()))
+    {
+        const auto CheckMultipleStacks = [&](const char* Group, const char* Definition)
+        {
+            TSet<FString> StackIds;
+            for (const auto& Item : Resources->Related(Group, 16))
+            {
+                for (const auto& Field : Item.Describe().orderedChildren())
+                {
+                    if (Field->id == "definitionIdentifier")
+                    {
+                        const auto Value = Item.Read(*Field);
+                        if (const auto* Id = std::get_if<std::string>(&Value.data); Id && *Id == Definition)
+                        {
+                            StackIds.Add(UTF8_TO_TCHAR(Item.ObjectId().c_str()));
+                        }
+                    }
+                }
+            }
+            TestEqual(TEXT("The resource definition has two distinct stacks"), StackIds.Num(), 2);
+        };
+        CheckMultipleStacks("rock", "Shale");
+        CheckMultipleStacks("wood", "Pine");
+        TestEqual(TEXT("Garden starts with Seeds only"), Resources->Related("garden", 16).Num(), 1);
+        TestTrue(TEXT("Building resources are deferred"), Resources->Related("building", 16).IsEmpty());
+    }
+
     const char* Damage[] = {"52.8", "34.0", "28.0"};
     const int32 AttachmentCount[] = {0, 2, 3};
     const int64 Accuracy[] = {0, 72, 82};
