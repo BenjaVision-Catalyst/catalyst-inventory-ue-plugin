@@ -27,8 +27,9 @@ private:
 
 struct FCIInventorySidebarGeometry
 {
-    FCIInventorySidebarGeometry(double GridWidth, double ViewportWidth, double InGridGap, double Progress)
-        : Width(FMath::Min(GridWidth * .49, ViewportWidth * .20) * (2.0 / 3.0)),
+    FCIInventorySidebarGeometry(double GridWidth, double ViewportWidth, double InGridGap, double Progress,
+        double WidthOverride = 0.0)
+        : Width(WidthOverride > 0.0 ? WidthOverride : FMath::Min(GridWidth * .49, ViewportWidth * .20) * (2.0 / 3.0)),
           GridGap(InGridGap), Reveal(Progress)
     {
     }

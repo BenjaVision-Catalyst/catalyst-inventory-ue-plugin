@@ -1,5 +1,6 @@
 #include "CIInventoryShell.h"
 #include "CIInventoryRowData.h"
+#include "CIResourceTile.h"
 #include "CIInventoryAttributeIcon.h"
 
 #include "CIApparelRow.h"
@@ -402,7 +403,7 @@ public:
             ? NSLOCTEXT("Inventory", "ResourceCategories", "Categories") : SavedSetsLabel(CurrentSection);
         const double ActionRight = Right;
         DrawPrompt(SectionAction, bResources ? EKeys::C : EKeys::G,
-            bResources ? EKeys::Gamepad_RightTrigger : EKeys::Gamepad_LeftTrigger);
+            bResources ? EKeys::Gamepad_RightShoulder : EKeys::Gamepad_LeftTrigger);
         if (HasNavigableGrid(CurrentSection))
         {
             SavedSetsBounds = FSlateRect(Right + ActionPromptGap, 0.0, ActionRight, 25.0);
@@ -798,10 +799,12 @@ public:
                 return FReply::Handled();
             }
         }
-        if (ActionSection.Get() == ResourcesSection && Key == EKeys::Gamepad_RightTrigger)
+        if (ActionSection.Get() == ResourcesSection && Key == EKeys::Gamepad_RightShoulder)
         {
-            ResourceTriggerInput.bTriggerButton = true;
-            UpdateResourceTrigger();
+            if (!Event.IsRepeat())
+            {
+                ToggleResourceCategories();
+            }
             return FReply::Handled();
         }
         if (ActionSection.Get() == ResourcesSection && bSavedSetsOpen && bConfirmSlot)
@@ -880,12 +883,6 @@ public:
     FReply OnKeyUp(const FGeometry&, const FKeyEvent& Event) override
     {
         const FKey Key = Event.GetKey();
-        if (Key == EKeys::Gamepad_RightTrigger)
-        {
-            ResourceTriggerInput.bTriggerButton = false;
-            ResourceTriggerInput.UpdateTrigger();
-            return ActionSection.Get() == ResourcesSection ? FReply::Handled() : FReply::Unhandled();
-        }
         if (Key == EKeys::Gamepad_LeftTrigger)
         {
             NavigationInput.bTriggerButton = false;
@@ -913,12 +910,6 @@ public:
             InspectorScrollRate = -FMath::Sign(Axis) * Strength * 640.f;
             return HasNavigableGrid(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
         }
-        if (Key == EKeys::Gamepad_RightTriggerAxis)
-        {
-            ResourceTriggerInput.TriggerAxis = Event.GetAnalogValue();
-            UpdateResourceTrigger();
-            return ActionSection.Get() == ResourcesSection ? FReply::Handled() : FReply::Unhandled();
-        }
         if (Key == EKeys::Gamepad_LeftTriggerAxis)
         {
             if (SlotPicker) { return FReply::Handled(); }
@@ -937,7 +928,6 @@ public:
     {
         InspectorScrollRate = 0.f;
         NavigationInput = {};
-        ResourceTriggerInput = {};
         for (const auto Action : SavedSetHoldActions)
         {
             Hold(Action).Inputs.Reset();
@@ -1051,10 +1041,11 @@ public:
                 const auto Point = (PlanePoint - Layout.MainOrigin + FVector2D(Sidebar.GetTravel(), 0))
                     / Layout.Scale;
                 const auto& Theme = *InventoryTheme.Get();
-                const double Heading = Theme.GroupLabelHeight + Theme.GroupLabelPadding.GetTotalSpaceAlong<Orient_Vertical>();
+                const double Heading = SidebarHeadingHeight(Theme);
+                const double RowGap = SidebarRowGap(Theme);
                 if (Point.X >= 0 && Point.X < Sidebar.Width / Layout.Scale && Point.Y >= Heading && Point.Y < SavedSetsHeight)
                 {
-                    const double RowPitch = SavedSetsRowHeight + Theme.RowGap;
+                    const double RowPitch = SavedSetsRowHeight + RowGap;
                     for (const auto& Row : SavedSetsPresentation.Rows.GetRows())
                     {
                         const auto Frame = SavedSetsPresentation.Rows.Sample(Row, SavedSetsPaintedAt);
@@ -1428,14 +1419,6 @@ private:
             ToggleSavedSets();
         }
         return bHandled;
-    }
-
-    void UpdateResourceTrigger()
-    {
-        if (ResourceTriggerInput.UpdateTrigger() && ActionSection.Get() == ResourcesSection && !OptionsWindow.IsValid())
-        {
-            ToggleResourceCategories();
-        }
     }
 
     void SetNavigationGrid(UCFSpanGrid* Grid)
@@ -2761,14 +2744,25 @@ private:
 
     void BuildSavedSetsCanvas(FName Section, UCIInventoryTileTheme& Theme, double PanelExtent)
     {
-        const FMargin Padding = Theme.GroupLabelPadding;
-        const double HeadingHeight = Theme.GroupLabelHeight + Padding.GetTotalSpaceAlong<Orient_Vertical>();
-        SavedSetsRowHeight = FMath::Max(1.0, (PanelExtent - HeadingHeight
+        const bool bCategories = Section == ResourcesSection;
+        const double HeadingHeight = SidebarHeadingHeight(Theme);
+        SavedSetsRowHeight = bCategories ? 54.0 : FMath::Max(1.0, (PanelExtent - HeadingHeight
             - (FCIInventorySavedSetRows::VisibleCount - 1) * Theme.RowGap) / FCIInventorySavedSetRows::VisibleCount);
         SavedSetsCanvas.Reset(NewObject<UCanvasPanel>());
+        SavedSetsRailFrameSlot = nullptr;
+        if (bCategories)
+        {
+            auto* Frame = NewObject<UCFTile>(SavedSetsCanvas.Get());
+            Frame->Theme = Theme.CreateProjectedSurfaceTheme(Frame);
+            Frame->SetVisibility(ESlateVisibility::HitTestInvisible);
+            SavedSetsRailFrameSlot = SavedSetsCanvas->AddChildToCanvas(Frame);
+            SavedSetsRailFrameSlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 0.f));
+            SavedSetsRailFrameSlot->SetZOrder(-1);
+        }
         auto* Heading = NewObject<UTextBlock>(SavedSetsCanvas.Get());
         Heading->SetText(Section == ResourcesSection ? NSLOCTEXT("Inventory", "ResourceCategories", "Categories")
             : SavedSetsLabel(Section));
+        Heading->SetVisibility(bCategories ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
         Heading->SetFont(Theme.GroupLabelFont);
         Heading->SetColorAndOpacity(FSlateColor(Theme.GroupLabelTint));
         SavedSetsHeadingSlot = SavedSetsCanvas->AddChildToCanvas(Heading);
@@ -2779,23 +2773,60 @@ private:
         SavedSetsBodySlot = SavedSetsCanvas->AddChildToCanvas(Body);
         SavedSetsBodySlot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
         auto* SurfaceTheme = Theme.CreateProjectedSurfaceTheme(Body);
+        if (bCategories)
+        {
+            SurfaceTheme->Style.Stroke = 0.f;
+            SurfaceTheme->Style.Background = FLinearColor::Transparent;
+            SurfaceTheme->MinimumSize = FVector2D::ZeroVector;
+            SurfaceTheme->IconSize = 36.f;
+        }
 
         SavedSetTiles.Reset();
         for (const auto& Row : SavedSetsPresentation.Rows.GetRows())
         {
-            auto* Tile = NewObject<UCFTile>(Body);
+            UTexture* CategoryIcon = nullptr;
+            if (bCategories && ResourceCategoryRows.IsValidIndex(Row.Index))
+            {
+                const int32 GridRow = ResourceCategoryRows[Row.Index];
+                if (NavigationRows.IsValidIndex(GridRow) && !NavigationRows[GridRow].Cells.IsEmpty())
+                {
+                    if (const auto* Resource = Cast<UCIResourceTile>(NavigationRows[GridRow].Cells[0].Tile.Get()))
+                    {
+                        CategoryIcon = Resource->CategoryIcon;
+                    }
+                }
+            }
+
+            UCFTile* Tile;
+            if (CategoryIcon)
+            {
+                auto* IconTile = NewObject<UCIInventoryTile>(Body);
+                IconTile->Icon = CategoryIcon;
+                Tile = IconTile;
+            }
+            else
+            {
+                Tile = NewObject<UCFTile>(Body);
+                auto* Label = NewObject<UTextBlock>(Tile);
+                Label->SetText(Row.bCreate ? NSLOCTEXT("Inventory", "NewGearSet", "Create")
+                    : FText::AsCultureInvariant(Row.Set.Name));
+                auto Font = Theme.LabelFont;
+                if (bCategories) { Font.Size = 10.f; }
+                Label->SetFont(Font);
+                Label->SetColorAndOpacity(FSlateColor(Theme.TextTint));
+                Label->SetAutoWrapText(bCategories);
+                auto* Inset = NewObject<UBorder>(Tile);
+                Inset->SetBrushColor(FLinearColor::Transparent);
+                Inset->SetPadding(FMargin(bCategories ? 4.f : Theme.Spacing, 0.f));
+                Inset->SetVerticalAlignment(VAlign_Center);
+                Inset->SetContent(Label);
+                Tile->SetContent(Inset);
+            }
             Tile->Theme = SurfaceTheme;
-            auto* Label = NewObject<UTextBlock>(Tile);
-            Label->SetText(Row.bCreate ? NSLOCTEXT("Inventory", "NewGearSet", "Create")
-                : FText::AsCultureInvariant(Row.Set.Name));
-            Label->SetFont(Theme.LabelFont);
-            Label->SetColorAndOpacity(FSlateColor(Theme.TextTint));
-            auto* Inset = NewObject<UBorder>(Tile);
-            Inset->SetBrushColor(FLinearColor::Transparent);
-            Inset->SetPadding(FMargin(Theme.Spacing, 0.f));
-            Inset->SetVerticalAlignment(VAlign_Center);
-            Inset->SetContent(Label);
-            Tile->SetContent(Inset);
+            if (bCategories)
+            {
+                Tile->SetToolTipText(FText::AsCultureInvariant(Row.Set.Name));
+            }
             auto* Slot = Body->AddChildToCanvas(Tile);
             Slot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 0.f));
             Slot->SetZOrder(Row.Index == INDEX_NONE ? 0 : 1);
@@ -2819,7 +2850,7 @@ private:
 
     void LayoutSavedSetRows(double Now, const UCIInventoryTileTheme& Theme)
     {
-        const double Pitch = SavedSetsRowHeight + Theme.RowGap;
+        const double Pitch = SavedSetsRowHeight + SidebarRowGap(Theme);
         const auto& Rows = SavedSetsPresentation.Rows.GetRows();
         for (int32 Index = 0; Index < Rows.Num(); ++Index)
         {
@@ -2845,13 +2876,18 @@ private:
         const double ContentWidth = Sidebar.Width * CanvasScale;
         const double Gap = CanvasWidth - ContentWidth;
         const FMargin Padding = Theme.GroupLabelPadding;
-        const double Heading = Theme.GroupLabelHeight + Padding.GetTotalSpaceAlong<Orient_Vertical>();
+        const double Heading = SidebarHeadingHeight(Theme);
         SavedSetsHeadingSlot->SetOffsets(FMargin(Padding.Left, Padding.Top, Padding.Right + Gap, Theme.GroupLabelHeight));
         SavedSetsBodySlot->SetOffsets(FMargin(0.f, Heading, Gap, 0.f));
 
         const auto& Rows = SavedSetsPresentation.Rows;
         const int32 Total = Rows.GetRowCount();
         const int32 Visible = FCIInventorySavedSetRows::VisibleCount;
+        if (SavedSetsRailFrameSlot)
+        {
+            SavedSetsRailFrameSlot->SetOffsets(FMargin(0.f, 0.f, Gap,
+                FMath::Min(SavedSetsHeight, SavedSetsRowHeight * FMath::Min(Total, Visible))));
+        }
         const bool bOverflow = Total > Visible && Gap > 0.0;
         const auto Visibility = bOverflow ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed;
         SavedSetsTrackSlot->Content->SetVisibility(Visibility);
@@ -2869,7 +2905,7 @@ private:
         const double Width = FMath::Min(FMath::Max(.5f, Theme.Scrollbar.Width),
             2.0 * FMath::Min(CenterX - ContentWidth, CanvasWidth - CenterX));
         const double X = CenterX - Width * .5;
-        const double TrackHeight = Visible * SavedSetsRowHeight + (Visible - 1) * Theme.RowGap;
+        const double TrackHeight = Visible * SavedSetsRowHeight + (Visible - 1) * SidebarRowGap(Theme);
         const double ThumbHeight = TrackHeight * double(Visible) / Total;
         const double Scroll = FMath::Clamp(double(Rows.GetFirstIndex()) / (Total - Visible), 0.0, 1.0);
         SavedSetsTrackSlot->SetOffsets(FMargin(X, Heading, Width, TrackHeight));
@@ -2883,14 +2919,29 @@ private:
         return LayoutFor(Size, MenuSize, MenuPanelGap.Get(), PanelHeight.Get(), FooterGap.Get());
     }
 
+    double SidebarRowGap(const UCIInventoryTileTheme& Theme) const
+    {
+        return ActionSection.Get() == ResourcesSection ? 0.0 : Theme.RowGap;
+    }
+
+    double SidebarHeadingHeight(const UCIInventoryTileTheme& Theme) const
+    {
+        return ActionSection.Get() == ResourcesSection ? 0.0
+            : Theme.GroupLabelHeight + Theme.GroupLabelPadding.GetTotalSpaceAlong<Orient_Vertical>();
+    }
+
     FCIInventorySidebarGeometry GetSidebarGeometry(const FInventoryShellLayout& Layout, double ViewportWidth) const
     {
         return {Layout.MainExtent.X, ViewportWidth, InventoryTheme.Get()->TileGap * Layout.Scale,
-            SavedSetsPresentation.Reveal.GetProgress()};
+            SavedSetsPresentation.Reveal.GetProgress(), ActionSection.Get() == ResourcesSection ? 44.0 * Layout.Scale : 0.0};
     }
 
     void RedrawMenu()
     {
+        const bool bUsesR1ForCategories = ActionSection.Get() == ResourcesSection
+            && Menu->PreviousPrompt.ToString() != TEXT("Q");
+        const TGuardValue<FText> TabPrompt(Menu->NextPrompt,
+            bUsesR1ForCategories ? FText::GetEmpty() : Menu->NextPrompt);
         MenuWidget->SlatePrepass(1.f);
         const auto Desired = MenuWidget->GetDesiredSize();
         const FVector2D Size(FMath::CeilToInt(Desired.X), FMath::CeilToInt(Desired.Y));
@@ -2991,11 +3042,11 @@ private:
     TMap<FName, TPair<FIntPoint, FString>> TabSelections;
     FString PendingSelectionId;
     FCIInventoryNavigationInput NavigationInput;
-    FCIInventoryNavigationInput ResourceTriggerInput;
     TSharedPtr<SWidget> MenuWidget;
     TSharedPtr<SBox> MainRenderRoot;
     TSharedPtr<SCIInventoryActionFooter> FooterWidget;
     TStrongObjectPtr<UCanvasPanel> SavedSetsCanvas;
+    UCanvasPanelSlot* SavedSetsRailFrameSlot = nullptr;
     UCanvasPanelSlot* SavedSetsHeadingSlot = nullptr;
     UCanvasPanelSlot* SavedSetsBodySlot = nullptr;
     UCanvasPanelSlot* SavedSetsTrackSlot = nullptr;

@@ -125,9 +125,14 @@ private:
                     Tile->Theme = SurfaceTheme;
                     Tile->BindItem(Item);
                     Tile->Icon = Icons.FindRef(Tile->GetArtDefinitionIdentifier()).Get();
-                    if (bResources && Tile->FallbackIconIdentifier == TEXT("Resources"))
+                    if (auto* Resource = Cast<UCIResourceTile>(Tile))
                     {
-                        Tile->FallbackIconIdentifier = FName(UTF8_TO_TCHAR(Field->id.c_str()));
+                        if (Resource->FallbackIconIdentifier == TEXT("Resources"))
+                        {
+                            Resource->FallbackIconIdentifier = FName(UTF8_TO_TCHAR(Field->id.c_str()));
+                        }
+                        const FString CategoryKey = Resource->FallbackIconIdentifier.ToString().ToLower();
+                        Resource->CategoryIcon = Icons.FindRef(TEXT("resource-category:") + CategoryKey);
                     }
                     const auto* Equipment = Cast<UCIEquipmentTile>(Tile);
                     const bool bToolsWeapons = Equipment && (Equipment->PresentationKind == TEXT("weapon")

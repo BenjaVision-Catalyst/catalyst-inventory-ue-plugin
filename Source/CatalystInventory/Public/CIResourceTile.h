@@ -24,6 +24,9 @@ class CATALYSTINVENTORY_API UCIResourceTile : public UCIInventoryTile
 
 public:
     virtual void BindItem(const FCFMagritteBinding& Item) override;
+
+    UPROPERTY()
+    TObjectPtr<UTexture> CategoryIcon;
     virtual const UCFTileTheme& GetTileTheme() const override;
 
 protected:
