@@ -24,10 +24,11 @@ inline TOptional<FLinearColor> Tint(const UCIInventoryTileTheme& Theme, FStringV
 
 inline TSharedRef<SWidget> Build(FLinearColor Tint)
 {
-    static const FSlateRoundedBoxBrush Circle{FLinearColor::White, Diameter * .5f};
+    const auto Circle = MakeShared<FSlateRoundedBoxBrush>(
+        Tint, Diameter * .5f, FLinearColor(0.f, 0.f, 0.f, .85f), 1.f);
     return SNew(SBox).WidthOverride(Diameter).HeightOverride(Diameter)
     [
-        SNew(SImage).Image(&Circle).ColorAndOpacity(Tint)
+        SNew(SImage).Image_Lambda([Circle]() -> const FSlateBrush* { return &*Circle; })
     ];
 }
 }
