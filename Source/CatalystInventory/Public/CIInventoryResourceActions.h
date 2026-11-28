@@ -27,6 +27,7 @@ struct FCIInventoryResourceActions
     TFunction<TOptional<FCIInventoryStackState>(const FString&)> Read;
     TFunction<bool(const FGuid&, const FString&, int32, int32, bool)> Commit;
     TFunction<TOptional<FCIInventoryStackResult>(const FGuid&)> Poll;
+    bool bPublishesAfterLanding = false;
 };
 
 inline FVector2D CIResourcePreviewAnchor(FVector2D Source, FVector2D SourceExtent, FVector2D& PreviewExtent,

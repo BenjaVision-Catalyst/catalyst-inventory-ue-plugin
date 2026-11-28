@@ -748,6 +748,36 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         Widget->Tick(Geometry, 2.7, .2f);
         TestEqual(TEXT("Resources restores the selected stack after changing tabs"),
             Shell->GetInspectorLabelForTest().ToString(), FString(TEXT("Depot Key")));
+        const auto GetActiveGrid = [](UCIInventoryShell* InShell)
+        {
+            auto* Panel = InShell->GetMainPanel()->GetActiveWidget();
+            const auto* Slot = Cast<UNamedSlot>(Panel);
+            return Cast<UScrollBox>(Slot ? Slot->GetContent() : Panel);
+        };
+        if (auto* BeforeRefresh = GetActiveGrid(Shell))
+        {
+            const float Scroll = FMath::Min(90.f, BeforeRefresh->GetScrollOffsetOfEnd());
+            TestTrue(TEXT("The Resources grid is tall enough to scroll before the refresh"), Scroll > 0.f);
+            BeforeRefresh->ScrollWidgetIntoView(nullptr);
+            BeforeRefresh->SetScrollOffset(Scroll);
+            TStrongObjectPtr<UCIInventoryView> Refreshed(
+                Cast<UCIInventoryView>(FCIInventoryModel(*Inventory).AsView(Context)));
+            if (TestNotNull(TEXT("Rebuild the Magritte inventory"), Refreshed.Get()))
+            {
+                const auto RefreshedRoot = Refreshed->TakeWidget();
+                auto* RefreshedShell = Refreshed->GetInventoryShell();
+                const auto RefreshedWidget = RefreshedShell->TakeWidget();
+                RefreshedShell->GetMenu()->SelectItem(2);
+                RefreshedShell->RestoreSavedSetsState(*Shell);
+                RefreshedWidget->Tick(Geometry, 2.9, .2f);
+                auto* AfterRefresh = GetActiveGrid(RefreshedShell);
+                if (TestNotNull(TEXT("The rebuilt Resources tab has a scrollable grid"), AfterRefresh))
+                {
+                    TestEqual(TEXT("Refreshing Resources preserves its viewport offset"),
+                        AfterRefresh->GetScrollOffset(), Scroll);
+                }
+            }
+        }
     }
     return true;
 }

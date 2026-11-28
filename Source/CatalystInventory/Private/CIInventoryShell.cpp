@@ -717,6 +717,27 @@ public:
         }
     }
 
+    TOptional<float> GetResourceScrollOffset() const
+    {
+        const auto* Grid = NavigationGrid.Get();
+        return ActionSection.Get() == ResourcesSection && Grid
+            ? TOptional<float>(Grid->GetScrollOffset()) : ResourceScrollToRestore;
+    }
+
+    void RestoreResourceScrollOffset(TOptional<float> Offset)
+    {
+        ResourceScrollToRestore = Offset;
+        if (ActionSection.Get() == ResourcesSection)
+        {
+            if (auto* Grid = NavigationGrid.Get(); Grid && ResourceScrollToRestore)
+            {
+                Grid->ScrollWidgetIntoView(nullptr);
+                Grid->SetScrollOffset(*ResourceScrollToRestore);
+                ResourceScrollToRestore.Reset();
+            }
+        }
+    }
+
     bool IsSavedSetsOpen() const { return bSavedSetsOpen; }
     int32 GetSavedSetIndex() const { return SavedSetIndex; }
     const FCIInventorySavedSetsPresentation& GetSavedSetsPresentation() const { return SavedSetsPresentation; }
@@ -1270,6 +1291,10 @@ public:
     virtual void Tick(const FGeometry& Geometry, double, float DeltaTime) override
     {
         const double Now = FPlatformTime::Seconds();
+        if (Now < ResourceFrameHoldUntil && ActionSection.Get() == ResourcesSection)
+        {
+            return;
+        }
         if (HasNavigableGrid(ActionSection.Get()) && !OptionsWindow.IsValid())
         {
             MoveNavigation(NavigationInput.Step(Now));
@@ -1622,6 +1647,12 @@ private:
                 SetSavedSetsState(false, SavedSetIndex);
             }
         }
+        const bool bKeepResourceScroll = ActionSection.Get() == ResourcesSection && ResourceScrollToRestore.IsSet();
+        if (bKeepResourceScroll)
+        {
+            Grid->SetScrollOffset(*ResourceScrollToRestore);
+            ResourceScrollToRestore.Reset();
+        }
         if (!PendingSelectionId.IsEmpty())
         {
             const auto Identifier = MoveTemp(PendingSelectionId);
@@ -1644,7 +1675,7 @@ private:
             }
         }
         GridFocus = StepInventoryGrid(NavigationRows, GridFocus, FIntPoint::ZeroValue);
-        if (ActionSection.Get() == ResourcesSection)
+        if (ActionSection.Get() == ResourcesSection && !bKeepResourceScroll)
         {
             RevealResourceSelection();
         }
@@ -2022,15 +2053,15 @@ private:
         }
     }
 
-    void ResetResourcePreview()
+    void ResetResourcePreview(bool bKeepFrame = false)
     {
-        if (auto* Source = ResourceSourceTile.Get())
+        if (auto* Source = ResourceSourceTile.Get(); Source && !bKeepFrame)
         {
             Source->SetRenderOpacity(1.f);
         }
         for (const auto& Entry : ResourceReceiverTiles)
         {
-            if (auto* Tile = Entry.Key.Get()) { Tile->Count = Entry.Value; }
+            if (auto* Tile = Entry.Key.Get(); Tile && !bKeepFrame) { Tile->Count = Entry.Value; }
         }
         ResourceReceiverTiles.Reset();
         ResourcePreviewTile.Reset();
@@ -2043,6 +2074,7 @@ private:
         ResourcePreviewBounds = FBox2D(ForceInit);
         ResourceStickX = ResourceStickY = 0.f;
         ResourceAnimationTime = 0.0;
+        ResourceCollapseScrollStart.Reset();
         ResourceRemainderAlpha = 0.0;
         ResourceMovingAlpha = 1.0;
         bResourceClosing = false;
@@ -2089,14 +2121,74 @@ private:
 
     void AppendResourceGapReflow(const SWidget& GridWidget, const FInventoryShellLayout& Layout, double Progress)
     {
-        if (Progress <= 0.0 || !NavigationRows.IsValidIndex(GridFocus.Y))
+        if (!NavigationRows.IsValidIndex(GridFocus.Y))
         {
             return;
         }
         const auto* NextCategory = ResourceCategoryRows.FindByPredicate(
             [this](int32 Row) { return Row > GridFocus.Y; });
         const int32 EndRow = NextCategory ? *NextCategory : NavigationRows.Num();
-        FVector2D Vacancy = ResourceSourceBounds.Min - Layout.MainOrigin;
+        const int32 PreviousCategory = ResourceCategoryRows.FindLastByPredicate(
+            [this](int32 Row) { return Row <= GridFocus.Y; });
+        const int32 FirstRow = PreviousCategory != INDEX_NONE ? ResourceCategoryRows[PreviousCategory] : 0;
+        const auto* SourceTile = ResourceSourceTile.Get();
+        const auto SourceWidget = SourceTile ? SourceTile->GetCachedWidget() : nullptr;
+        if (!SourceWidget)
+        {
+            return;
+        }
+
+        FVector2D Vacancy = TileBounds(*SourceWidget, GridWidget, Layout.Scale).Min;
+        TOptional<double> CollapsedRowHeight;
+        if (EndRow - FirstRow > 1 && NavigationRows[EndRow - 1].Cells.Num() == 1)
+        {
+            const auto* Last = NavigationRows[EndRow - 1].Cells[0].Tile.Get();
+            const auto* Prior = NavigationRows[EndRow - 2].Cells[0].Tile.Get();
+            const auto LastWidget = Last ? Last->GetCachedWidget() : nullptr;
+            const auto PriorWidget = Prior ? Prior->GetCachedWidget() : nullptr;
+            if (LastWidget && PriorWidget)
+            {
+                const double Pitch = TileBounds(*LastWidget, GridWidget, Layout.Scale).Min.Y
+                    - TileBounds(*PriorWidget, GridWidget, Layout.Scale).Min.Y;
+                if (Pitch > 0.0) { CollapsedRowHeight = Pitch; }
+            }
+        }
+
+        if (CollapsedRowHeight)
+        {
+            if (auto* Grid = NavigationGrid.Get())
+            {
+                if (!ResourceCollapseScrollStart)
+                {
+                    ResourceCollapseScrollStart = Grid->GetScrollOffset();
+                }
+                const float EndOffset = FMath::Max(0.f, Grid->GetScrollOffsetOfEnd()
+                    - static_cast<float>(*CollapsedRowHeight / Layout.Scale));
+                Grid->SetScrollOffset(FMath::Lerp(*ResourceCollapseScrollStart,
+                    FMath::Min(*ResourceCollapseScrollStart, EndOffset), Progress));
+            }
+            const int32 CategoryIndex = ResourceCategoryRows.IndexOfByKey(EndRow);
+            if (Progress > 0.0 && ResourceCategoryHeadings.IsValidIndex(CategoryIndex))
+            {
+                const auto* Heading = ResourceCategoryHeadings[CategoryIndex].Get();
+                const auto HeadingWidget = Heading ? Heading->GetCachedWidget() : nullptr;
+                if (HeadingWidget)
+                {
+                    const auto Top = TileBounds(*HeadingWidget, GridWidget, Layout.Scale).Min.Y
+                        - InventoryTheme.Get()->GroupLabelPadding.Top * Layout.Scale;
+                    const FBox2D Strip({0.0, FMath::Max(0.0, Top)}, Layout.MainExtent);
+                    if (Strip.GetSize().Y > 0.0)
+                    {
+                        LiftedTiles.Add({Strip, Layout.MainOrigin + Strip.Min
+                            - FVector2D(0.0, *CollapsedRowHeight * Progress), Strip.GetSize(), 0.0, {-1, -1}, true});
+                    }
+                }
+            }
+        }
+        if (Progress <= 0.0)
+        {
+            return;
+        }
         for (int32 Y = GridFocus.Y; Y < EndRow; ++Y)
         {
             const auto& Cells = NavigationRows[Y].Cells;
@@ -2267,7 +2359,14 @@ private:
             if (ResourceAnimationTime >= Finish)
             {
                 ResourceLandingId = ResourceResult->Destination;
-                ResetResourcePreview();
+                const bool bKeepFrame = ResourceActions.bPublishesAfterLanding && !Transfers.IsEmpty() && Remainder == 0;
+                if (bKeepFrame && MainRenderRoot)
+                {
+                    const FVector2D Raster(MainTexture->SizeX, MainTexture->SizeY);
+                    DrawToTexture(MainTexture, MainRenderRoot.ToSharedRef(), Raster, 0.f, Layout.Scale * ProjectionRasterScale);
+                    ResourceFrameHoldUntil = FPlatformTime::Seconds() + .5;
+                }
+                ResetResourcePreview(bKeepFrame);
                 return;
             }
         }
@@ -3096,10 +3195,14 @@ private:
                     continue;
                 }
                 if (const auto* Lifted = LiftedTiles.FindByPredicate([&](const auto& Entry) {
-                    return Entry.Source.Min == Min && Entry.Source.Max == Max;
+                    return (Entry.Source.Min == Min && Entry.Source.Max == Max)
+                        || (Entry.Cell.Y == INDEX_NONE && Min.Y >= Entry.Source.Min.Y);
                 }))
                 {
-                    PaintBackdrop(Layout.Left, Lifted->Origin, Lifted->Origin + Lifted->Extent, Lifted->Depth);
+                    const auto Offset = Lifted->Cell.Y == INDEX_NONE ? Lifted->Origin - Lifted->Source.Min : FVector2D::ZeroVector;
+                    const auto Begin = Lifted->Cell.Y == INDEX_NONE ? Offset + Min : Lifted->Origin;
+                    const auto End = Lifted->Cell.Y == INDEX_NONE ? Offset + Max : Lifted->Origin + Lifted->Extent;
+                    PaintBackdrop(Layout.Left, Begin, End, Lifted->Depth);
                 }
                 else
                 {
@@ -3624,6 +3727,8 @@ private:
     int32 ResourceQuantity = 0;
     float ResourceStickX = 0.f, ResourceStickY = 0.f;
     double ResourceDeadline = 0.0, ResourceOpenBlend = 0.0, ResourceAnimationTime = 0.0;
+    double ResourceFrameHoldUntil = 0.0;
+    TOptional<float> ResourceCollapseScrollStart, ResourceScrollToRestore;
     double ResourceQuantityFraction = 0.0, ResourceRemainderAlpha = 0.0, ResourceMovingAlpha = 1.0;
     bool bResourceClosing = false;
     TOptional<FCIInventorySlotPicker> SlotPicker;
@@ -3749,6 +3854,8 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
         }
         return;
     }
+    RestoredResourceScrollOffset = Previous.Shell ? Previous.Shell->GetResourceScrollOffset()
+        : Previous.RestoredResourceScrollOffset;
     RestoredGridFocus = Previous.Shell ? Previous.Shell->GetGridFocus() : Previous.RestoredGridFocus;
     RestoredNavigationInput = Previous.Shell ? MakeShared<FCIInventoryNavigationInput>(Previous.Shell->GetNavigationInput())
         : Previous.RestoredNavigationInput;
@@ -3768,6 +3875,7 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
     if (Shell)
     {
         Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput);
+        Shell->RestoreResourceScrollOffset(RestoredResourceScrollOffset);
         Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
         Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
         Shell->RestoreHoldConfirmation(ESavedSetHold::Overwrite, RestoredOverwriteConfirmation);
@@ -3880,6 +3988,7 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
     UpdateContent();
     Shell->SetSavedSets(SavedSets);
     Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput);
+    Shell->RestoreResourceScrollOffset(RestoredResourceScrollOffset);
     Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
     Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
     Shell->SetSlotPickerSource(SlotPickerSource);

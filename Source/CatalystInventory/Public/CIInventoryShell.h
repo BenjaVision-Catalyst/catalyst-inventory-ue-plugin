@@ -89,6 +89,7 @@ private:
     bool bConfirmEquips = false;
     bool bRestoreSavedSetsOpen = false;
     int32 RestoredSavedSetIndex = 0;
+    TOptional<float> RestoredResourceScrollOffset;
     FIntPoint RestoredGridFocus = FIntPoint::ZeroValue;
     TMap<FName, TPair<FIntPoint, FString>> RestoredTabSelections;
     TSharedPtr<const FCIInventoryNavigationInput> RestoredNavigationInput;
