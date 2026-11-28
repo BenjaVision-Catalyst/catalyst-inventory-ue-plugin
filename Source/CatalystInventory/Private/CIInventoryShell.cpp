@@ -433,20 +433,14 @@ public:
                 false, !bKeyboard);
             if (bResourceSelected)
             {
-                double Left = 0.0;
-                const auto DrawStackAction = [&](const FText& Label, const FKey& Key, bool bAvailable)
-                {
-                    const auto Size = SCFControllerButton::Measure(Label, Key, Platform, ButtonStyle);
-                    SCFControllerButton::Draw(Geometry, Elements, Layer, {Left, Y}, Label, Key, Platform,
-                        ButtonStyle, bAvailable);
-                    const FSlateRect Bounds(Left, 25.0, Left + Size.X, FooterHeight);
-                    Left += Size.X + ActionPromptGap;
-                    return Bounds;
-                };
-                ConfirmBounds = DrawStackAction(NSLOCTEXT("Inventory", "JoinResource", "Join"),
-                    bKeyboard ? EKeys::F2 : EKeys::Gamepad_FaceButton_Left, ResourceCanJoin.Get());
-                OptionsBounds = DrawStackAction(NSLOCTEXT("Inventory", "SplitResource", "Split"),
-                    bKeyboard ? EKeys::S : EKeys::Gamepad_FaceButton_Top, ResourceCanSplit.Get());
+                const double SplitRight = Right;
+                DrawPrompt(NSLOCTEXT("Inventory", "SplitResource", "Split"), EKeys::S, EKeys::Gamepad_FaceButton_Top,
+                    ResourceCanSplit.Get());
+                OptionsBounds = FSlateRect(Right + ActionPromptGap, 25.0, SplitRight, FooterHeight);
+                const double JoinRight = Right;
+                DrawPrompt(NSLOCTEXT("Inventory", "JoinResource", "Join"), EKeys::F2, EKeys::Gamepad_FaceButton_Left,
+                    ResourceCanJoin.Get());
+                ConfirmBounds = FSlateRect(Right + ActionPromptGap, 25.0, JoinRight, FooterHeight);
             }
         }
         else if (HasSavedSets(CurrentSection) && SavedSetsOpen.Get())
