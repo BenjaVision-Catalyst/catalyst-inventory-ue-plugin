@@ -66,6 +66,11 @@ bool HasSavedSets(FName Section)
     return Section == GearSection || Section == ApparelSection;
 }
 
+bool HasNavigableGrid(FName Section)
+{
+    return HasSavedSets(Section) || Section == ResourcesSection;
+}
+
 FIntPoint NavigationDirection(const FKey& Key)
 {
     if (Key == EKeys::Left || Key == EKeys::Gamepad_DPad_Left) { return {-1, 0}; }
@@ -394,16 +399,16 @@ public:
             return Layer + 2;
         }
         const FText SectionAction = bResources
-            ? NSLOCTEXT("Inventory", "OpenResourceCategories", "Categories") : SavedSetsLabel(CurrentSection);
+            ? NSLOCTEXT("Inventory", "NextResourceCategory", "Next category") : SavedSetsLabel(CurrentSection);
         const double ActionRight = Right;
         DrawPrompt(SectionAction, bResources ? EKeys::C : EKeys::G, EKeys::Gamepad_LeftTrigger);
-        if (HasSavedSets(CurrentSection))
+        if (HasNavigableGrid(CurrentSection))
         {
             SavedSetsBounds = FSlateRect(Right + ActionPromptGap, 0.0, ActionRight, 25.0);
         }
         if (bResources)
         {
-            DrawPrompt(NSLOCTEXT("Inventory", "ResourceRadials", "Radials"), EKeys::F2, EKeys::Gamepad_FaceButton_Left);
+            DrawPrompt(NSLOCTEXT("Inventory", "ResourceRadials", "Radials"), EKeys::F2, EKeys::Gamepad_FaceButton_Left, false);
             Right = Geometry.GetLocalSize().X;
             Y += 28.0;
             DrawPrompt(NSLOCTEXT("Inventory", "SelectResourceStack", "Select"), EKeys::Enter, EKeys::Gamepad_FaceButton_Bottom, false);
@@ -638,7 +643,7 @@ public:
 
     const UCIInventoryTile* GetSelectedTile() const
     {
-        if (HasSavedSets(ActionSection.Get()) && NavigationRows.IsValidIndex(GridFocus.Y))
+        if (HasNavigableGrid(ActionSection.Get()) && NavigationRows.IsValidIndex(GridFocus.Y))
         {
             const auto& Cells = NavigationRows[GridFocus.Y].Cells;
             return Cells.IsValidIndex(GridFocus.X) ? Cells[GridFocus.X].Tile.Get() : nullptr;
@@ -797,9 +802,17 @@ public:
             NavigationInput.bTriggerButton = true;
             return UpdateNavigationTrigger() ? FReply::Handled() : FReply::Unhandled();
         }
-        if (HasSavedSets(ActionSection.Get()))
+        if (HasNavigableGrid(ActionSection.Get()))
         {
-            if (Key == EKeys::G)
+            if (Key == EKeys::C && ActionSection.Get() == ResourcesSection)
+            {
+                if (!Event.IsRepeat())
+                {
+                    JumpResourceCategory();
+                }
+                return FReply::Handled();
+            }
+            if (Key == EKeys::G && HasSavedSets(ActionSection.Get()))
             {
                 if (!Event.IsRepeat())
                 {
@@ -863,7 +876,7 @@ public:
             if (Direction != FIntPoint::ZeroValue)
             {
                 NavigationInput.SetPad(Direction, false);
-                return HasSavedSets(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
+                return HasNavigableGrid(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
             }
         }
         return ReleaseHoldInput(Key) ? FReply::Handled() : FReply::Unhandled();
@@ -877,7 +890,7 @@ public:
             const float Axis = Event.GetAnalogValue();
             const float Strength = FMath::Clamp((FMath::Abs(Axis) - .2f) / .8f, 0.f, 1.f);
             InspectorScrollRate = -FMath::Sign(Axis) * Strength * 640.f;
-            return HasSavedSets(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
+            return HasNavigableGrid(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
         }
         if (Key == EKeys::Gamepad_LeftTriggerAxis)
         {
@@ -888,7 +901,7 @@ public:
         if (Key == EKeys::Gamepad_LeftX || Key == EKeys::Gamepad_LeftY)
         {
             NavigationInput.SetStickAxis(Key == EKeys::Gamepad_LeftX, Event.GetAnalogValue());
-            return HasSavedSets(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
+            return HasNavigableGrid(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
         }
         return FReply::Unhandled();
     }
@@ -918,6 +931,19 @@ public:
                 {
                     MoveNavigation({0, Delta > 0.f ? -1 : 1});
                 }
+                return FReply::Handled();
+            }
+        }
+        if (ActionSection.Get() == ResourcesSection && NavigationGrid.IsValid())
+        {
+            const auto Layout = GetLayout(Geometry.GetLocalSize());
+            const auto Point = Layout.Left.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()));
+            const FBox2D Bounds(Layout.MainOrigin, Layout.MainOrigin + Layout.MainExtent);
+            if (Bounds.IsInside(Point))
+            {
+                auto* Grid = NavigationGrid.Get();
+                Grid->SetScrollOffset(FMath::Clamp(Grid->GetScrollOffset() - Event.GetWheelDelta() * 64.f,
+                    0.f, FMath::Max(0.f, Grid->GetScrollOffsetOfEnd())));
                 return FReply::Handled();
             }
         }
@@ -990,6 +1016,34 @@ public:
             if (FooterWidget->IsOverClose(FooterPoint) && OnClose.ExecuteIfBound())
             {
                 return FReply::Handled();
+            }
+            if (ActionSection.Get() == ResourcesSection)
+            {
+                if (FooterWidget->IsOverSavedSets(FooterPoint))
+                {
+                    JumpResourceCategory();
+                    return FReply::Handled();
+                }
+                const auto* Grid = NavigationGrid.Get();
+                const auto GridWidget = Grid ? Grid->GetCachedWidget() : nullptr;
+                const FBox2D Bounds(Layout.MainOrigin, Layout.MainOrigin + Layout.MainExtent);
+                if (GridWidget && Bounds.IsInside(PlanePoint))
+                {
+                    for (int32 Y = 0; Y < NavigationRows.Num(); ++Y)
+                    {
+                        const auto& Cells = NavigationRows[Y].Cells;
+                        for (int32 X = 0; X < Cells.Num(); ++X)
+                        {
+                            const auto* Tile = Cells[X].Tile.Get();
+                            const auto Widget = Tile ? Tile->GetCachedWidget() : nullptr;
+                            if (Widget && TileBounds(*Widget, *GridWidget, Layout.Scale).IsInside(PlanePoint - Bounds.Min))
+                            {
+                                GridFocus = {X, Y};
+                                return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
+                            }
+                        }
+                    }
+                }
             }
             if (!HasSavedSets(ActionSection.Get()))
             {
@@ -1096,7 +1150,7 @@ public:
     virtual void Tick(const FGeometry& Geometry, double, float DeltaTime) override
     {
         const double Now = FPlatformTime::Seconds();
-        if (HasSavedSets(ActionSection.Get()) && !OptionsWindow.IsValid())
+        if (HasNavigableGrid(ActionSection.Get()) && !OptionsWindow.IsValid())
         {
             MoveNavigation(NavigationInput.Step(Now));
         }
@@ -1116,7 +1170,7 @@ public:
 
         UWidget* ActivePanel = MainPanel.IsValid() ? MainPanel->GetActiveWidget() : nullptr;
         UWidget* Content = GetPanelContent(ActivePanel);
-        SetNavigationGrid(HasSavedSets(ActionSection.Get()) ? Cast<UCFSpanGrid>(Content) : nullptr);
+        SetNavigationGrid(HasNavigableGrid(ActionSection.Get()) ? Cast<UCFSpanGrid>(Content) : nullptr);
         UpdateGridFocus(DeltaTime);
         LiftedTiles.Reset();
         if (MainContent.Get() != Content)
@@ -1290,6 +1344,14 @@ public:
         else if (MainTexture.IsValid() && Layout.MainExtent.GetMin() > 0.0)
         {
             DrawMainGrid(Geometry, Elements, Layer + 1, Layout);
+            if (ActionSection.Get() == ResourcesSection)
+            {
+                if (const auto* Grid = NavigationGrid.Get(); Grid && Grid->GetViewFraction() < 1.f)
+                {
+                    DrawMainScrollbar(Geometry, Elements, Layer + 2, Layout, 0.0, Layout.MainExtent.Y,
+                        Grid->GetViewFraction(), Grid->GetViewOffsetFraction());
+                }
+            }
         }
         if (InspectorTexture.IsValid() && Layout.InspectorExtent.GetMin() >= 1.0)
         {
@@ -1323,10 +1385,18 @@ private:
     bool UpdateNavigationTrigger()
     {
         const bool bToggle = NavigationInput.UpdateTrigger();
-        const bool bHandled = HasSavedSets(ActionSection.Get());
+        const bool bResources = ActionSection.Get() == ResourcesSection;
+        const bool bHandled = HasNavigableGrid(ActionSection.Get());
         if (bToggle && bHandled && !OptionsWindow.IsValid())
         {
-            ToggleSavedSets();
+            if (bResources)
+            {
+                JumpResourceCategory();
+            }
+            else
+            {
+                ToggleSavedSets();
+            }
         }
         return bHandled;
     }
@@ -1348,6 +1418,7 @@ private:
             }
         }
         NavigationRows.Reset();
+        ResourceCategoryRows.Reset();
         NavigationGrid = Grid;
         if (!Grid)
         {
@@ -1364,6 +1435,10 @@ private:
             const auto* Cells = Box ? Cast<UHorizontalBox>(Box->GetContent()) : nullptr;
             if (!Cells || !IsVisible(*Cells))
             {
+                if (ActionSection.Get() == ResourcesSection && Box && Cast<UTextBlock>(Box->GetContent()))
+                {
+                    ResourceCategoryRows.AddUnique(NavigationRows.Num());
+                }
                 continue;
             }
             FCIInventoryNavigationRow Row;
@@ -1408,6 +1483,10 @@ private:
             }
         }
         GridFocus = StepInventoryGrid(NavigationRows, GridFocus, FIntPoint::ZeroValue);
+        if (ActionSection.Get() == ResourcesSection)
+        {
+            RevealResourceSelection();
+        }
     }
 
     bool OpenSlotPicker()
@@ -1558,9 +1637,16 @@ private:
             return;
         }
 
+        DrawMainScrollbar(Geometry, Elements, Layer, Layout, SlotPickerHeadingHeight * Layout.Scale,
+            TrackHeight, double(Visible) / Total, double(FirstSlotChoice) / Total);
+    }
+
+    void DrawMainScrollbar(const FGeometry& Geometry, FSlateWindowElementList& Elements, int32 Layer,
+        const FInventoryShellLayout& Layout, double Top, double TrackHeight, double ViewFraction, double OffsetFraction) const
+    {
         const auto& Style = InventoryTheme.Get()->Scrollbar;
         const double X = Layout.MainOrigin.X + Layout.MainExtent.X + SlotPickerScrollbarGutter * Layout.Scale * .5;
-        const double Y = Layout.MainOrigin.Y + SlotPickerHeadingHeight * Layout.Scale;
+        const double Y = Layout.MainOrigin.Y + Top;
         const float Width = FMath::Clamp(Style.Width, .5f, SlotPickerScrollbarGutter) * Layout.Scale;
         const auto Draw = [&](double Start, double End, const FLinearColor& Tint)
         {
@@ -1568,8 +1654,8 @@ private:
                 {Layout.Left.Project({X, Y + Start}), Layout.Left.Project({X, Y + End})},
                 ESlateDrawEffect::NoPixelSnapping, Tint, true, Width);
         };
-        const double ThumbHeight = TrackHeight * Visible / Total;
-        const double ThumbOffset = (TrackHeight - ThumbHeight) * FirstSlotChoice / (Total - Visible);
+        const double ThumbHeight = TrackHeight * ViewFraction;
+        const double ThumbOffset = TrackHeight * FMath::Clamp(OffsetFraction, 0.0, 1.0 - ViewFraction);
         Draw(0.0, TrackHeight, Style.TrackTint);
         Draw(ThumbOffset, ThumbOffset + ThumbHeight, Style.ThumbTint);
     }
@@ -1646,7 +1732,34 @@ private:
         }
         SetNavigationGrid(MainPanel.IsValid()
             ? Cast<UCFSpanGrid>(GetPanelContent(MainPanel->GetActiveWidget())) : nullptr);
+        const auto Previous = GridFocus;
         GridFocus = StepInventoryGrid(NavigationRows, GridFocus, Direction);
+        if (ActionSection.Get() == ResourcesSection && Previous != GridFocus)
+        {
+            RevealResourceSelection();
+        }
+    }
+
+    void RevealResourceSelection()
+    {
+        if (auto* Grid = NavigationGrid.Get())
+        {
+            Grid->ScrollWidgetIntoView(const_cast<UCIInventoryTile*>(GetSelectedTile()), false,
+                EDescendantScrollDestination::IntoView, 8.f);
+        }
+    }
+
+    void JumpResourceCategory()
+    {
+        if (ResourceCategoryRows.IsEmpty())
+        {
+            return;
+        }
+        const int32* Next = ResourceCategoryRows.FindByPredicate([this](int32 Row) {
+            return Row > GridFocus.Y && NavigationRows.IsValidIndex(Row);
+        });
+        GridFocus = {0, Next ? *Next : ResourceCategoryRows[0]};
+        RevealResourceSelection();
     }
 
     void UpdateGridFocus(float DeltaTime)
@@ -2779,6 +2892,7 @@ private:
     TWeakObjectPtr<UWidgetSwitcher> MainPanel;
     TWeakObjectPtr<UWidget> MainContent;
     TWeakObjectPtr<UCFSpanGrid> NavigationGrid;
+    TArray<int32> ResourceCategoryRows;
     TArray<FCIInventoryNavigationRow> NavigationRows;
     FIntPoint GridFocus = FIntPoint::ZeroValue;
     TMap<FName, TPair<FIntPoint, FString>> TabSelections;

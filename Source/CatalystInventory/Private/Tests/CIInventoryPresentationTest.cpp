@@ -614,6 +614,20 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         Press(EKeys::Enter);
         TestEqual(TEXT("Navigation reaches choices below the visible rows"), EquippedIdentifier, FString(TEXT("7")));
         Shell->SetSlotPickerSource({});
+        Press(EKeys::E);
+        Widget->Tick(Geometry, 2.1, .2f);
+        TestEqual(TEXT("Resources opens the focused stack inspector"), Shell->GetInspectorLabelForTest().ToString(),
+            FString(TEXT("Credits")));
+        TestTrue(TEXT("Resources handles category jumps"), Press(EKeys::C));
+        Widget->Tick(Geometry, 2.3, .2f);
+        TestEqual(TEXT("Category jump focuses the first key"), Shell->GetInspectorLabelForTest().ToString(),
+            FString(TEXT("Depot Key")));
+        Press(EKeys::Q);
+        Widget->Tick(Geometry, 2.5, .2f);
+        Press(EKeys::E);
+        Widget->Tick(Geometry, 2.7, .2f);
+        TestEqual(TEXT("Resources restores the selected stack after changing tabs"),
+            Shell->GetInspectorLabelForTest().ToString(), FString(TEXT("Depot Key")));
     }
     return true;
 }

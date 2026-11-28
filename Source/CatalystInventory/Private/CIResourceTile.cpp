@@ -1,4 +1,5 @@
 #include "CIResourceTile.h"
+#include "CIInventoryRowData.h"
 
 #include "Engine/Texture.h"
 
@@ -6,6 +7,8 @@ void UCIResourceTile::BindItem(const FCFMagritteBinding& Item)
 {
     const FString PreviousDefinition = GetArtDefinitionIdentifier();
     Super::BindItem(Item);
+    const FString Category = CIInventoryRowData::Read(Item, "resourceCategory").ToString();
+    FallbackIconIdentifier = Category.IsEmpty() ? FName(TEXT("Resources")) : FName(*Category);
     bShowTier = false;
     bShowCount = bShowCount && Count > 0;
     if (PreviousDefinition != GetArtDefinitionIdentifier())

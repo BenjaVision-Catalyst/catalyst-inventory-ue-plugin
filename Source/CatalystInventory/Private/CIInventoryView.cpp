@@ -105,6 +105,7 @@ private:
             Existing->Fields.Add(Field.get());
         }
 
+        bool bHasItems = false;
         for (const FGroup& Group : Groups)
         {
             bool bStartedGroup = false;
@@ -124,13 +125,22 @@ private:
                     Tile->Theme = SurfaceTheme;
                     Tile->BindItem(Item);
                     Tile->Icon = Icons.FindRef(Tile->GetArtDefinitionIdentifier()).Get();
+                    if (bResources && Tile->FallbackIconIdentifier == TEXT("Resources"))
+                    {
+                        Tile->FallbackIconIdentifier = FName(UTF8_TO_TCHAR(Field->id.c_str()));
+                    }
                     const auto* Equipment = Cast<UCIEquipmentTile>(Tile);
                     const bool bToolsWeapons = Equipment && (Equipment->PresentationKind == TEXT("weapon")
                         || Equipment->PresentationKind == TEXT("tool"));
                     Tile->GridColumnSpan = bToolsWeapons ? 2 : Span;
                     Grid->AddItem(*Tile, Tile->GridColumnSpan);
+                    bHasItems = true;
                 }
             }
+        }
+        if (bResources && !bHasItems)
+        {
+            Grid->AddHeading(NSLOCTEXT("Inventory", "EmptyResources", "No resources in inventory"));
         }
         return Grid;
     }

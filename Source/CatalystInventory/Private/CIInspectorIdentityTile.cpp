@@ -1,4 +1,5 @@
 #include "CIInspectorIdentityTile.h"
+#include "CIResourceTile.h"
 
 #include "SCIInspectorConsumableIcon.h"
 #include "Widgets/Layout/SBorder.h"
@@ -36,6 +37,9 @@ void UCIInspectorIdentityTile::InitializeFrom(const UCIInventoryTile& Source)
     bShowTier = Source.bShowTier;
     Label = Source.GetItemLabel();
     Icon = Source.GetInspectorIcon();
+    FallbackIconIdentifier = Source.FallbackIconIdentifier;
+    bShowCount = Source.IsA<UCIResourceTile>() && Source.bShowCount;
+    Count = Source.Count;
 }
 
 TSharedRef<SWidget> UCIInspectorIdentityTile::BuildInventoryContent()
@@ -84,6 +88,12 @@ TSharedRef<SWidget> UCIInspectorIdentityTile::BuildInventoryContent()
         const FText ArmourLine = FText::Format(NSLOCTEXT("Inventory", "InspectorArmour", "{0} Armour"), Armour);
         Identity->AddSlot().AutoHeight()[Text(ArmourLine, Style.GroupLabelFont)];
     }
+    if (bShowCount)
+    {
+        Identity->AddSlot().AutoHeight()
+        [Text(FText::Format(NSLOCTEXT("Inventory", "ResourceQuantity", "Quantity {0}"), FText::AsNumber(Count)),
+            Style.GroupLabelFont)];
+    }
     const FString IconId = ConsumableIcon.ToString();
     const bool bFuel = IconId == TEXT("fuel");
     const bool bHasConsumableIcon = bFuel || IconId == TEXT("cartridge");
@@ -105,7 +115,7 @@ TSharedRef<SWidget> UCIInspectorIdentityTile::BuildInventoryContent()
     }
 
     auto Header = SNew(SHorizontalBox);
-    if (Icon)
+    if (Icon || !FallbackIconIdentifier.IsNone())
     {
         Header->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 8.f, 0.f)
         [
