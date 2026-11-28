@@ -784,9 +784,18 @@ public:
         return nullptr;
     }
 
+    const UCIInventoryTile* GetInspectedTile() const
+    {
+        if (SlotPicker && SlotPickerRows.IsValidIndex(SlotChoice))
+        {
+            return SlotPickerRows[SlotChoice].Get();
+        }
+        return GetSelectedTile();
+    }
+
     FText GetInspectorLabel() const
     {
-        const auto* Tile = GetSelectedTile();
+        const auto* Tile = GetInspectedTile();
         return Tile ? Tile->GetItemLabel() : FText::GetEmpty();
     }
     const FCIInventoryNavigationInput& GetNavigationInput() const { return NavigationInput; }
@@ -3374,43 +3383,93 @@ private:
         auto Grid = SNew(SVerticalBox);
         TSharedPtr<SHorizontalBox> Row;
         int32 Index = 0;
+        const auto AddStat = [&](const FText& Label, const FText& Value, const FString& Unit = FString())
+        {
+            if (Index % Columns == 0)
+            {
+                Row = SNew(SHorizontalBox);
+                Grid->AddSlot().AutoHeight().Padding(0.f, Index == 0 ? 0.f : 4.f, 0.f, 0.f)[Row.ToSharedRef()];
+            }
+            auto ValueLine = SNew(SHorizontalBox)
+                + SHorizontalBox::Slot().AutoWidth()
+                [SNew(STextBlock).Text(Value).Font(ValueFont).ColorAndOpacity(FLinearColor::White)];
+            if (!Unit.IsEmpty())
+            {
+                ValueLine->AddSlot().AutoWidth()
+                [
+                    SNew(STextBlock).Text(FText::FromString(Unit)).Font(ValueFont)
+                    .ColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, .55f))
+                ];
+            }
+            Row->AddSlot().FillWidth(1.f).Padding(0.f, 0.f, 6.f, 0.f)
+            [
+                SNew(SVerticalBox)
+                + SVerticalBox::Slot().AutoHeight()[InspectorText(Label, Theme->LabelFont)]
+                + SVerticalBox::Slot().AutoHeight()[ValueLine]
+            ];
+            ++Index;
+        };
+
+        TOptional<double> Damage;
+        TOptional<double> RoundsPerMinute;
+        bool bHasDps = false;
         for (const auto& Field : Section.Describe().orderedChildren())
         {
             if (!IsInspectorFieldVisible(*Field))
             {
                 continue;
             }
+            const auto Label = InspectorValue(Field->property("label"));
+            const FString Name = Label.ToString();
             auto Data = Section.Read(*Field);
+            const bool bRange = Name.Equals(TEXT("Optimal Range"), ESearchCase::IgnoreCase);
+            const bool bReload = Name.Equals(TEXT("Reload Time"), ESearchCase::IgnoreCase);
+            const FString Unit = bRange ? TEXT("m") : bReload ? TEXT("s") : TEXT("");
             if (auto* Text = std::get_if<std::string>(&Data.data))
             {
-                for (const std::string_view Unit : {" RPM", " rounds"})
+                if ((bRange && Text->ends_with('m')) || (bReload && Text->ends_with('s')))
                 {
-                    if (Text->ends_with(Unit))
+                    Text->pop_back();
+                    while (Text->ends_with(' ')) { Text->pop_back(); }
+                }
+                for (const std::string_view RemovedUnit : {" RPM", " rounds"})
+                {
+                    if (Text->ends_with(RemovedUnit))
                     {
-                        Text->resize(Text->size() - Unit.size());
+                        Text->resize(Text->size() - RemovedUnit.size());
                         break;
                     }
                 }
             }
-            const auto Value = InspectorValue(Data);
+            auto Value = InspectorValue(Data);
             if (Value.IsEmpty())
             {
                 continue;
             }
-            if (Index % Columns == 0)
+            const bool bDamage = Name.Equals(TEXT("Damage"), ESearchCase::IgnoreCase)
+                || Name.Equals(TEXT("DMG"), ESearchCase::IgnoreCase);
+            const bool bDps = Name.Equals(TEXT("DPS"), ESearchCase::IgnoreCase)
+                || Name.Equals(TEXT("Damage per second"), ESearchCase::IgnoreCase);
+            if (bDamage || bDps)
             {
-                Row = SNew(SHorizontalBox);
-                Grid->AddSlot().AutoHeight().Padding(0.f, Index == 0 ? 0.f : 4.f, 0.f, 0.f)[Row.ToSharedRef()];
+                const auto Number = CIInventoryRowData::Number(Data);
+                if (Number)
+                {
+                    Value = CIInventoryRowData::FormatWeaponDamage(*Number);
+                }
+                if (bDamage) { Damage = Number; }
+                bHasDps |= bDps;
             }
-            Row->AddSlot().FillWidth(1.f).Padding(0.f, 0.f, 6.f, 0.f)
-            [
-                SNew(SVerticalBox)
-                + SVerticalBox::Slot().AutoHeight()
-                [InspectorText(InspectorValue(Field->property("label")), Theme->LabelFont)]
-                + SVerticalBox::Slot().AutoHeight()
-                [InspectorText(Value, ValueFont)]
-            ];
-            ++Index;
+            else if (Name.Equals(TEXT("Fire rate"), ESearchCase::IgnoreCase))
+            {
+                RoundsPerMinute = CIInventoryRowData::Number(Data);
+            }
+            AddStat(Label, Value, Unit);
+        }
+        if (!bHasDps && Damage && RoundsPerMinute)
+        {
+            AddStat(NSLOCTEXT("Inventory", "InspectorDps", "DPS"),
+                CIInventoryRowData::FormatWeaponDamage(CIInventoryRowData::DamagePerSecond(*Damage, *RoundsPerMinute)));
         }
         return Grid;
     }
@@ -3586,7 +3645,7 @@ private:
 
     void RenderInspector(const FInventoryShellLayout& Layout, float DeltaTime)
     {
-        const auto* Tile = GetSelectedTile();
+        const auto* Tile = GetInspectedTile();
         if (!Tile || Tile->GetItemLabel().IsEmpty() || Layout.InspectorExtent.GetMin() < 1.0)
         {
             InspectorTexture.Reset();

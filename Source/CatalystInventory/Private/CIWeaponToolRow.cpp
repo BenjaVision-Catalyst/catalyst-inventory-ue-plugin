@@ -71,17 +71,7 @@ TArray<UCIWeaponToolRow::FStat> UCIWeaponToolRow::ReadStats(const FCFMagritteBin
             const auto Value = Stat.Read(*Field);
             if (Field->id == "statIdentifier") { Id = ReadIdentifier(Value); }
             else if (Field->id == "displayName") { Name = ReadIdentifier(Value); }
-            else if (Field->id == "value")
-            {
-                if (const auto* Real = std::get_if<double>(&Value.data); Real && FMath::IsFinite(*Real))
-                {
-                    Number = *Real;
-                }
-                else if (const auto* Integer = std::get_if<std::int64_t>(&Value.data))
-                {
-                    Number = static_cast<double>(*Integer);
-                }
-            }
+            else if (Field->id == "value") { Number = CIInventoryRowData::Number(Value); }
         }
         if (!Id.IsEmpty() && Number.IsSet())
         {
@@ -95,7 +85,8 @@ TArray<UCIWeaponToolRow::FStat> UCIWeaponToolRow::ReadStats(const FCFMagritteBin
             for (const auto& Field : StatsCard->Describe().orderedChildren())
             {
                 const FText Label = CIInventoryRowData::DisplayValue(Field->property("label"));
-                FString Display = CIInventoryRowData::DisplayValue(StatsCard->Read(*Field)).ToString();
+                auto Data = StatsCard->Read(*Field);
+                FString Display = CIInventoryRowData::DisplayValue(Data).ToString();
                 Display.RemoveFromEnd(TEXT(" RPM"));
                 Display.RemoveFromEnd(TEXT(" rounds"));
                 if (!Label.IsEmpty() && !Display.IsEmpty())
@@ -105,13 +96,11 @@ TArray<UCIWeaponToolRow::FStat> UCIWeaponToolRow::ReadStats(const FCFMagritteBin
                     {
                         continue;
                     }
-                    TOptional<double> Value;
-                    double Number;
-                    if (Display.IsNumeric() && LexTryParseString(Number, *Display))
+                    if (std::holds_alternative<std::string>(Data.data))
                     {
-                        Value = Number;
+                        Data = magritte::Value(std::string(TCHAR_TO_UTF8(*Display)));
                     }
-                    Result.Add({Id, Label, Value, FText::FromString(Display)});
+                    Result.Add({Id, Label, CIInventoryRowData::Number(Data), FText::FromString(Display)});
                 }
             }
         }
@@ -121,13 +110,15 @@ TArray<UCIWeaponToolRow::FStat> UCIWeaponToolRow::ReadStats(const FCFMagritteBin
     for (FStat& Stat : Result)
     {
         const FString Name = Stat.Label.ToString();
-        if (Name.Equals(TEXT("Damage"), ESearchCase::IgnoreCase) || Stat.Id == TEXT("damagePerShot"))
+        if (Name.Equals(TEXT("Damage"), ESearchCase::IgnoreCase) || Name.Equals(TEXT("DMG"), ESearchCase::IgnoreCase)
+            || Stat.Id == TEXT("damagePerShot"))
         {
             Stat.Label = LOCTEXT("DamageAbbreviation", "DMG");
             Stat.Id = TEXT("damagePerShot");
             Damage = Stat.Value;
         }
-        else if (Name.Equals(TEXT("DPS"), ESearchCase::IgnoreCase) || Stat.Id == TEXT("damagePerSecond"))
+        else if (Name.Equals(TEXT("DPS"), ESearchCase::IgnoreCase)
+            || Name.Equals(TEXT("Damage per second"), ESearchCase::IgnoreCase) || Stat.Id == TEXT("damagePerSecond"))
         {
             Stat.Label = LOCTEXT("DpsAbbreviation", "DPS");
             Stat.Id = TEXT("damagePerSecond");
@@ -153,7 +144,7 @@ TArray<UCIWeaponToolRow::FStat> UCIWeaponToolRow::ReadStats(const FCFMagritteBin
                 }
                 else
                 {
-                    const double Dps = *Damage * *Stat.Value / 60.0;
+                    const double Dps = CIInventoryRowData::DamagePerSecond(*Damage, *Stat.Value);
                     Stat = {TEXT("damagePerSecond"), LOCTEXT("DpsAbbreviation", "DPS"), Dps, FText::AsNumber(Dps)};
                 }
                 break;
@@ -228,8 +219,11 @@ void UCIWeaponToolRow::RefreshStats()
     {
         FLinearColor Tint = Style.TextTint;
         FText Display = Stat.Display;
-        if (Stat.Value && (Stat.Id == TEXT("damagePerShot") || Stat.Id == TEXT("damagePerSecond")
-            || Stat.Id == TEXT("magazineCapacity")))
+        if (Stat.Value && (Stat.Id == TEXT("damagePerShot") || Stat.Id == TEXT("damagePerSecond")))
+        {
+            Display = CIInventoryRowData::FormatWeaponDamage(*Stat.Value);
+        }
+        else if (Stat.Value && Stat.Id == TEXT("magazineCapacity"))
         {
             FNumberFormattingOptions Formatting;
             Formatting.SetMaximumFractionalDigits(0);
@@ -259,7 +253,7 @@ void UCIWeaponToolRow::RefreshStats()
                         + SHorizontalBox::Slot().AutoWidth()
                         [SNew(SBox).WidthOverride(12.f)]
                         + SHorizontalBox::Slot().AutoWidth()
-                        [SNew(STextBlock).Text(Display).Font(Style.CountFont).ColorAndOpacity(Tint)]
+                        [SNew(STextBlock).Text(Display).Font(Style.CountFont).ColorAndOpacity(FLinearColor::White)]
                         + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
                         [
                             SNew(SBox).WidthOverride(12.f).HAlign(HAlign_Right)

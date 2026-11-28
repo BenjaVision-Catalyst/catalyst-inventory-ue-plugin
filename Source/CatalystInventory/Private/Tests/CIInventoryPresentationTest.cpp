@@ -5,6 +5,7 @@
 #include "CIInventoryModel.h"
 #include "../CIInventorySavedSetRows.h"
 #include "CIInventoryShell.h"
+#include "CIInventoryRowData.h"
 #include "CIInventoryProfile.h"
 #include "CIInventoryTile.h"
 #include "CIInventoryView.h"
@@ -615,12 +616,20 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         {
             return Widget->OnKeyDown(Geometry, FKeyEvent(Key, FModifierKeysState(), 0, false, 0, 0)).IsEventHandled();
         };
+        TestEqual(TEXT("Weapon damage rounds to compact thousands"),
+            CIInventoryRowData::FormatWeaponDamage(12179.0).ToString(), FString(TEXT("12K")));
+        TestEqual(TEXT("Weapon DPS rounds to the nearest thousand"),
+            CIInventoryRowData::FormatWeaponDamage(257800.0).ToString(), FString(TEXT("258K")));
         TestTrue(TEXT("Confirm opens a slot picker for the focused tile"), Press(EKeys::Enter));
         Widget->Tick(Geometry, .4, .2f);
         TestTrue(TEXT("Back cancels item picking"), Press(EKeys::BackSpace));
+        TestEqual(TEXT("Closing the picker restores the equipped item's inspector"),
+            Shell->GetInspectorLabelForTest().ToString(), FString(TEXT("Pathfinder Carbine")));
         TestTrue(TEXT("Cancelling leaves the equipped item alone"), EquippedIdentifier.IsEmpty());
         Press(EKeys::Enter);
         Press(EKeys::Down);
+        TestEqual(TEXT("The inspector follows the highlighted weapon before equipping"),
+            Shell->GetInspectorLabelForTest().ToString(), FString(TEXT("Relay Sidearm")));
         Press(EKeys::Enter);
         TestEqual(TEXT("The picker equips the selected compatible item"), EquippedIdentifier, FString(TEXT("reserve")));
 

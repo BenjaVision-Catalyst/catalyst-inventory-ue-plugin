@@ -21,6 +21,42 @@ inline FText DisplayValue(const magritte::Value& Value)
     return FText::GetEmpty();
 }
 
+inline TOptional<double> Number(const magritte::Value& Value)
+{
+    if (const auto* Integer = std::get_if<std::int64_t>(&Value.data))
+    {
+        return double(*Integer);
+    }
+    if (const auto* Real = std::get_if<double>(&Value.data); Real && FMath::IsFinite(*Real))
+    {
+        return *Real;
+    }
+    if (const auto* Text = std::get_if<std::string>(&Value.data))
+    {
+        double Parsed;
+        if (LexTryParseString(Parsed, UTF8_TO_TCHAR(Text->c_str())) && FMath::IsFinite(Parsed))
+        {
+            return Parsed;
+        }
+    }
+    return {};
+}
+
+inline FText FormatWeaponDamage(double Value)
+{
+    FNumberFormattingOptions Formatting;
+    Formatting.SetMaximumFractionalDigits(0);
+    return Value > 1000.0
+        ? FText::Format(NSLOCTEXT("CatalystInventory", "ThousandsAbbreviation", "{0}K"),
+            FText::AsNumber(Value / 1000.0, &Formatting))
+        : FText::AsNumber(Value, &Formatting);
+}
+
+inline double DamagePerSecond(double Damage, double RoundsPerMinute)
+{
+    return Damage * RoundsPerMinute / 60.0;
+}
+
 inline FText NormalizeLabel(const FText& Label)
 {
     const FString Name = Label.ToString();
