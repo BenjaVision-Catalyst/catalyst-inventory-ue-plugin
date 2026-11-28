@@ -650,15 +650,15 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         {
             Widget->OnKeyUp(Geometry, FKeyEvent(Key, FModifierKeysState(), 0, false, 0, 0));
         };
-        TestTrue(TEXT("R1 opens resource categories"), Press(EKeys::Gamepad_RightShoulder));
-        Release(EKeys::Gamepad_RightShoulder);
+        TestTrue(TEXT("L2 opens resource categories"), Press(EKeys::Gamepad_LeftTrigger));
+        Release(EKeys::Gamepad_LeftTrigger);
         Widget->Tick(Geometry, 2.2, .2f);
         TestEqual(TEXT("Opening categories keeps the focused stack"), Shell->GetInspectorLabelForTest().ToString(),
             FString(TEXT("Credits")));
         Press(EKeys::Down);
         Widget->Tick(Geometry, 2.3, .2f);
-        TestTrue(TEXT("R1 closes resource categories"), Press(EKeys::Gamepad_RightShoulder));
-        Release(EKeys::Gamepad_RightShoulder);
+        TestTrue(TEXT("L2 closes resource categories"), Press(EKeys::Gamepad_LeftTrigger));
+        Release(EKeys::Gamepad_LeftTrigger);
         TestEqual(TEXT("Selecting Keys focuses the first key"), Shell->GetInspectorLabelForTest().ToString(),
             FString(TEXT("Depot Key")));
         Press(EKeys::Q);

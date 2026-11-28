@@ -402,8 +402,7 @@ public:
         const FText SectionAction = bResources
             ? NSLOCTEXT("Inventory", "ResourceCategories", "Categories") : SavedSetsLabel(CurrentSection);
         const double ActionRight = Right;
-        DrawPrompt(SectionAction, bResources ? EKeys::C : EKeys::G,
-            bResources ? EKeys::Gamepad_RightShoulder : EKeys::Gamepad_LeftTrigger);
+        DrawPrompt(SectionAction, bResources ? EKeys::C : EKeys::G, EKeys::Gamepad_LeftTrigger);
         if (HasNavigableGrid(CurrentSection))
         {
             SavedSetsBounds = FSlateRect(Right + ActionPromptGap, 0.0, ActionRight, 25.0);
@@ -798,14 +797,6 @@ public:
                 }
                 return FReply::Handled();
             }
-        }
-        if (ActionSection.Get() == ResourcesSection && Key == EKeys::Gamepad_RightShoulder)
-        {
-            if (!Event.IsRepeat())
-            {
-                ToggleResourceCategories();
-            }
-            return FReply::Handled();
         }
         if (ActionSection.Get() == ResourcesSection && bSavedSetsOpen && bConfirmSlot)
         {
@@ -1413,10 +1404,18 @@ private:
     bool UpdateNavigationTrigger()
     {
         const bool bToggle = NavigationInput.UpdateTrigger();
-        const bool bHandled = HasSavedSets(ActionSection.Get());
+        const FName Section = ActionSection.Get();
+        const bool bHandled = HasNavigableGrid(Section);
         if (bToggle && bHandled && !OptionsWindow.IsValid())
         {
-            ToggleSavedSets();
+            if (Section == ResourcesSection)
+            {
+                ToggleResourceCategories();
+            }
+            else
+            {
+                ToggleSavedSets();
+            }
         }
         return bHandled;
     }
@@ -2938,10 +2937,6 @@ private:
 
     void RedrawMenu()
     {
-        const bool bUsesR1ForCategories = ActionSection.Get() == ResourcesSection
-            && Menu->PreviousPrompt.ToString() != TEXT("Q");
-        const TGuardValue<FText> TabPrompt(Menu->NextPrompt,
-            bUsesR1ForCategories ? FText::GetEmpty() : Menu->NextPrompt);
         MenuWidget->SlatePrepass(1.f);
         const auto Desired = MenuWidget->GetDesiredSize();
         const FVector2D Size(FMath::CeilToInt(Desired.X), FMath::CeilToInt(Desired.Y));
