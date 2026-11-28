@@ -670,6 +670,35 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
             Widget->Tick(Geometry, 2.15, .2f);
             TestEqual(TEXT("Up at the first resource row reveals the top heading"), ResourceGrid->GetScrollOffset(), 0.f);
         }
+        FGuid SplitRequest;
+        int32 SplitCount = 0;
+        FCIInventoryResourceActions Actions;
+        Actions.Read = [](const FString&) -> TOptional<FCIInventoryStackState> {
+            return FCIInventoryStackState{240, true, false};
+        };
+        Actions.Commit = [&](const FGuid& Request, const FString&, int32 Expected, int32 Count, bool bJoin) {
+            SplitRequest = Request;
+            SplitCount = Count;
+            return Expected == 240 && !bJoin;
+        };
+        Actions.Poll = [&](const FGuid& Request) -> TOptional<FCIInventoryStackResult> {
+            return Request == SplitRequest ? TOptional<FCIInventoryStackResult>(
+                FCIInventoryStackResult{TEXT("split-result"), {}}) : TOptional<FCIInventoryStackResult>();
+        };
+        Shell->SetResourceActions(MoveTemp(Actions));
+        TestTrue(TEXT("Select opens the projected quantity tile"), Press(EKeys::Enter));
+        Widget->Tick(Geometry, 2.16, .12f);
+        TestTrue(TEXT("A stack preview captures input"), Shell->HasResourceInteraction());
+        Press(EKeys::Down);
+        Press(EKeys::S);
+        TestEqual(TEXT("Split receives the adjusted quantity"), SplitCount, 239);
+        for (int32 Frame = 0; Frame < 4; ++Frame)
+        {
+            Widget->Tick(Geometry, 2.17 + Frame * .03, .08f);
+        }
+        TestFalse(TEXT("The split completes its projected landing"), Shell->HasResourceInteraction());
+        Shell->SetResourceActions({});
+
         TestTrue(TEXT("L2 opens resource categories"), Press(EKeys::Gamepad_LeftTrigger));
         Release(EKeys::Gamepad_LeftTrigger);
         Widget->Tick(Geometry, 2.2, .2f);

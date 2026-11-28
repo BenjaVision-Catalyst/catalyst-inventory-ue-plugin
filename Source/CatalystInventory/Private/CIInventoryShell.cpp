@@ -312,6 +312,10 @@ public:
         SLATE_ATTRIBUTE(bool, SlotPickerOpen)
         SLATE_ATTRIBUTE(bool, SlotPickerAvailable)
         SLATE_ATTRIBUTE(bool, SlotChoiceAvailable)
+        SLATE_ATTRIBUTE(bool, ResourceOpen)
+        SLATE_ATTRIBUTE(bool, ResourceAvailable)
+        SLATE_ATTRIBUTE(bool, ResourceCanSplit)
+        SLATE_ATTRIBUTE(bool, ResourceCanJoin)
         SLATE_ATTRIBUTE(bool, ConfirmEquips)
         SLATE_ATTRIBUTE(bool, ConfirmAvailable)
         SLATE_ATTRIBUTE(bool, OverwriteAvailable)
@@ -329,6 +333,10 @@ public:
         SlotPickerOpen = Args._SlotPickerOpen;
         SlotPickerAvailable = Args._SlotPickerAvailable;
         SlotChoiceAvailable = Args._SlotChoiceAvailable;
+        ResourceOpen = Args._ResourceOpen;
+        ResourceAvailable = Args._ResourceAvailable;
+        ResourceCanSplit = Args._ResourceCanSplit;
+        ResourceCanJoin = Args._ResourceCanJoin;
         ConfirmEquips = Args._ConfirmEquips;
         ConfirmAvailable = Args._ConfirmAvailable;
         OverwriteAvailable = Args._OverwriteAvailable;
@@ -388,7 +396,7 @@ public:
             Right -= ActionPromptGap;
         };
 
-        DrawPrompt(SlotPickerOpen.Get() ? NSLOCTEXT("Inventory", "SlotPickerBack", "Back")
+        DrawPrompt(SlotPickerOpen.Get() || ResourceOpen.Get() ? NSLOCTEXT("Inventory", "SlotPickerBack", "Back")
             : NSLOCTEXT("Inventory", "CloseActionLabel", "Close"), EKeys::BackSpace, EKeys::Gamepad_FaceButton_Right);
         CloseBounds = FSlateRect(Right + ActionPromptGap, 0.0, Geometry.GetLocalSize().X, 25.0);
         if (SlotPickerOpen.Get())
@@ -397,6 +405,18 @@ public:
             DrawPrompt(NSLOCTEXT("Inventory", "EquipActionLabel", "Equip"), EKeys::Enter,
                 EKeys::Gamepad_FaceButton_Bottom, SlotChoiceAvailable.Get());
             ConfirmBounds = FSlateRect(Right + ActionPromptGap, 0.0, ConfirmRight, 25.0);
+            return Layer + 2;
+        }
+        if (bResources && ResourceOpen.Get())
+        {
+            const double SplitRight = Right;
+            DrawPrompt(NSLOCTEXT("Inventory", "SplitResource", "Split"), EKeys::S, EKeys::Gamepad_FaceButton_Top,
+                ResourceCanSplit.Get());
+            OptionsBounds = FSlateRect(Right + ActionPromptGap, 0.0, SplitRight, 25.0);
+            const double JoinRight = Right;
+            DrawPrompt(NSLOCTEXT("Inventory", "JoinResource", "Join"), EKeys::F2, EKeys::Gamepad_FaceButton_Left,
+                ResourceCanJoin.Get());
+            ConfirmBounds = FSlateRect(Right + ActionPromptGap, 0.0, JoinRight, 25.0);
             return Layer + 2;
         }
         const FText SectionAction = bResources
@@ -412,7 +432,10 @@ public:
             DrawPrompt(NSLOCTEXT("Inventory", "ResourceRadials", "Radials"), EKeys::F2, EKeys::Gamepad_FaceButton_Left, false);
             Right = Geometry.GetLocalSize().X;
             Y += 28.0;
-            DrawPrompt(NSLOCTEXT("Inventory", "SelectResourceStack", "Select"), EKeys::Enter, EKeys::Gamepad_FaceButton_Bottom, false);
+            const double SelectRight = Right;
+            DrawPrompt(NSLOCTEXT("Inventory", "SelectResourceStack", "Select"), EKeys::Enter,
+                EKeys::Gamepad_FaceButton_Bottom, ResourceAvailable.Get() && !SavedSetsOpen.Get());
+            ConfirmBounds = FSlateRect(Right + ActionPromptGap, 25.0, SelectRight, FooterHeight);
             DrawPrompt(NSLOCTEXT("Inventory", "ResourceDrop", "Drop"), EKeys::Delete, EKeys::Gamepad_RightThumbstick,
                 false, !bKeyboard);
         }
@@ -453,6 +476,10 @@ private:
     TAttribute<bool> SlotPickerOpen;
     TAttribute<bool> SlotPickerAvailable;
     TAttribute<bool> SlotChoiceAvailable;
+    TAttribute<bool> ResourceOpen;
+    TAttribute<bool> ResourceAvailable;
+    TAttribute<bool> ResourceCanSplit;
+    TAttribute<bool> ResourceCanJoin;
     TAttribute<bool> ConfirmEquips;
     TAttribute<bool> ConfirmAvailable;
     TAttribute<bool> OverwriteAvailable;
@@ -532,6 +559,10 @@ public:
                 .SlotPickerOpen_Lambda([this] { return SlotPicker.IsSet(); })
                 .SlotPickerAvailable_Lambda([this] { return SlotPickerSource && HasSavedSets(ActionSection.Get()); })
                 .SlotChoiceAvailable_Lambda([this] { return SlotPicker && SlotPicker->Choices.IsValidIndex(SlotChoice); })
+                .ResourceOpen_Lambda([this] { return HasResourceInteraction(); })
+                .ResourceAvailable_Lambda([this] { return ResourceActions.Read && GetSelectedTile(); })
+                .ResourceCanSplit_Lambda([this] { return CanCommitResource(false); })
+                .ResourceCanJoin_Lambda([this] { return CanCommitResource(true); })
                 .ConfirmEquips(ConfirmEquips)
                 .ConfirmAvailable(ConfirmAvailable)
                 .OverwriteAvailable_Lambda([this] { return HoldTarget(ESavedSetHold::Overwrite).IsValid(); })
@@ -563,6 +594,8 @@ public:
 
     void SetCloseAction(const FSimpleDelegate& Action) { OnClose = Action; }
     void SetSlotPickerSource(FCIInventorySlotPickerSource Source) { SlotPickerSource = MoveTemp(Source); }
+    void SetResourceActions(FCIInventoryResourceActions Actions) { ResourceActions = MoveTemp(Actions); }
+    bool HasResourceInteraction() const { return ResourcePreviewTile.IsValid(); }
 
     void SetSavedSets(const TArray<FCIInventorySavedSet>& Sets)
     {
@@ -587,10 +620,14 @@ public:
         SelectSavedSet(Index);
     }
 
-    TMap<FName, TPair<FIntPoint, FString>> GetTabSelections() const
+    TMap<FName, TPair<FIntPoint, FString>> GetTabSelections(bool bPreferResourceLanding = false) const
     {
         auto Selections = TabSelections;
-        if (const auto* Tile = GetSelectedTile())
+        if (bPreferResourceLanding && !ResourceLandingId.IsEmpty())
+        {
+            Selections.Add(ResourcesSection, {GridFocus, ResourceLandingId});
+        }
+        else if (const auto* Tile = GetSelectedTile())
         {
             const auto& Item = Tile->GetInspectorItem();
             Selections.Add(ActionSection.Get(), {GridFocus,
@@ -740,6 +777,43 @@ public:
         const FKey Key = Event.GetKey();
         const bool bConfirmSlot = Key == EKeys::Enter || Key == EKeys::Gamepad_FaceButton_Bottom;
         const bool bBackSlot = Key == EKeys::BackSpace || Key == EKeys::Escape || Key == EKeys::Gamepad_FaceButton_Right;
+        if (HasResourceInteraction())
+        {
+            if (bBackSlot || Key == EKeys::Tab || Key == EKeys::Gamepad_Special_Right)
+            {
+                if (!ResourceRequest.IsValid() && !ResourceResult)
+                {
+                    bResourceClosing = true;
+                }
+                return FReply::Handled();
+            }
+            if (Key == EKeys::S || Key == EKeys::Gamepad_FaceButton_Top)
+            {
+                if (!Event.IsRepeat()) { CommitResource(false); }
+                return FReply::Handled();
+            }
+            if (Key == EKeys::F2 || Key == EKeys::Gamepad_FaceButton_Left)
+            {
+                if (!Event.IsRepeat()) { CommitResource(true); }
+                return FReply::Handled();
+            }
+            const FIntPoint Direction = NavigationDirection(Key);
+            if (Key.IsGamepadKey() && Direction != FIntPoint::ZeroValue)
+            {
+                NavigationInput.SetPad(Direction, true);
+                MoveNavigation(NavigationInput.Step(FPlatformTime::Seconds()));
+            }
+            else
+            {
+                ChangeResourceQuantity(Direction);
+            }
+            return FReply::Handled();
+        }
+        if (ActionSection.Get() == ResourcesSection && !bSavedSetsOpen && bConfirmSlot
+            && !Event.IsRepeat() && OpenResourcePreview())
+        {
+            return FReply::Handled();
+        }
         if (SlotPicker && bBackSlot)
         {
             SlotPicker.Reset();
@@ -909,6 +983,12 @@ public:
         }
         if (Key == EKeys::Gamepad_LeftX || Key == EKeys::Gamepad_LeftY)
         {
+            if (HasResourceInteraction())
+            {
+                if (Key == EKeys::Gamepad_LeftX) { ResourceStickX = Event.GetAnalogValue(); }
+                else { ResourceStickY = Event.GetAnalogValue(); }
+                return FReply::Handled();
+            }
             NavigationInput.SetStickAxis(Key == EKeys::Gamepad_LeftX, Event.GetAnalogValue());
             return HasNavigableGrid(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
         }
@@ -918,6 +998,7 @@ public:
     void OnFocusLost(const FFocusEvent&) override
     {
         RightStickScrollRate = 0.f;
+        ResourceStickX = ResourceStickY = 0.f;
         NavigationInput = {};
         for (const auto Action : SavedSetHoldActions)
         {
@@ -928,6 +1009,10 @@ public:
 
     FReply OnMouseWheel(const FGeometry& Geometry, const FPointerEvent& Event) override
     {
+        if (HasResourceInteraction())
+        {
+            return FReply::Handled();
+        }
         if (SlotPicker && !OptionsWindow.IsValid())
         {
             const auto Layout = GetLayout(Geometry.GetLocalSize());
@@ -980,6 +1065,21 @@ public:
             const auto Layout = GetLayout(Geometry.GetLocalSize());
             const FVector2D PlanePoint = Layout.Left.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()));
             const FVector2D FooterPoint = (PlanePoint - Layout.FooterOrigin) / Layout.Scale;
+            if (HasResourceInteraction())
+            {
+                if (FooterWidget->IsOverClose(FooterPoint) && !ResourceRequest.IsValid() && !ResourceResult)
+                {
+                    bResourceClosing = true;
+                }
+                else if (FooterWidget->IsOverOptions(FooterPoint)) { CommitResource(false); }
+                else if (FooterWidget->IsOverConfirm(FooterPoint)) { CommitResource(true); }
+                return FReply::Handled();
+            }
+            if (ActionSection.Get() == ResourcesSection && !bSavedSetsOpen
+                && FooterWidget->IsOverConfirm(FooterPoint) && OpenResourcePreview())
+            {
+                return FReply::Handled();
+            }
             if (SlotPicker)
             {
                 if (FooterWidget->IsOverClose(FooterPoint))
@@ -1185,7 +1285,7 @@ public:
         UWidget* ActivePanel = MainPanel.IsValid() ? MainPanel->GetActiveWidget() : nullptr;
         UWidget* Content = GetPanelContent(ActivePanel);
         SetNavigationGrid(HasNavigableGrid(ActionSection.Get()) ? Cast<UCFSpanGrid>(Content) : nullptr);
-        if (ActionSection.Get() == ResourcesSection && RightStickScrollRate != 0.f && !OptionsWindow.IsValid())
+        if (ActionSection.Get() == ResourcesSection && RightStickScrollRate != 0.f && !OptionsWindow.IsValid() && !HasResourceInteraction())
         {
             ScrollResources(RightStickScrollRate * DeltaTime);
         }
@@ -1287,6 +1387,7 @@ public:
             }
             DrawToTexture(MainTexture, MainRenderRoot.ToSharedRef(), TargetSize, DeltaTime, PaintScale);
             UpdateLiftedTiles(Layout);
+            TickResourcePreview(Layout, DeltaTime);
             if (FooterWidget && (Section == GearSection || Section == ApparelSection || Section == ResourcesSection))
             {
                 DrawToTexture(FooterTexture, FooterWidget.ToSharedRef(),
@@ -1374,6 +1475,19 @@ public:
                 }
             }
         }
+        if (HasResourceInteraction() && ResourcePreviewTexture.IsValid() && ResourcePreviewBounds.GetSize().GetMin() > 0.0)
+        {
+            if (ResourceRemainderTexture.IsValid() && ResourceRemainderAlpha > 0.0)
+            {
+                DrawSurface(Geometry, Elements, Layer + 3, Layout.Left, ResourceRemainderTexture.Get(),
+                    ResourceSourceBounds.Min, ResourceSourceBounds.GetSize(), 0.0, 1.0, ResourceRemainderAlpha);
+            }
+            if (ResourceMovingAlpha > 0.0)
+            {
+                DrawSurface(Geometry, Elements, Layer + 4, Layout.Left, ResourcePreviewTexture.Get(),
+                    ResourcePreviewBounds.Min, ResourcePreviewBounds.GetSize(), 0.0, 1.0, ResourceMovingAlpha);
+            }
+        }
         if (InspectorTexture.IsValid() && Layout.InspectorExtent.GetMin() >= 1.0)
         {
             DrawSurface(Geometry, Elements, Layer + 1, Layout.Right, InspectorTexture.Get(),
@@ -1393,7 +1507,7 @@ public:
                 FooterTexture->SizeY / ProjectionRasterScale);
             DrawSurface(Geometry, Elements, Layer + 2, Layout.Left, FooterTexture.Get(), Layout.FooterOrigin, FooterExtent);
         }
-        return Layer + 3;
+        return Layer + (HasResourceInteraction() ? 5 : 3);
     }
 
 private:
@@ -1509,11 +1623,12 @@ private:
             for (int32 Y = 0; Y < NavigationRows.Num(); ++Y)
             {
                 const auto& Cells = NavigationRows[Y].Cells;
-                const int32 X = Cells.IndexOfByPredicate([&Identifier](const auto& Cell)
+                const int32 X = Cells.IndexOfByPredicate([this, &Identifier](const auto& Cell)
                 {
                     const auto* Tile = Cell.Tile.Get();
                     return Tile && Tile->GetInspectorItem()
-                        && Identifier.Equals(UTF8_TO_TCHAR(Tile->GetInspectorItem()->ObjectId().c_str()), ESearchCase::CaseSensitive);
+                        && (Identifier.Equals(UTF8_TO_TCHAR(Tile->GetInspectorItem()->ObjectId().c_str()), ESearchCase::CaseSensitive)
+                            || (ActionSection.Get() == ResourcesSection && Identifier == ResourceItemId(*Tile)));
                 });
                 if (X != INDEX_NONE)
                 {
@@ -1757,6 +1872,11 @@ private:
         {
             return;
         }
+        if (HasResourceInteraction())
+        {
+            ChangeResourceQuantity(Direction);
+            return;
+        }
         if (SlotPicker)
         {
             SlotChoice = FMath::Clamp(SlotChoice + Direction.Y, 0, FMath::Max(0, SlotPicker->Choices.Num() - 1));
@@ -1810,6 +1930,328 @@ private:
             }
             Grid->ScrollWidgetIntoView(const_cast<UCIInventoryTile*>(GetSelectedTile()), false,
                 EDescendantScrollDestination::IntoView, 8.f);
+        }
+    }
+
+    static FString ResourceItemId(const UCIInventoryTile& Tile)
+    {
+        const auto& Item = Tile.GetInspectorItem();
+        return Item ? CIInventoryRowData::Read(*Item, "itemIdentifier").ToString() : FString();
+    }
+
+    bool OpenResourcePreview()
+    {
+        auto* Tile = const_cast<UCIInventoryTile*>(GetSelectedTile());
+        if (!Tile || !ResourceActions.Read)
+        {
+            return false;
+        }
+        const FString Id = ResourceItemId(*Tile);
+        const auto State = ResourceActions.Read(Id);
+        if (!State || State->Count <= 0)
+        {
+            return false;
+        }
+
+        ResourceLandingId.Reset();
+        ResourceId = Id;
+        ResourceState = *State;
+        ResourceQuantity = State->Count;
+        ResourceSourceTile = Tile;
+        RevealResourceSelection();
+        ResourcePreviewTile.Reset(NewObject<UCIResourceTile>());
+        ResourceRemainderTile.Reset(NewObject<UCIResourceTile>());
+        for (auto* Preview : {ResourcePreviewTile.Get(), ResourceRemainderTile.Get()})
+        {
+            Preview->Theme = InventoryTheme.Get()->CreateProjectedSurfaceTheme(Preview);
+            if (const auto& Item = Tile->GetInspectorItem())
+            {
+                Preview->BindItem(*Item);
+            }
+            Preview->Icon = Tile->GetInspectorIcon();
+            Preview->FallbackIconIdentifier = Tile->FallbackIconIdentifier;
+        }
+        ResourcePreviewTile->bShowZeroCount = true;
+        ResourcePreviewTile->SetVisualState(1.f, 1.f);
+        ResourceOpenBlend = 0.0;
+        ResourceQuantityFraction = 0.0;
+        return true;
+    }
+
+    bool CanCommitResource(bool bJoin) const
+    {
+        return HasResourceInteraction() && !bResourceClosing && !ResourceRequest.IsValid() && !ResourceResult
+            && ResourceQuantity > 0 && (bJoin ? ResourceState.bCanJoin
+                : ResourceState.bCanSplit && ResourceQuantity < ResourceState.Count);
+    }
+
+    void ChangeResourceQuantity(FIntPoint Direction)
+    {
+        if (!HasResourceInteraction() || bResourceClosing || ResourceRequest.IsValid() || ResourceResult)
+        {
+            return;
+        }
+        if (Direction.X != 0)
+        {
+            ResourceQuantity = Direction.X > 0 ? ResourceState.Count : 0;
+        }
+        else if (Direction.Y != 0)
+        {
+            ResourceQuantity = static_cast<int32>(FMath::Clamp<int64>(int64(ResourceQuantity) - Direction.Y,
+                0, ResourceState.Count));
+        }
+    }
+
+    void CommitResource(bool bJoin)
+    {
+        if (!CanCommitResource(bJoin) || !ResourceActions.Commit)
+        {
+            return;
+        }
+        const FGuid Request = FGuid::NewGuid();
+        if (ResourceActions.Commit(Request, ResourceId, ResourceState.Count, ResourceQuantity, bJoin))
+        {
+            ResourceRequest = Request;
+            ResourceDeadline = FPlatformTime::Seconds() + 8.0;
+        }
+    }
+
+    void ResetResourcePreview()
+    {
+        if (auto* Source = ResourceSourceTile.Get())
+        {
+            Source->SetRenderOpacity(1.f);
+        }
+        for (const auto& Entry : ResourceReceiverTiles)
+        {
+            if (auto* Tile = Entry.Key.Get()) { Tile->Count = Entry.Value; }
+        }
+        ResourceReceiverTiles.Reset();
+        ResourcePreviewTile.Reset();
+        ResourceRemainderTile.Reset();
+        ResourcePreviewTexture.Reset();
+        ResourceRemainderTexture.Reset();
+        ResourceRequest.Invalidate();
+        ResourceResult.Reset();
+        ResourceSourceBounds = FBox2D(ForceInit);
+        ResourcePreviewBounds = FBox2D(ForceInit);
+        ResourceStickX = ResourceStickY = 0.f;
+        ResourceAnimationTime = 0.0;
+        ResourceRemainderAlpha = 0.0;
+        ResourceMovingAlpha = 1.0;
+        bResourceClosing = false;
+    }
+
+    UCIInventoryTile* FindResourceTile(const FString& Id) const
+    {
+        for (const auto& Row : NavigationRows)
+        {
+            for (const auto& Cell : Row.Cells)
+            {
+                auto* Tile = Cell.Tile.Get();
+                if (Tile && ResourceItemId(*Tile) == Id) { return Tile; }
+            }
+        }
+        return nullptr;
+    }
+
+    FVector2D ResourceLandingCenter(const FString& Id, const FInventoryShellLayout& Layout) const
+    {
+        const auto* Tile = FindResourceTile(Id);
+        const auto* Grid = NavigationGrid.Get();
+        const auto GridWidget = Grid ? Grid->GetCachedWidget() : nullptr;
+        const auto TileWidget = Tile ? Tile->GetCachedWidget() : nullptr;
+        if (GridWidget && TileWidget)
+        {
+            const auto Bounds = TileBounds(*TileWidget, *GridWidget, Layout.Scale);
+            const auto HalfSize = ResourceSourceBounds.GetSize() * .5;
+            return Layout.MainOrigin + Bounds.GetCenter().ComponentMax(HalfSize)
+                .ComponentMin(Layout.MainExtent - HalfSize);
+        }
+
+        // A new split stack appears immediately after the source with the native stack ordering.
+        const auto Extent = ResourceSourceBounds.GetSize();
+        const auto Center = ResourceSourceBounds.GetCenter();
+        const float Gap = InventoryTheme.Get()->TileGap * Layout.Scale;
+        if (Center.X + Extent.X * 1.5 + Gap <= Layout.MainOrigin.X + Layout.MainExtent.X)
+        {
+            return Center + FVector2D(Extent.X + Gap, 0.0);
+        }
+        return FVector2D(Layout.MainOrigin.X + Extent.X * .5,
+            FMath::Min(Center.Y + Extent.Y + Gap, Layout.MainOrigin.Y + Layout.MainExtent.Y - Extent.Y * .5));
+    }
+
+    void TickResourcePreview(const FInventoryShellLayout& Layout, float DeltaTime)
+    {
+        if (!HasResourceInteraction())
+        {
+            return;
+        }
+
+        constexpr double MotionSeconds = .22;
+        constexpr double CountSeconds = .5;
+        constexpr double CountStart = MotionSeconds * (220.0 / 260.0);
+        const auto* Grid = NavigationGrid.Get();
+        const auto GridWidget = Grid ? Grid->GetCachedWidget() : nullptr;
+        auto* Source = ResourceSourceTile.Get();
+        const auto TileWidget = Source ? Source->GetCachedWidget() : nullptr;
+        if (!GridWidget || !TileWidget)
+        {
+            ResetResourcePreview();
+            return;
+        }
+        if (!ResourceSourceBounds.bIsValid)
+        {
+            const auto Bounds = TileBounds(*TileWidget, *GridWidget, Layout.Scale);
+            if (Bounds.GetSize().GetMin() <= 0.0)
+            {
+                return;
+            }
+            ResourceSourceBounds = FBox2D(Layout.MainOrigin + Bounds.Min, Layout.MainOrigin + Bounds.Max);
+        }
+        Source->SetRenderOpacity(0.f);
+
+        if (ResourceRequest.IsValid() && ResourceActions.Poll)
+        {
+            if (auto Result = ResourceActions.Poll(ResourceRequest))
+            {
+                ResourceRequest.Invalidate();
+                if (Result->Destination.IsEmpty())
+                {
+                    bResourceClosing = true;
+                }
+                else
+                {
+                    ResourceResult = MoveTemp(Result);
+                    ResourceAnimationTime = 0.0;
+                    for (const auto& Transfer : ResourceResult->Transfers)
+                    {
+                        if (auto* Receiver = FindResourceTile(Transfer.Destination))
+                        {
+                            ResourceReceiverTiles.Emplace(Receiver, Receiver->Count);
+                        }
+                    }
+                }
+            }
+            else if (FPlatformTime::Seconds() >= ResourceDeadline)
+            {
+                ResourceRequest.Invalidate();
+                bResourceClosing = true;
+            }
+        }
+        else if (!bResourceClosing && !ResourceResult)
+        {
+            if (FMath::Abs(ResourceStickX) >= FMath::Abs(ResourceStickY))
+            {
+                ResourceQuantityFraction = 0.0;
+                if (FMath::Abs(ResourceStickX) >= .6f)
+                {
+                    ChangeResourceQuantity({ResourceStickX > 0.f ? 1 : -1, 0});
+                }
+            }
+            else
+            {
+                const double Deflection = FMath::Clamp((FMath::Abs(ResourceStickY) - .23) / .77, 0.0, 1.0);
+                if (Deflection <= 0.0 || ResourceQuantityFraction * ResourceStickY < 0.0)
+                {
+                    ResourceQuantityFraction = 0.0;
+                }
+                ResourceQuantityFraction += FMath::Sign(ResourceStickY) * FMath::Square(Deflection)
+                    * FMath::Max(30.0, ResourceState.Count * 1.2) * FMath::Min(double(DeltaTime), .1);
+                const int32 Change = FMath::TruncToInt(ResourceQuantityFraction);
+                ResourceQuantity = static_cast<int32>(FMath::Clamp<int64>(int64(ResourceQuantity) + Change,
+                    0, ResourceState.Count));
+                ResourceQuantityFraction -= Change;
+            }
+        }
+
+        const FVector2D Extent = ResourceSourceBounds.GetSize();
+        const FVector2D SourceCenter = ResourceSourceBounds.GetCenter();
+        FVector2D ExpandedExtent = Extent * 1.75;
+        const FVector2D Relative = SourceCenter - Layout.MainOrigin;
+        const double Gap = InventoryTheme.Get()->TileGap * Layout.Scale;
+        const int32 Columns = FMath::Max(1, Grid->GetColumnCount() / FMath::Max(1, Source->GridColumnSpan));
+        const int32 Column = FMath::Clamp(FMath::FloorToInt(Relative.X / Layout.MainExtent.X * Columns), 0, Columns - 1);
+        const FVector2D Expanded = Layout.MainOrigin + CIResourcePreviewAnchor(Relative, Extent, ExpandedExtent,
+            Column, Columns, 0.0, Layout.MainExtent.X, Layout.MainExtent.Y, Gap);
+
+        ResourceOpenBlend = FMath::FInterpConstantTo(ResourceOpenBlend, bResourceClosing ? 0.0 : 1.0,
+            double(DeltaTime), 1.0 / MotionSeconds);
+        const double Blend = FMath::SmoothStep(0.0, 1.0, ResourceOpenBlend);
+        FVector2D Center = FMath::Lerp(SourceCenter, Expanded, Blend);
+        FVector2D AnimatedExtent = FMath::Lerp(Extent, ExpandedExtent, Blend);
+        int32 Shown = ResourceQuantity;
+        int32 Remainder = ResourceState.Count - ResourceQuantity;
+        if (ResourceResult)
+        {
+            ResourceAnimationTime += DeltaTime;
+            const auto& Transfers = ResourceResult->Transfers;
+            const int32 TransferIndex = Transfers.IsEmpty() ? 0 : FMath::Min(
+                FMath::FloorToInt(ResourceAnimationTime / MotionSeconds), Transfers.Num() - 1);
+            const double Time = ResourceAnimationTime - TransferIndex * MotionSeconds;
+            const double Travel = FMath::SmoothStep(0.0, 1.0, FMath::Clamp(Time / MotionSeconds, 0.0, 1.0));
+            const FString& Target = Transfers.IsEmpty() ? ResourceResult->Destination : Transfers[TransferIndex].Destination;
+            Center = FMath::Lerp(Expanded, ResourceLandingCenter(Target, Layout), Travel);
+            AnimatedExtent = FMath::Lerp(ExpandedExtent, Extent, Travel);
+            int32 Moved = 0;
+            for (int32 Index = 0; Index < Transfers.Num(); ++Index)
+            {
+                const auto& Transfer = Transfers[Index];
+                const double Progress = FMath::Clamp((ResourceAnimationTime - Index * MotionSeconds - CountStart)
+                    / CountSeconds, 0.0, 1.0);
+                if (auto* Destination = FindResourceTile(Transfer.Destination))
+                {
+                    Destination->Count = Transfer.PreviousCount + FMath::FloorToInt(Transfer.Moved
+                        * FMath::InterpEaseOut(0.0, 1.0, Progress, 4.f));
+                }
+                Moved += Transfer.Moved;
+            }
+            if (!Transfers.IsEmpty())
+            {
+                Shown = Transfers[TransferIndex].Moved;
+                ResourceMovingAlpha = Time < MotionSeconds ? 1.0 : 0.0;
+                Remainder = ResourceState.Count - Moved;
+            }
+            const double Finish = Transfers.IsEmpty() ? MotionSeconds :
+                (Transfers.Num() - 1) * MotionSeconds + CountStart + CountSeconds;
+            if (ResourceAnimationTime >= Finish)
+            {
+                ResourceLandingId = ResourceResult->Destination;
+                ResetResourcePreview();
+                return;
+            }
+        }
+        else if (bResourceClosing)
+        {
+            ResourceAnimationTime += DeltaTime;
+            const bool bReturningRemainder = ResourceQuantity < ResourceState.Count;
+            const double CountProgress = FMath::Clamp((ResourceAnimationTime - CountStart) / CountSeconds, 0.0, 1.0);
+            Shown = FMath::Lerp(ResourceQuantity, ResourceState.Count,
+                FMath::InterpEaseOut(0.0, 1.0, CountProgress, 4.f));
+            if (ResourceOpenBlend <= 0.0 && (!bReturningRemainder || CountProgress >= 1.0))
+            {
+                ResetResourcePreview();
+                return;
+            }
+        }
+        else
+        {
+            ResourcePreviewTile->bShowCount = true;
+        }
+
+        ResourcePreviewBounds = FBox2D(Center - AnimatedExtent * .5, Center + AnimatedExtent * .5);
+        ResourcePreviewTile->Count = Shown;
+        ResourceRemainderTile->Count = Remainder;
+        ResourceRemainderAlpha = FMath::FInterpConstantTo(ResourceRemainderAlpha,
+            Remainder > 0 && !bResourceClosing ? 1.0 : 0.0, double(DeltaTime), 1.0 / (MotionSeconds * 125.0 / 260.0));
+        const FVector2D Raster(FMath::Max(1, FMath::CeilToInt(Extent.X * ProjectionRasterScale)),
+            FMath::Max(1, FMath::CeilToInt(Extent.Y * ProjectionRasterScale)));
+        DrawToTexture(ResourcePreviewTexture, ResourcePreviewTile->TakeWidget(), Raster, DeltaTime,
+            Layout.Scale * ProjectionRasterScale);
+        if (ResourceRemainderAlpha > 0.0)
+        {
+            DrawToTexture(ResourceRemainderTexture, ResourceRemainderTile->TakeWidget(), Raster, DeltaTime,
+                Layout.Scale * ProjectionRasterScale);
         }
     }
 
@@ -3106,6 +3548,21 @@ private:
     TSharedPtr<SWidget> SlotPickerWidget;
     FVector2D SlotPickerWidgetSize = FVector2D::ZeroVector;
     FCIInventorySlotPickerSource SlotPickerSource;
+    FCIInventoryResourceActions ResourceActions;
+    FCIInventoryStackState ResourceState;
+    TOptional<FCIInventoryStackResult> ResourceResult;
+    TWeakObjectPtr<UCIInventoryTile> ResourceSourceTile;
+    TArray<TPair<TWeakObjectPtr<UCIInventoryTile>, int64>> ResourceReceiverTiles;
+    TStrongObjectPtr<UCIResourceTile> ResourcePreviewTile, ResourceRemainderTile;
+    TStrongObjectPtr<UTextureRenderTarget2D> ResourcePreviewTexture, ResourceRemainderTexture;
+    FBox2D ResourceSourceBounds{ForceInit}, ResourcePreviewBounds{ForceInit};
+    FString ResourceId, ResourceLandingId;
+    FGuid ResourceRequest;
+    int32 ResourceQuantity = 0;
+    float ResourceStickX = 0.f, ResourceStickY = 0.f;
+    double ResourceDeadline = 0.0, ResourceOpenBlend = 0.0, ResourceAnimationTime = 0.0;
+    double ResourceQuantityFraction = 0.0, ResourceRemainderAlpha = 0.0, ResourceMovingAlpha = 1.0;
+    bool bResourceClosing = false;
     TOptional<FCIInventorySlotPicker> SlotPicker;
     int32 SlotChoice = 0;
     int32 FirstSlotChoice = 0;
@@ -3186,6 +3643,20 @@ void UCIInventoryShell::CloseSavedSetOptions()
     }
 }
 
+void UCIInventoryShell::SetResourceActions(FCIInventoryResourceActions Actions)
+{
+    ResourceActions = MoveTemp(Actions);
+    if (Shell)
+    {
+        Shell->SetResourceActions(ResourceActions);
+    }
+}
+
+bool UCIInventoryShell::HasResourceInteraction() const
+{
+    return Shell && Shell->HasResourceInteraction();
+}
+
 void UCIInventoryShell::SetSlotPickerSource(FCIInventorySlotPickerSource Source)
 {
     SlotPickerSource = MoveTemp(Source);
@@ -3206,7 +3677,7 @@ void UCIInventoryShell::SetCloseAction(FSimpleDelegate Action)
 
 void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
 {
-    RestoredTabSelections = Previous.Shell ? Previous.Shell->GetTabSelections() : Previous.RestoredTabSelections;
+    RestoredTabSelections = Previous.Shell ? Previous.Shell->GetTabSelections(true) : Previous.RestoredTabSelections;
     if (ActionSection != Previous.ActionSection)
     {
         if (Shell)
@@ -3344,6 +3815,7 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
     Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
     Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
     Shell->SetSlotPickerSource(SlotPickerSource);
+    Shell->SetResourceActions(ResourceActions);
     Shell->RestoreHoldConfirmation(ESavedSetHold::Overwrite, RestoredOverwriteConfirmation);
     Shell->RestoreHoldConfirmation(ESavedSetHold::Delete, RestoredDeleteConfirmation);
     return Shell.ToSharedRef();

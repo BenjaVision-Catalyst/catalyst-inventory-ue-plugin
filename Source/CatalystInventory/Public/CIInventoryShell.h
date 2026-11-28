@@ -3,6 +3,7 @@
 #include "Components/PanelWidget.h"
 #include "Presentation/CFControllerHold.h"
 #include "CIInventorySlotPicker.h"
+#include "CIInventoryResourceActions.h"
 #include "CIInventoryShell.generated.h"
 
 class UCFMenu;
@@ -36,6 +37,8 @@ public:
     void CloseSavedSetOptions();
     void SetCloseAction(FSimpleDelegate Action);
     void SetSlotPickerSource(FCIInventorySlotPickerSource Source);
+    bool HasResourceInteraction() const;
+    void SetResourceActions(FCIInventoryResourceActions Actions);
     void RestoreSavedSetsState(const UCIInventoryShell& Previous);
 #if WITH_DEV_AUTOMATION_TESTS
     FIntPoint GetFocusedGridCellForTest() const;
@@ -81,6 +84,7 @@ private:
     FSimpleDelegate SavedSetConfirm;
     FSimpleDelegate CloseAction;
     FCIInventorySlotPickerSource SlotPickerSource;
+    FCIInventoryResourceActions ResourceActions;
     bool bConfirmEquips = false;
     bool bRestoreSavedSetsOpen = false;
     int32 RestoredSavedSetIndex = 0;

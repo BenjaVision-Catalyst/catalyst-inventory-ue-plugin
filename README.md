@@ -124,7 +124,11 @@ optional display name and stack count. The same icon slot accepts a model
 preview or resource icon. The resource theme can hide the label and supply a
 fallback icon when the presenter has no definition-specific art. The Resources tab uses the shared
 Inventory slide-out for a compact category rail. Press L2 or C to open or close it, and move
-through the categories to focus the first stack in each group.
+through the categories to focus the first stack in each group. Select a stack with Enter or the bottom face button to preview a quantity.
+Up and down change the quantity, and left and right select zero or the full
+stack. Use S or the top face button to split, and F2 or the left face button
+to join compatible stacks. The host authorizes the transfer and publishes the
+updated inventory after the projected card lands.
 
 Use `CIApparelRow` for an individual apparel item in a list. Bind the item
 summary's definition identifier, display name, tier and optional manufacturer.

@@ -2,6 +2,7 @@
 
 #include "Blueprint/UserWidget.h"
 #include "CIInventorySlotPicker.h"
+#include "CIInventoryResourceActions.h"
 #include "CIInventorySessionView.generated.h"
 
 class ICFPlayerMagritteSource;
@@ -28,6 +29,7 @@ public:
     UCIInventoryView* GetInventoryView() const;
     void SetCloseAction(FSimpleDelegate Action);
     void SetSlotPickerSource(FCIInventorySlotPickerSource Source);
+    void SetResourceActions(FCIInventoryResourceActions Actions);
 
 protected:
     TSharedRef<SWidget> RebuildWidget() override;
@@ -54,4 +56,5 @@ private:
     TFunction<bool(FString, FString)> RenameSavedSet;
     FSimpleDelegate CloseAction;
     FCIInventorySlotPickerSource SlotPickerSource;
+    FCIInventoryResourceActions ResourceActions;
 };

@@ -250,12 +250,13 @@ TSharedRef<SWidget> UCIInventoryTile::BuildInventoryContent()
     [
         SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
         .Padding_Lambda([this] { return FMargin(0, GetInventoryTheme().Spacing, 0, 0); })
-        .Visibility_Lambda([this] { return bShowCount && Count > 0 ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
+        .Visibility_Lambda([this] { return bShowCount && (Count > 0 || (bShowZeroCount && Count == 0))
+                ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
         [
             SNew(SScaleBox).Stretch(EStretch::ScaleToFit).StretchDirection(EStretchDirection::DownOnly)
             .HAlign(HAlign_Center)
             [
-                SNew(STextBlock).Text_Lambda([this] { return Count > 0 ? FText::AsNumber(Count) : FText::GetEmpty(); })
+                SNew(STextBlock).Text_Lambda([this] { return FText::AsNumber(Count); })
                 .Font_Lambda([this] { return GetInventoryTheme().CountFont; })
                 .ColorAndOpacity_Lambda([this] { return FSlateColor(GetInventoryTheme().TextTint); })
             ]

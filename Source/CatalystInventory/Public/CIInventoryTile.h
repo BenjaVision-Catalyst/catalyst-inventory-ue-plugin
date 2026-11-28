@@ -163,6 +163,8 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory Tile")
     bool bShowCount = false;
 
+    bool bShowZeroCount = false;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory Tile", meta = (EditCondition = "bShowCount"))
     int64 Count = 0;
 
