@@ -702,6 +702,45 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         TestTrue(TEXT("Back closes Radials"), Press(EKeys::BackSpace) && !bRadialsOpen);
         TestFalse(TEXT("Radial placement does not open a quantity preview"), Shell->HasResourceInteraction());
 
+        FGuid DropRequest;
+        TArray<int32> Dropped;
+        FCIInventoryResourceActions DropActions;
+        DropActions.Read = [](const FString&) -> TOptional<FCIInventoryStackState> {
+            return FCIInventoryStackState{240, true, false, true};
+        };
+        DropActions.Drop = [&](const FGuid& Request, const FString&, int32 Expected, int32 Quantity) {
+            DropRequest = Request;
+            Dropped.Add(Quantity);
+            return Expected == 240;
+        };
+        DropActions.Poll = [&](const FGuid& Request) -> TOptional<FCIInventoryStackResult> {
+            if (Request != DropRequest) { return {}; }
+            // Leave the fixture in place after the whole-stack request so the selected amount can be tested.
+            return FCIInventoryStackResult{Dropped.Last() == 240 ? FString() : FString(TEXT("dropped")), {}};
+        };
+        Shell->SetResourceActions(MoveTemp(DropActions));
+        Press(EKeys::Delete);
+        Widget->Tick(Geometry, 2.20, .4f);
+        Release(EKeys::Delete);
+        Widget->Tick(Geometry, 2.21, .7f);
+        TestTrue(TEXT("Releasing early cancels a resource drop"), Dropped.IsEmpty());
+        Press(EKeys::Gamepad_RightThumbstick);
+        Widget->Tick(Geometry, 2.22, .9f);
+        TestTrue(TEXT("A drop still requires a full one-second hold"), Dropped.IsEmpty());
+        Widget->Tick(Geometry, 2.23, .15f);
+        Release(EKeys::Gamepad_RightThumbstick);
+        Widget->Tick(Geometry, 2.24, .4f);
+        TestTrue(TEXT("A held R3 drops the entire focused stack exactly once"), Dropped == TArray<int32>{240});
+        Press(EKeys::Enter);
+        Press(EKeys::Down);
+        Press(EKeys::Delete);
+        Widget->Tick(Geometry, 2.25, 1.05f);
+        Release(EKeys::Delete);
+        Widget->Tick(Geometry, 2.26, .02f);
+        TestTrue(TEXT("Drop in the quantity picker sends only the chosen amount"), Dropped == TArray<int32>{240, 239});
+        TestFalse(TEXT("A confirmed partial drop closes the quantity picker"), Shell->HasResourceInteraction());
+        Shell->SetResourceActions({});
+
         FGuid SplitRequest;
         int32 SplitCount = 0;
         FCIInventoryResourceActions Actions;

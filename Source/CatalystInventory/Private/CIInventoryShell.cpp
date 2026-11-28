@@ -317,6 +317,8 @@ public:
         SLATE_ATTRIBUTE(bool, ResourceAvailable)
         SLATE_ATTRIBUTE(bool, ResourceCanSplit)
         SLATE_ATTRIBUTE(bool, ResourceCanJoin)
+        SLATE_ATTRIBUTE(bool, ResourceCanDrop)
+        SLATE_ATTRIBUTE(FCFControllerHoldIndicator, ResourceDropIndicator)
         SLATE_ATTRIBUTE(bool, RadialsAvailable)
         SLATE_ATTRIBUTE(bool, RadialsOpen)
         SLATE_ATTRIBUTE(bool, RadialsCanPlace)
@@ -342,6 +344,8 @@ public:
         ResourceAvailable = Args._ResourceAvailable;
         ResourceCanSplit = Args._ResourceCanSplit;
         ResourceCanJoin = Args._ResourceCanJoin;
+        ResourceCanDrop = Args._ResourceCanDrop;
+        ResourceDropIndicator = Args._ResourceDropIndicator;
         RadialsAvailable = Args._RadialsAvailable;
         RadialsOpen = Args._RadialsOpen;
         RadialsCanPlace = Args._RadialsCanPlace;
@@ -361,6 +365,7 @@ public:
     bool IsOverSavedSets(const FVector2D& Position) const { return SavedSetsBounds.ContainsPoint(Position); }
     bool IsOverConfirm(const FVector2D& Position) const { return ConfirmBounds.ContainsPoint(Position); }
     bool IsOverClose(const FVector2D& Position) const { return CloseBounds.ContainsPoint(Position); }
+    bool IsOverResourceDrop(const FVector2D& Position) const { return ResourceDropBounds.ContainsPoint(Position); }
     bool IsOverOptions(const FVector2D& Position) const { return OptionsBounds.ContainsPoint(Position); }
     bool IsOverHold(ESavedSetHold Action, const FVector2D& Position) const
     {
@@ -374,6 +379,7 @@ public:
         ConfirmBounds = FSlateRect(0, 0, 0, 0);
         OverwriteBounds = FSlateRect(0, 0, 0, 0);
         DeleteBounds = FSlateRect(0, 0, 0, 0);
+        ResourceDropBounds = FSlateRect(0, 0, 0, 0);
         OptionsBounds = FSlateRect(0, 0, 0, 0);
         CloseBounds = FSlateRect(0, 0, 0, 0);
         const auto* CurrentMenu = Menu.Get();
@@ -456,8 +462,11 @@ public:
             {
                 ConfirmBounds = FSlateRect(Right + ActionPromptGap, 25.0, SelectRight, FooterHeight);
             }
+            const double DropRight = Right;
+            const auto DropIndicator = ResourceDropIndicator.Get();
             DrawPrompt(NSLOCTEXT("Inventory", "ResourceDrop", "Drop"), EKeys::Delete, EKeys::Gamepad_RightThumbstick,
-                false, !bKeyboard);
+                ResourceCanDrop.Get() || DropIndicator.bAnimating, true, DropIndicator);
+            ResourceDropBounds = FSlateRect(Right + ActionPromptGap, 25.0, DropRight, FooterHeight);
             if (bResourceSelected)
             {
                 const double SplitRight = Right;
@@ -511,6 +520,9 @@ private:
     TAttribute<bool> ResourceAvailable;
     TAttribute<bool> ResourceCanSplit;
     TAttribute<bool> ResourceCanJoin;
+    TAttribute<bool> ResourceCanDrop;
+    TAttribute<FCFControllerHoldIndicator> ResourceDropIndicator;
+    mutable FSlateRect ResourceDropBounds;
     TAttribute<bool> RadialsAvailable, RadialsOpen, RadialsCanPlace, RadialsCanClear;
     TAttribute<bool> ConfirmEquips;
     TAttribute<bool> ConfirmAvailable;
@@ -591,10 +603,12 @@ public:
                 .SlotPickerOpen_Lambda([this] { return SlotPicker.IsSet(); })
                 .SlotPickerAvailable_Lambda([this] { return SlotPickerSource && HasSavedSets(ActionSection.Get()); })
                 .SlotChoiceAvailable_Lambda([this] { return SlotPicker && SlotPicker->Choices.IsValidIndex(SlotChoice); })
-                .ResourceOpen_Lambda([this] { return HasResourceInteraction() && !IsResourceCommitted(); })
-                .ResourceAvailable_Lambda([this] { return ResourceActions.Read && GetSelectedTile(); })
+                .ResourceOpen_Lambda([this] { return ResourcePreviewTile.IsValid() && ResourceFrameHoldUntil == 0.0 && !IsResourceCommitted(); })
+                .ResourceAvailable_Lambda([this] { return ResourceActions.Read && GetSelectedTile() && !ResourceDropRequest.IsValid(); })
                 .ResourceCanSplit_Lambda([this] { return CanCommitResource(false); })
                 .ResourceCanJoin_Lambda([this] { return CanCommitResource(true); })
+                .ResourceCanDrop_Lambda([this] { return GetResourceDropTarget().IsSet(); })
+                .ResourceDropIndicator_Lambda([this] { return ResourceDropHold.GetIndicator(ResourceDropClock); })
                 .RadialsAvailable_Lambda([this] { return ResourceActions.UpdateRadials && ResourceActions.SetRadialsOpen; })
                 .RadialsOpen_Lambda([this] { return bResourceRadialsOpen; })
                 .RadialsCanPlace_Lambda([this] { return ResourceRadialAvailability.bCanPlace; })
@@ -631,7 +645,7 @@ public:
     void SetCloseAction(const FSimpleDelegate& Action) { OnClose = Action; }
     void SetSlotPickerSource(FCIInventorySlotPickerSource Source) { SlotPickerSource = MoveTemp(Source); }
     void SetResourceActions(FCIInventoryResourceActions Actions) { ResourceActions = MoveTemp(Actions); }
-    bool HasResourceInteraction() const { return ResourcePreviewTile.IsValid() && ResourceFrameHoldUntil == 0.0; }
+    bool HasResourceInteraction() const { return ResourceDropRequest.IsValid() || (ResourcePreviewTile.IsValid() && ResourceFrameHoldUntil == 0.0); }
 
     void SetResourceRadialsOpen(bool bOpen)
     {
@@ -712,6 +726,7 @@ public:
 
     void SwitchSectionNavigation(FName Section)
     {
+        ReleaseResourceDrop(ResourceDropKey);
         SetResourceRadialsOpen(false);
         TabSelections = GetTabSelections();
         SlotPicker.Reset();
@@ -904,6 +919,16 @@ public:
                 }
                 return FReply::Handled();
             }
+        }
+        if (ActionSection.Get() == ResourcesSection && !bResourceRadialsOpen
+            && (Key == EKeys::Delete || Key == EKeys::Gamepad_RightThumbstick))
+        {
+            if (!Event.IsRepeat()) { BeginResourceDrop(Key); }
+            return FReply::Handled();
+        }
+        if (ResourceDropRequest.IsValid())
+        {
+            return FReply::Handled();
         }
         if (!Event.IsRepeat() && IsResourceCommitted()
             && (bConfirmSlot || bBackSlot || Key == EKeys::Tab || Key == EKeys::Gamepad_Special_Right
@@ -1105,7 +1130,7 @@ public:
                 return HasNavigableGrid(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
             }
         }
-        return ReleaseHoldInput(Key) ? FReply::Handled() : FReply::Unhandled();
+        return (ReleaseResourceDrop(Key) || ReleaseHoldInput(Key)) ? FReply::Handled() : FReply::Unhandled();
     }
 
     FReply OnAnalogValueChanged(const FGeometry&, const FAnalogInputEvent& Event) override
@@ -1150,6 +1175,7 @@ public:
 
     void OnFocusLost(const FFocusEvent&) override
     {
+        ReleaseResourceDrop(ResourceDropKey);
         RightStickScroll = 0.f;
         ResourceStickX = ResourceStickY = 0.f;
         NavigationInput = {};
@@ -1235,6 +1261,18 @@ public:
                     ResourceRadialInput.bClear |= ResourceRadialAvailability.bCanClear;
                     return FReply::Handled();
                 }
+            }
+            if (ActionSection.Get() == ResourcesSection && FooterWidget->IsOverResourceDrop(FooterPoint))
+            {
+                if (BeginResourceDrop(EKeys::LeftMouseButton))
+                {
+                    return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse).CaptureMouse(SharedThis(this));
+                }
+                return FReply::Handled();
+            }
+            if (ResourceDropRequest.IsValid())
+            {
+                return FReply::Handled();
             }
             if (IsResourceCommitted())
             {
@@ -1416,12 +1454,23 @@ public:
         {
             return FReply::Unhandled();
         }
+        ReleaseResourceDrop(EKeys::LeftMouseButton);
         ReleaseHoldInput(EKeys::LeftMouseButton);
         return FReply::Handled().ReleaseMouseCapture();
     }
 
     FReply OnMouseMove(const FGeometry& Geometry, const FPointerEvent& Event) override
     {
+        if (FooterWidget && ResourceDropKey == EKeys::LeftMouseButton)
+        {
+            const auto Layout = GetLayout(Geometry.GetLocalSize());
+            const auto PlanePoint = Layout.Left.Unproject(Geometry.AbsoluteToLocal(Event.GetScreenSpacePosition()));
+            if (!FooterWidget->IsOverResourceDrop((PlanePoint - Layout.FooterOrigin) / Layout.Scale))
+            {
+                ReleaseResourceDrop(EKeys::LeftMouseButton);
+            }
+            return FReply::Handled();
+        }
         if (FooterWidget)
         {
             for (const auto Action : SavedSetHoldActions)
@@ -1443,6 +1492,7 @@ public:
 
     void OnMouseCaptureLost(const FCaptureLostEvent&) override
     {
+        ReleaseResourceDrop(EKeys::LeftMouseButton);
         ReleaseHoldInput(EKeys::LeftMouseButton);
     }
 
@@ -1483,6 +1533,7 @@ public:
             const float Speed = 640.f * (1.f + 2.f * FMath::Square(RightStickScroll));
             ScrollResources(RightStickScroll * Speed * DeltaTime);
         }
+        UpdateResourceDrop(DeltaTime);
         UpdateGridFocus(DeltaTime);
         LiftedTiles.Reset();
         if (MainContent.Get() != Content)
@@ -2242,16 +2293,126 @@ private:
         return true;
     }
 
+    struct FResourceDropTarget
+    {
+        FString Stack;
+        int32 Count;
+        int32 Quantity;
+        bool operator==(const FResourceDropTarget&) const = default;
+    };
+
+    TOptional<FResourceDropTarget> GetResourceDropTarget() const
+    {
+        if (ActionSection.Get() != ResourcesSection || bSavedSetsOpen || bResourceRadialsOpen
+            || !ResourceActions.Read || !ResourceActions.Drop || !ResourceActions.Poll
+            || ResourceRequest.IsValid() || ResourceDropRequest.IsValid() || ResourceResult || bResourceClosing)
+        {
+            return {};
+        }
+        const auto* Tile = GetSelectedTile();
+        const FString Stack = ResourcePreviewTile.IsValid() ? ResourceId : Tile ? ResourceItemId(*Tile) : FString();
+        const auto State = Stack.IsEmpty() ? TOptional<FCIInventoryStackState>() : ResourceActions.Read(Stack);
+        if (!State || !State->bCanDrop)
+        {
+            return {};
+        }
+        const int32 Quantity = ResourcePreviewTile.IsValid() ? ResourceQuantity : State->Count;
+        if (Quantity <= 0 || Quantity > State->Count
+            || (ResourcePreviewTile.IsValid() && ResourceState.Count != State->Count))
+        {
+            return {};
+        }
+        return FResourceDropTarget{Stack, State->Count, Quantity};
+    }
+
+    bool BeginResourceDrop(const FKey& Key)
+    {
+        if (ResourceDropKey.IsValid())
+        {
+            return false;
+        }
+        const auto Target = GetResourceDropTarget();
+        if (!Target)
+        {
+            return false;
+        }
+        ResourceDropKey = Key;
+        ResourceDropTarget = *Target;
+        ResourceDropToken = FGuid::NewGuid();
+        ResourceDropHold.Update(true, ResourceDropToken, ResourceDropClock);
+        return true;
+    }
+
+    bool ReleaseResourceDrop(const FKey& Key)
+    {
+        if (!ResourceDropKey.IsValid() || ResourceDropKey != Key)
+        {
+            return false;
+        }
+        ResourceDropHold.Update(false, {}, ResourceDropClock);
+        ResourceDropKey = {};
+        ResourceDropToken.Invalidate();
+        return true;
+    }
+
+    void UpdateResourceDrop(float DeltaTime)
+    {
+        ResourceDropClock += DeltaTime;
+        if (ResourceDropRequest.IsValid())
+        {
+            const auto Result = ResourceActions.Poll ? ResourceActions.Poll(ResourceDropRequest)
+                : TOptional<FCIInventoryStackResult>();
+            if (!Result && FPlatformTime::Seconds() < ResourceDropDeadline)
+            {
+                return;
+            }
+            ResourceDropRequest.Invalidate();
+            if (Result && !Result->Destination.IsEmpty())
+            {
+                if (auto* Tile = FindResourceTile(ResourceDropTarget.Stack))
+                {
+                    Tile->Count = ResourceDropTarget.Count - ResourceDropTarget.Quantity;
+                }
+                if (ResourcePreviewTile.IsValid())
+                {
+                    ResetResourcePreview();
+                }
+            }
+            return;
+        }
+        if (!ResourceDropToken.IsValid())
+        {
+            return;
+        }
+        const auto Current = GetResourceDropTarget();
+        if (!Current || *Current != ResourceDropTarget)
+        {
+            ResourceDropHold.Update(true, {}, ResourceDropClock);
+            ResourceDropToken.Invalidate();
+            return;
+        }
+        if (ResourceDropHold.Update(true, ResourceDropToken, ResourceDropClock))
+        {
+            ResourceDropToken.Invalidate();
+            const FGuid Request = FGuid::NewGuid();
+            if (ResourceActions.Drop(Request, Current->Stack, Current->Count, Current->Quantity))
+            {
+                ResourceDropRequest = Request;
+                ResourceDropDeadline = FPlatformTime::Seconds() + 8.0;
+            }
+        }
+    }
+
     bool CanCommitResource(bool bJoin) const
     {
         return HasResourceInteraction() && ResourceActions.Commit && !bResourceClosing && !ResourceRequest.IsValid()
-            && !ResourceResult && ResourceQuantity > 0 && (bJoin ? ResourceState.bCanJoin
+            && !ResourceResult && !ResourceDropToken.IsValid() && !ResourceDropRequest.IsValid() && ResourceQuantity > 0 && (bJoin ? ResourceState.bCanJoin
                 : ResourceState.bCanSplit && ResourceQuantity < ResourceState.Count);
     }
 
     void ChangeResourceQuantity(FIntPoint Direction)
     {
-        if (!HasResourceInteraction() || bResourceClosing || ResourceRequest.IsValid() || ResourceResult)
+        if (!HasResourceInteraction() || bResourceClosing || ResourceRequest.IsValid() || ResourceResult || ResourceDropRequest.IsValid())
         {
             return;
         }
@@ -2570,7 +2731,7 @@ private:
 
     void TickResourcePreview(const FInventoryShellLayout& Layout, float DeltaTime)
     {
-        if (!HasResourceInteraction())
+        if (!ResourcePreviewTile.IsValid())
         {
             return;
         }
@@ -2626,7 +2787,7 @@ private:
                 bResourceClosing = true;
             }
         }
-        else if (!bResourceClosing && !ResourceResult)
+        else if (!bResourceClosing && !ResourceResult && !ResourceDropRequest.IsValid())
         {
             if (FMath::Abs(ResourceStickX) >= FMath::Abs(ResourceStickY))
             {
@@ -4135,6 +4296,11 @@ private:
     FVector2D SlotPickerWidgetSize = FVector2D::ZeroVector;
     FCIInventorySlotPickerSource SlotPickerSource;
     FCIInventoryResourceActions ResourceActions;
+    FResourceDropTarget ResourceDropTarget{};
+    FCFControllerHold ResourceDropHold{1000};
+    FKey ResourceDropKey;
+    FGuid ResourceDropToken, ResourceDropRequest;
+    double ResourceDropClock = 0.0, ResourceDropDeadline = 0.0;
     FCIInventoryResourceRadialInput ResourceRadialInput;
     FCIInventoryResourceRadialAvailability ResourceRadialAvailability;
     bool bResourceRadialsOpen = false;

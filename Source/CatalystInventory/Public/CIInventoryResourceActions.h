@@ -7,6 +7,7 @@ struct FCIInventoryStackState
     int32 Count = 0;
     bool bCanSplit = false;
     bool bCanJoin = false;
+    bool bCanDrop = false;
 };
 
 struct FCIInventoryStackTransfer
@@ -46,6 +47,7 @@ struct FCIInventoryResourceActions
     TFunction<TOptional<FCIInventoryStackState>(const FString&)> Read;
     TFunction<bool(const FGuid&, const FString&, int32, int32, bool)> Commit;
     TFunction<TOptional<FCIInventoryStackResult>(const FGuid&)> Poll;
+    TFunction<bool(const FGuid&, const FString&, int32, int32)> Drop;
     TFunction<void(bool)> SetRadialsOpen;
     TFunction<FCIInventoryResourceRadialAvailability(const FCIInventoryResourceRadialInput&)> UpdateRadials;
     bool bPublishesAfterLanding = false;
