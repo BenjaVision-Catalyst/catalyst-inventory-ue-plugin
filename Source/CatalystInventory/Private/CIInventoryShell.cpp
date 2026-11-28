@@ -1114,7 +1114,8 @@ public:
         if (Key == EKeys::Gamepad_LeftX) { ResourceRadialInput.Sticks[0].X = Event.GetAnalogValue(); }
         else if (Key == EKeys::Gamepad_LeftY) { ResourceRadialInput.Sticks[0].Y = Event.GetAnalogValue(); }
         else if (Key == EKeys::Gamepad_RightX) { ResourceRadialInput.Sticks[1].X = Event.GetAnalogValue(); }
-        else if (Key == EKeys::Gamepad_RightY) { ResourceRadialInput.Sticks[1].Y = -Event.GetAnalogValue(); }
+        // Radials use raw Slate stick directions, before viewport or camera transforms.
+        else if (Key == EKeys::Gamepad_RightY) { ResourceRadialInput.Sticks[1].Y = Event.GetAnalogValue(); }
         if (bResourceRadialsOpen && (Key == EKeys::Gamepad_LeftX || Key == EKeys::Gamepad_LeftY
             || Key == EKeys::Gamepad_RightX || Key == EKeys::Gamepad_RightY))
         {

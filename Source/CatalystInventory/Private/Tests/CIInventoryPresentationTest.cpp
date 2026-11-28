@@ -673,11 +673,13 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         bool bRadialsOpen = false;
         bool bPlaced = false;
         bool bCleared = false;
+        double RightWheelY = 0.0;
         FCIInventoryResourceActions RadialActions;
         RadialActions.SetRadialsOpen = [&](bool bOpen) { bRadialsOpen = bOpen; };
         RadialActions.UpdateRadials = [&](const FCIInventoryResourceRadialInput& Input) {
             bPlaced |= Input.bPlace && Input.DefinitionId == TEXT("Credits") && Input.Sticks[0].Y > .5;
-            bCleared |= Input.bClear && Input.Sticks[1].Y > .5;
+            RightWheelY = Input.Sticks[1].Y;
+            bCleared |= Input.bClear && RightWheelY > .5;
             return FCIInventoryResourceRadialAvailability{Input.Sticks[0].Y > .5, Input.Sticks[1].Y > .5};
         };
         Shell->SetResourceActions(MoveTemp(RadialActions));
@@ -686,13 +688,16 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         Widget->Tick(Geometry, 2.11, .02f);
         TestFalse(TEXT("Place is disabled until a wheel slot is targeted"), bPlaced);
         Widget->OnAnalogValueChanged(Geometry, FAnalogInputEvent(EKeys::Gamepad_LeftY, {}, 0, false, 0, 0, .8f));
-        Widget->OnAnalogValueChanged(Geometry, FAnalogInputEvent(EKeys::Gamepad_RightY, {}, 0, false, 0, 0, -.8f));
+        Widget->OnAnalogValueChanged(Geometry, FAnalogInputEvent(EKeys::Gamepad_RightY, {}, 0, false, 0, 0, .8f));
         Widget->Tick(Geometry, 2.12, .02f);
         Press(EKeys::Enter);
         Press(EKeys::Delete);
         Widget->Tick(Geometry, 2.13, .02f);
         TestTrue(TEXT("Place passes the selected resource and left stick to the wheel editor"), bPlaced);
-        TestTrue(TEXT("Clear sends the right stick target to the wheel editor"), bCleared);
+        TestTrue(TEXT("Clear sends physical Right Stick Up to the upper wheel slot"), bCleared);
+        Widget->OnAnalogValueChanged(Geometry, FAnalogInputEvent(EKeys::Gamepad_RightY, {}, 0, false, 0, 0, -.8f));
+        Widget->Tick(Geometry, 2.14, .02f);
+        TestTrue(TEXT("Physical Right Stick Down reaches the lower wheel slot"), RightWheelY < -.5);
         TestTrue(TEXT("Back closes Radials"), Press(EKeys::BackSpace) && !bRadialsOpen);
         TestFalse(TEXT("Radial placement does not open a quantity preview"), Shell->HasResourceInteraction());
 
