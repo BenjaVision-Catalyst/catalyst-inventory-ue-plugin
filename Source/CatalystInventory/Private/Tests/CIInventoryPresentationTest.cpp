@@ -727,8 +727,8 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
 
         Press(EKeys::Enter);
         Press(EKeys::F2);
-        Widget->Tick(Geometry, 2.22, .30f);
-        TestEqual(TEXT("A full join animates only the following tiles in its category"),
+        Widget->Tick(Geometry, 2.22, .12f);
+        TestEqual(TEXT("A full join closes the gap while the transfer tile is still moving"),
             Shell->GetResourceReflowTileCountForTest(), 2);
         Widget->Tick(Geometry, 2.23, .45f);
         TestFalse(TEXT("The full join completes its projected landing"), Shell->HasResourceInteraction());
@@ -751,6 +751,22 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         Widget->Tick(Geometry, 2.7, .2f);
         TestEqual(TEXT("Resources restores the selected stack after changing tabs"),
             Shell->GetInspectorLabelForTest().ToString(), FString(TEXT("Depot Key")));
+        FCIInventoryResourceActions RefreshSplitActions;
+        RefreshSplitActions.bPublishesAfterLanding = true;
+        RefreshSplitActions.Read = [](const FString&) -> TOptional<FCIInventoryStackState> {
+            return FCIInventoryStackState{2, true, false};
+        };
+        RefreshSplitActions.Commit = [](const FGuid&, const FString&, int32, int32, bool) { return true; };
+        RefreshSplitActions.Poll = [](const FGuid&) -> TOptional<FCIInventoryStackResult> {
+            // Stand in for the split stack with an existing fixture tile in the refreshed grid.
+            return FCIInventoryStackResult{TEXT("inventory-fixture:inventory:resources:keys:RelayKey"), {}};
+        };
+        Shell->SetResourceActions(MoveTemp(RefreshSplitActions));
+        Press(EKeys::Enter);
+        Press(EKeys::Down);
+        Press(EKeys::S);
+        Widget->Tick(Geometry, 2.8, .25f);
+        TestFalse(TEXT("A landed split releases the inventory refresh"), Shell->HasResourceInteraction());
         const auto GetActiveGrid = [](UCIInventoryShell* InShell)
         {
             auto* Panel = InShell->GetMainPanel()->GetActiveWidget();
@@ -772,7 +788,11 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
                 const auto RefreshedWidget = RefreshedShell->TakeWidget();
                 RefreshedShell->GetMenu()->SelectItem(2);
                 RefreshedShell->RestoreSavedSetsState(*Shell);
-                RefreshedWidget->Tick(Geometry, 2.9, .2f);
+                RefreshedWidget->Tick(Geometry, 2.9, .01f);
+                TestEqual(TEXT("The refreshed selection is the split destination"),
+                    RefreshedShell->GetInspectorLabelForTest().ToString(), FString(TEXT("Relay Key")));
+                TestTrue(TEXT("The split destination is fully lifted on the first refreshed frame"),
+                    RefreshedShell->GetGridTileLiftForTest(RefreshedShell->GetFocusedGridCellForTest()) > 10.0);
                 auto* AfterRefresh = GetActiveGrid(RefreshedShell);
                 if (TestNotNull(TEXT("The rebuilt Resources tab has a scrollable grid"), AfterRefresh))
                 {

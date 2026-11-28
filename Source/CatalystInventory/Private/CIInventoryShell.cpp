@@ -702,9 +702,16 @@ public:
     }
     const FCIInventoryNavigationInput& GetNavigationInput() const { return NavigationInput; }
 
-    void RestoreNavigation(FIntPoint Focus, const TMap<FName, TPair<FIntPoint, FString>>& Selections,
-        const TSharedPtr<const FCIInventoryNavigationInput>& Input)
+    FString GetLiftedResourceLandingId() const
     {
+        return ResourceFrameHoldUntil > 0.0 && ResourceResult && ResourceResult->Transfers.IsEmpty()
+            ? ResourceLandingId : FString();
+    }
+
+    void RestoreNavigation(FIntPoint Focus, const TMap<FName, TPair<FIntPoint, FString>>& Selections,
+        const TSharedPtr<const FCIInventoryNavigationInput>& Input, const FString& LiftedResourceId = {})
+    {
+        PendingLiftedResourceId = LiftedResourceId;
         TabSelections = Selections;
         RestoreTabSelection(ActionSection.Get());
         if (!TabSelections.Contains(ActionSection.Get()))
@@ -1520,7 +1527,7 @@ public:
             if (ResourceMovingAlpha > 0.0)
             {
                 DrawSurface(Geometry, Elements, Layer + 4, Layout.Left, ResourcePreviewTexture.Get(),
-                    ResourcePreviewBounds.Min, ResourcePreviewBounds.GetSize(), 0.0, 1.0, ResourceMovingAlpha);
+                    ResourcePreviewBounds.Min, ResourcePreviewBounds.GetSize(), ResourcePreviewDepth, 1.0, ResourceMovingAlpha);
             }
         }
         if (InspectorTexture.IsValid() && Layout.InspectorExtent.GetMin() >= 1.0)
@@ -1661,9 +1668,11 @@ private:
         {
             const auto Identifier = MoveTemp(PendingSelectionId);
             PendingSelectionId.Reset();
+            const bool bAlreadyLifted = Identifier == PendingLiftedResourceId;
+            PendingLiftedResourceId.Reset();
             for (int32 Y = 0; Y < NavigationRows.Num(); ++Y)
             {
-                const auto& Cells = NavigationRows[Y].Cells;
+                auto& Cells = NavigationRows[Y].Cells;
                 const int32 X = Cells.IndexOfByPredicate([this, &Identifier](const auto& Cell)
                 {
                     const auto* Tile = Cell.Tile.Get();
@@ -1674,6 +1683,11 @@ private:
                 if (X != INDEX_NONE)
                 {
                     GridFocus = FIntPoint(X, Y);
+                    if (bAlreadyLifted)
+                    {
+                        Cells[X].FocusProgress = 1.f;
+                        Cells[X].Tile->SetVisualState(1.f, 1.f);
+                    }
                     return;
                 }
             }
@@ -2082,6 +2096,7 @@ private:
         ResourceCollapseScrollStart.Reset();
         ResourceRemainderAlpha = 0.0;
         ResourceMovingAlpha = 1.0;
+        ResourcePreviewDepth = 0.0;
         bResourceClosing = false;
     }
 
@@ -2098,15 +2113,22 @@ private:
         return nullptr;
     }
 
-    FVector2D ResourceLandingCenter(const FString& Id, const FInventoryShellLayout& Layout) const
+    FVector2D ResourceLandingCenter(const UCIInventoryTile* Tile, const SWidget& GridWidget,
+        const FInventoryShellLayout& Layout) const
     {
-        const auto* Tile = FindResourceTile(Id);
-        const auto* Grid = NavigationGrid.Get();
-        const auto GridWidget = Grid ? Grid->GetCachedWidget() : nullptr;
         const auto TileWidget = Tile ? Tile->GetCachedWidget() : nullptr;
-        if (GridWidget && TileWidget)
+        if (TileWidget)
         {
-            const auto Bounds = TileBounds(*TileWidget, *GridWidget, Layout.Scale);
+            for (const auto& Entry : LiftedTiles)
+            {
+                if (Entry.bClipToGrid && Entry.Cell.Y != INDEX_NONE
+                    && NavigationRows[Entry.Cell.Y].Cells[Entry.Cell.X].Tile.Get() == Tile)
+                {
+                    const auto Bounds = TileBounds(*TileWidget, GridWidget, Layout.Scale);
+                    return Entry.Origin + Bounds.GetCenter() - Entry.Source.Min;
+                }
+            }
+            const auto Bounds = TileBounds(*TileWidget, GridWidget, Layout.Scale);
             const auto HalfSize = ResourceSourceBounds.GetSize() * .5;
             return Layout.MainOrigin + Bounds.GetCenter().ComponentMax(HalfSize)
                 .ComponentMin(Layout.MainExtent - HalfSize);
@@ -2150,7 +2172,7 @@ private:
         }
     }
 
-    FVector2D AppendResourceSplitReflow(const SWidget& GridWidget, const FInventoryShellLayout& Layout,
+    FInventoryTileLift AppendResourceSplitReflow(const SWidget& GridWidget, const FInventoryShellLayout& Layout,
         int32 Columns, double Progress)
     {
         const auto& SourceRow = NavigationRows[GridFocus.Y];
@@ -2177,6 +2199,7 @@ private:
             return Start;
         };
         const FVector2D Landing = Place(SourceSpan);
+        const int32 LandingRow = GridFocus.Y + (Landing.Y > ResourceSourceBounds.Min.Y - Layout.MainOrigin.Y ? 1 : 0);
         const auto* NextCategory = ResourceCategoryRows.FindByPredicate(
             [this](int32 Row) { return Row > GridFocus.Y; });
         const int32 EndRow = NextCategory ? *NextCategory : NavigationRows.Num();
@@ -2201,7 +2224,7 @@ private:
                 + (EndRow - GridFocus.Y - 1) * Pitch.Y;
             AppendResourceCategoryShift(Layout, GridWidget, EndRow, (Position.Y - OriginalTail) * Progress);
         }
-        return Layout.MainOrigin + Landing + Extent * .5;
+        return FocusedTilePlacement(Layout, FBox2D(Landing, Landing + Extent), {0, LandingRow}, 1.0);
     }
 
     void AppendResourceGapReflow(const SWidget& GridWidget, const FInventoryShellLayout& Layout, double Progress)
@@ -2390,39 +2413,53 @@ private:
             const double Time = ResourceAnimationTime - TransferIndex * MotionSeconds;
             const double Travel = FMath::SmoothStep(0.0, 1.0, FMath::Clamp(Time / MotionSeconds, 0.0, 1.0));
             const FString& Target = Transfers.IsEmpty() ? ResourceResult->Destination : Transfers[TransferIndex].Destination;
+            const bool bSplit = Transfers.IsEmpty();
             int32 Moved = 0;
+            for (const auto& Transfer : Transfers)
+            {
+                Moved += Transfer.Moved;
+            }
+            const bool bConsumesSource = !bSplit && Moved == ResourceState.Count;
+            const double FinalTransferStart = (Transfers.Num() - 1) * MotionSeconds;
             for (int32 Index = 0; Index < Transfers.Num(); ++Index)
             {
                 const auto& Transfer = Transfers[Index];
-                const double Progress = FMath::Clamp((ResourceAnimationTime - Index * MotionSeconds - CountStart)
+                const bool bClosesGap = bConsumesSource && Index == Transfers.Num() - 1;
+                const double CountDelay = bClosesGap ? 0.0 : CountStart;
+                const double Progress = FMath::Clamp((ResourceAnimationTime - Index * MotionSeconds - CountDelay)
                     / CountSeconds, 0.0, 1.0);
                 if (auto* Destination = FindResourceTile(Transfer.Destination))
                 {
                     Destination->Count = Transfer.PreviousCount + FMath::FloorToInt(Transfer.Moved
                         * FMath::InterpEaseOut(0.0, 1.0, Progress, 4.f));
                 }
-                Moved += Transfer.Moved;
             }
             if (!Transfers.IsEmpty())
             {
                 Shown = Transfers[TransferIndex].Moved;
                 ResourceMovingAlpha = Time < MotionSeconds ? 1.0 : 0.0;
                 Remainder = ResourceState.Count - Moved;
-                if (Remainder == 0)
+                if (bConsumesSource)
                 {
-                    const double Reflow = FMath::SmoothStep(0.0, 1.0, FMath::Clamp(
-                        (ResourceAnimationTime - Transfers.Num() * MotionSeconds) / MotionSeconds, 0.0, 1.0));
+                    const double Reflow = FMath::SmoothStep(0.0, 1.0,
+                        FMath::Clamp((ResourceAnimationTime - FinalTransferStart) / CountSeconds, 0.0, 1.0));
                     AppendResourceGapReflow(*GridWidget, Layout, Reflow);
                 }
             }
-            const bool bSplit = Transfers.IsEmpty();
-            const FVector2D Landing = bSplit
-                ? AppendResourceSplitReflow(*GridWidget, Layout, Grid->GetColumnCount(), Travel)
-                : ResourceLandingCenter(Target, Layout);
-            Center = FMath::Lerp(Expanded, Landing, Travel);
-            AnimatedExtent = FMath::Lerp(ExpandedExtent, Extent, Travel);
+            if (bSplit)
+            {
+                const auto Landing = AppendResourceSplitReflow(*GridWidget, Layout, Grid->GetColumnCount(), Travel);
+                Center = FMath::Lerp(Expanded, Landing.Origin + Landing.Extent * .5, Travel);
+                AnimatedExtent = FMath::Lerp(ExpandedExtent, Landing.Extent, Travel);
+                ResourcePreviewDepth = Landing.Depth * Travel;
+            }
+            else
+            {
+                Center = FMath::Lerp(Expanded, ResourceLandingCenter(FindResourceTile(Target), *GridWidget, Layout), Travel);
+                AnimatedExtent = FMath::Lerp(ExpandedExtent, Extent, Travel);
+            }
             const double Finish = bSplit ? MotionSeconds :
-                (Transfers.Num() - 1) * MotionSeconds + CountStart + CountSeconds;
+                FinalTransferStart + (bConsumesSource ? 0.0 : CountStart) + CountSeconds;
             bLanded = ResourceAnimationTime >= Finish;
             bKeepFrame = ResourceActions.bPublishesAfterLanding && (bSplit || Remainder == 0);
         }
@@ -2555,6 +2592,23 @@ private:
         return FBox2D(GridPoint(FVector2D::ZeroVector), GridPoint(TileGeometry.GetLocalSize()));
     }
 
+    FInventoryTileLift FocusedTilePlacement(const FInventoryShellLayout& Layout, const FBox2D& Source,
+        FIntPoint Cell, double Focus) const
+    {
+        const FVector2D Extent = Source.GetSize() * (1.0 + .035 * Focus);
+        const double Lift = 19.0 * Layout.Scale * Focus;
+        FVector2D Origin = Layout.MainOrigin + Source.GetCenter() - Extent * .5;
+        if (Cell.Y == 0 || (ActionSection.Get() == ApparelSection && Cell.Y == 2))
+        {
+            const auto& Plane = Layout.Left;
+            const double Depth = Plane.FocalLength + (Origin.X - Plane.Extent.X * .5) * Plane.SinYaw;
+            Origin.Y += (Extent.Y - Source.GetSize().Y) * .5
+                + FMath::Max(0.0, (Plane.Extent.Y * .5 - Layout.MainOrigin.Y - Source.Min.Y)
+                    * Lift * Plane.CosYaw / Depth);
+        }
+        return {Source, Origin, Extent, Lift, Cell};
+    }
+
     void UpdateLiftedTiles(const FInventoryShellLayout& Layout)
     {
         const auto* Grid = NavigationGrid.Get();
@@ -2584,19 +2638,8 @@ private:
                     continue;
                 }
 
-                const double Focus = FMath::SmoothStep(0.f, 1.f, Cell.FocusProgress);
-                const FVector2D Extent = Source.GetSize() * (1.0 + .035 * Focus);
-                const double Lift = 19.0 * Layout.Scale * Focus;
-                FVector2D Origin = Layout.MainOrigin + Source.GetCenter() - Extent * .5;
-                if (Y == 0 || (ActionSection.Get() == ApparelSection && Y == 2))
-                {
-                    const auto& Plane = Layout.Left;
-                    const double Depth = Plane.FocalLength + (Origin.X - Plane.Extent.X * .5) * Plane.SinYaw;
-                    Origin.Y += (Extent.Y - Source.GetSize().Y) * .5
-                        + FMath::Max(0.0, (Plane.Extent.Y * .5 - Layout.MainOrigin.Y - Source.Min.Y)
-                            * Lift * Plane.CosYaw / Depth);
-                }
-                LiftedTiles.Add({Source, Origin, Extent, Lift, {X, Y}});
+                LiftedTiles.Add(FocusedTilePlacement(Layout, Source, {X, Y},
+                    FMath::SmoothStep(0.f, 1.f, Cell.FocusProgress)));
             }
         }
     }
@@ -3745,7 +3788,7 @@ private:
     TArray<FCIInventoryNavigationRow> NavigationRows;
     FIntPoint GridFocus = FIntPoint::ZeroValue;
     TMap<FName, TPair<FIntPoint, FString>> TabSelections;
-    FString PendingSelectionId;
+    FString PendingSelectionId, PendingLiftedResourceId;
     FCIInventoryNavigationInput NavigationInput;
     TSharedPtr<SWidget> MenuWidget;
     TSharedPtr<SBox> MainRenderRoot;
@@ -3798,6 +3841,7 @@ private:
     int32 ResourceQuantity = 0;
     float ResourceStickX = 0.f, ResourceStickY = 0.f;
     double ResourceDeadline = 0.0, ResourceOpenBlend = 0.0, ResourceAnimationTime = 0.0;
+    double ResourcePreviewDepth = 0.0;
     double ResourceFrameHoldUntil = 0.0;
     TOptional<float> ResourceCollapseScrollStart, ResourceScrollToRestore;
     double ResourceQuantityFraction = 0.0, ResourceRemainderAlpha = 0.0, ResourceMovingAlpha = 1.0;
@@ -3925,6 +3969,8 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
         }
         return;
     }
+    RestoredLiftedResourceId = Previous.Shell ? Previous.Shell->GetLiftedResourceLandingId()
+        : Previous.RestoredLiftedResourceId;
     RestoredResourceScrollOffset = Previous.Shell ? Previous.Shell->GetResourceScrollOffset()
         : Previous.RestoredResourceScrollOffset;
     RestoredGridFocus = Previous.Shell ? Previous.Shell->GetGridFocus() : Previous.RestoredGridFocus;
@@ -3945,7 +3991,8 @@ void UCIInventoryShell::RestoreSavedSetsState(const UCIInventoryShell& Previous)
     }
     if (Shell)
     {
-        Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput);
+        Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput,
+            RestoredLiftedResourceId);
         Shell->RestoreResourceScrollOffset(RestoredResourceScrollOffset);
         Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
         Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
@@ -4058,7 +4105,8 @@ TSharedRef<SWidget> UCIInventoryShell::RebuildWidget()
         }));
     UpdateContent();
     Shell->SetSavedSets(SavedSets);
-    Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput);
+    Shell->RestoreNavigation(RestoredGridFocus, RestoredTabSelections, RestoredNavigationInput,
+        RestoredLiftedResourceId);
     Shell->RestoreResourceScrollOffset(RestoredResourceScrollOffset);
     Shell->SetSavedSetsState(bRestoreSavedSetsOpen, RestoredSavedSetIndex);
     Shell->RestoreSavedSetsPresentation(RestoredSavedSetsPresentation);
