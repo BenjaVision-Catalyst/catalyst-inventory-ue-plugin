@@ -704,7 +704,7 @@ public:
 
     FString GetLiftedResourceLandingId() const
     {
-        return ResourceFrameHoldUntil > 0.0 && ResourceResult && ResourceResult->Transfers.IsEmpty()
+        return ResourceFrameHoldUntil > 0.0
             ? ResourceLandingId : FString();
     }
 
@@ -1527,7 +1527,8 @@ public:
             if (ResourceMovingAlpha > 0.0)
             {
                 DrawSurface(Geometry, Elements, Layer + 4, Layout.Left, ResourcePreviewTexture.Get(),
-                    ResourcePreviewBounds.Min, ResourcePreviewBounds.GetSize(), ResourcePreviewDepth, 1.0, ResourceMovingAlpha);
+                    ResourcePreviewBounds.Min, ResourcePreviewBounds.GetSize(), 0.0, 1.0, ResourceMovingAlpha,
+                    nullptr, ResourcePreviewDepth);
             }
         }
         if (InspectorTexture.IsValid() && Layout.InspectorExtent.GetMin() >= 1.0)
@@ -2081,6 +2082,11 @@ private:
         {
             if (auto* Tile = Entry.Key.Get(); Tile) { Tile->Count = Entry.Value; }
         }
+        if (auto* Receiver = SelectedResourceReceiver.Get())
+        {
+            Receiver->SetVisualState(0.f, 1.f);
+        }
+        SelectedResourceReceiver.Reset();
         ResourceReceiverTiles.Reset();
         ResourceFrameHoldUntil = 0.0;
         ResourcePreviewTile.Reset();
@@ -2113,28 +2119,48 @@ private:
         return nullptr;
     }
 
-    FVector2D ResourceLandingCenter(const UCIInventoryTile* Tile, const SWidget& GridWidget,
-        const FInventoryShellLayout& Layout) const
+    TOptional<FInventoryTileLift> ResourceReceiverPlacement(const UCIInventoryTile* Tile,
+        const SWidget& GridWidget, const FInventoryShellLayout& Layout, bool bSelected) const
     {
-        const auto TileWidget = Tile ? Tile->GetCachedWidget() : nullptr;
-        if (TileWidget)
+        const auto Widget = Tile ? Tile->GetCachedWidget() : nullptr;
+        if (!Widget)
         {
-            for (const auto& Entry : LiftedTiles)
-            {
-                if (Entry.bClipToGrid && Entry.Cell.Y != INDEX_NONE
-                    && NavigationRows[Entry.Cell.Y].Cells[Entry.Cell.X].Tile.Get() == Tile)
-                {
-                    const auto Bounds = TileBounds(*TileWidget, GridWidget, Layout.Scale);
-                    return Entry.Origin + Bounds.GetCenter() - Entry.Source.Min;
-                }
-            }
-            const auto Bounds = TileBounds(*TileWidget, GridWidget, Layout.Scale);
-            const auto HalfSize = ResourceSourceBounds.GetSize() * .5;
-            return Layout.MainOrigin + Bounds.GetCenter().ComponentMax(HalfSize)
-                .ComponentMin(Layout.MainExtent - HalfSize);
+            return {};
         }
-
-        return ResourceSourceBounds.GetCenter();
+        for (int32 Y = 0; Y < NavigationRows.Num(); ++Y)
+        {
+            const int32 X = NavigationRows[Y].Cells.IndexOfByPredicate(
+                [Tile](const auto& Cell) { return Cell.Tile.Get() == Tile; });
+            if (X == INDEX_NONE)
+            {
+                continue;
+            }
+            const FIntPoint Cell(X, Y);
+            const FBox2D Bounds = TileBounds(*Widget, GridWidget, Layout.Scale);
+            const auto* Reflow = LiftedTiles.FindByPredicate(
+                [Cell](const auto& Entry) { return Entry.Cell == Cell && Entry.bClipToGrid; });
+            const FVector2D Offset = Reflow ? Reflow->Origin - Layout.MainOrigin - Reflow->Source.Min
+                : FVector2D::ZeroVector;
+            const FBox2D Source(Bounds.Min.ComponentMax(FVector2D::ZeroVector),
+                Bounds.Max.ComponentMin(Layout.MainExtent));
+            if (Source.GetSize().GetMin() <= 0.0)
+            {
+                return {};
+            }
+            const FBox2D MovedBounds(Source.Min + Offset, Source.Max + Offset);
+            auto Placement = FocusedTilePlacement(Layout, MovedBounds, Cell, bSelected ? 1.0 : 0.0);
+            if (bSelected && Y == 1 && Offset.Y < 0.0)
+            {
+                const auto FirstRow = FocusedTilePlacement(Layout, MovedBounds, {X, 0}, 1.0);
+                const double Pitch = Bounds.GetSize().Y + InventoryTheme.Get()->RowGap * Layout.Scale;
+                Placement.Origin = FMath::Lerp(Placement.Origin, FirstRow.Origin,
+                    FMath::Clamp(-Offset.Y / Pitch, 0.0, 1.0));
+            }
+            Placement.Source = Source;
+            Placement.Cell = Cell;
+            return Placement;
+        }
+        return {};
     }
 
     void AppendResourceCategoryShift(const FInventoryShellLayout& Layout, const SWidget& GridWidget,
@@ -2395,15 +2421,21 @@ private:
         const FVector2D Expanded = Layout.MainOrigin + CIResourcePreviewAnchor(Relative, Extent, ExpandedExtent,
             Column, Columns, 0.0, Layout.MainExtent.X, Layout.MainExtent.Y, Gap);
 
-        ResourceOpenBlend = FMath::FInterpConstantTo(ResourceOpenBlend, bResourceClosing ? 0.0 : 1.0,
-            double(DeltaTime), 1.0 / MotionSeconds);
+        if (!ResourceResult)
+        {
+            ResourceOpenBlend = FMath::FInterpConstantTo(ResourceOpenBlend, bResourceClosing ? 0.0 : 1.0,
+                double(DeltaTime), 1.0 / MotionSeconds);
+        }
         const double Blend = FMath::SmoothStep(0.0, 1.0, ResourceOpenBlend);
         FVector2D Center = FMath::Lerp(SourceCenter, Expanded, Blend);
         FVector2D AnimatedExtent = FMath::Lerp(Extent, ExpandedExtent, Blend);
+        const FVector2D TravelOrigin = Center;
+        const FVector2D TravelExtent = AnimatedExtent;
         int32 Shown = ResourceQuantity;
         int32 Remainder = ResourceState.Count - ResourceQuantity;
         bool bLanded = false;
         bool bKeepFrame = false;
+        bool bRedrawGrid = false;
         if (ResourceResult)
         {
             ResourceAnimationTime += DeltaTime;
@@ -2449,19 +2481,51 @@ private:
             if (bSplit)
             {
                 const auto Landing = AppendResourceSplitReflow(*GridWidget, Layout, Grid->GetColumnCount(), Travel);
-                Center = FMath::Lerp(Expanded, Landing.Origin + Landing.Extent * .5, Travel);
-                AnimatedExtent = FMath::Lerp(ExpandedExtent, Landing.Extent, Travel);
+                Center = FMath::Lerp(TravelOrigin, Landing.Origin + Landing.Extent * .5, Travel);
+                AnimatedExtent = FMath::Lerp(TravelExtent, Landing.Extent, Travel);
                 ResourcePreviewDepth = Landing.Depth * Travel;
             }
             else
             {
-                Center = FMath::Lerp(Expanded, ResourceLandingCenter(FindResourceTile(Target), *GridWidget, Layout), Travel);
-                AnimatedExtent = FMath::Lerp(ExpandedExtent, Extent, Travel);
+                const bool bSelected = Target == ResourceResult->Destination;
+                const auto Landing = ResourceReceiverPlacement(FindResourceTile(Target), *GridWidget, Layout, bSelected);
+                if (Landing)
+                {
+                    Center = FMath::Lerp(TravelOrigin, Landing->Origin + Landing->Extent * .5, Travel);
+                    AnimatedExtent = FMath::Lerp(TravelExtent, Landing->Extent, Travel);
+                    ResourcePreviewDepth = Landing->Depth * Travel;
+                }
+                else
+                {
+                    Center = FMath::Lerp(TravelOrigin, SourceCenter, Travel);
+                    AnimatedExtent = FMath::Lerp(TravelExtent, Extent, Travel);
+                    ResourcePreviewDepth = 0.0;
+                }
+                auto* Receiver = FindResourceTile(ResourceResult->Destination);
+                const int32 ReceiverIndex = Transfers.IndexOfByPredicate([this](const auto& Transfer) {
+                    return Transfer.Destination == ResourceResult->Destination;
+                });
+                if (Receiver && ReceiverIndex != INDEX_NONE
+                    && ResourceAnimationTime >= (ReceiverIndex + 1) * MotionSeconds)
+                {
+                    if (SelectedResourceReceiver.Get() != Receiver)
+                    {
+                        SelectedResourceReceiver = Receiver;
+                        Receiver->SetVisualState(1.f, 1.f);
+                        bRedrawGrid = true;
+                    }
+                    if (const auto Selected = ResourceReceiverPlacement(Receiver, *GridWidget, Layout, true))
+                    {
+                        LiftedTiles.RemoveAll([&](const auto& Entry) { return Entry.Cell == Selected->Cell; });
+                        LiftedTiles.Add(*Selected);
+                    }
+                }
+                ResourcePreviewTile->SetVisualState(bSelected ? 1.f : 0.f, 1.f);
             }
             const double Finish = bSplit ? MotionSeconds :
                 FinalTransferStart + (bConsumesSource ? 0.0 : CountStart) + CountSeconds;
             bLanded = ResourceAnimationTime >= Finish;
-            bKeepFrame = ResourceActions.bPublishesAfterLanding && (bSplit || Remainder == 0);
+            bKeepFrame = ResourceActions.bPublishesAfterLanding;
         }
         else if (bResourceClosing)
         {
@@ -2495,14 +2559,17 @@ private:
             DrawToTexture(ResourceRemainderTexture, ResourceRemainderTile->TakeWidget(), Raster, DeltaTime,
                 Layout.Scale * ProjectionRasterScale);
         }
+        if ((bRedrawGrid || (bLanded && bKeepFrame)) && MainRenderRoot)
+        {
+            const FVector2D MainRaster(MainTexture->SizeX, MainTexture->SizeY);
+            DrawToTexture(MainTexture, MainRenderRoot.ToSharedRef(), MainRaster, 0.f,
+                Layout.Scale * ProjectionRasterScale);
+        }
         if (bLanded)
         {
             ResourceLandingId = ResourceResult->Destination;
-            if (bKeepFrame && MainRenderRoot)
+            if (bKeepFrame)
             {
-                const FVector2D MainRaster(MainTexture->SizeX, MainTexture->SizeY);
-                DrawToTexture(MainTexture, MainRenderRoot.ToSharedRef(), MainRaster, 0.f,
-                    Layout.Scale * ProjectionRasterScale);
                 ResourceFrameHoldUntil = FPlatformTime::Seconds() + .5;
             }
             else
@@ -3833,6 +3900,7 @@ private:
     TOptional<FCIInventoryStackResult> ResourceResult;
     TWeakObjectPtr<UCIInventoryTile> ResourceSourceTile;
     TArray<TPair<TWeakObjectPtr<UCIInventoryTile>, int64>> ResourceReceiverTiles;
+    TWeakObjectPtr<UCIInventoryTile> SelectedResourceReceiver;
     TStrongObjectPtr<UCIResourceTile> ResourcePreviewTile, ResourceRemainderTile;
     TStrongObjectPtr<UTextureRenderTarget2D> ResourcePreviewTexture, ResourceRemainderTexture;
     FBox2D ResourceSourceBounds{ForceInit}, ResourcePreviewBounds{ForceInit};

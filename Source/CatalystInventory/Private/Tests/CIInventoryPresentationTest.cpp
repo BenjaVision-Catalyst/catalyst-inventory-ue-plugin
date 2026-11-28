@@ -730,7 +730,10 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         Widget->Tick(Geometry, 2.22, .12f);
         TestEqual(TEXT("A full join closes the gap while the transfer tile is still moving"),
             Shell->GetResourceReflowTileCountForTest(), 2);
-        Widget->Tick(Geometry, 2.23, .45f);
+        Widget->Tick(Geometry, 2.23, .12f);
+        TestTrue(TEXT("The receiver is fully selected as soon as the join card lands"),
+            Shell->GetGridTileLiftForTest({1, 0}) > 10.0);
+        Widget->Tick(Geometry, 2.24, .32f);
         TestFalse(TEXT("The full join completes its projected landing"), Shell->HasResourceInteraction());
         Shell->SetResourceActions({});
 
