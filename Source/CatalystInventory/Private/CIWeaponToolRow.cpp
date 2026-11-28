@@ -221,7 +221,7 @@ void UCIWeaponToolRow::RefreshStats()
         FText Display = Stat.Display;
         if (Stat.Value && (Stat.Id == TEXT("damagePerShot") || Stat.Id == TEXT("damagePerSecond")))
         {
-            Display = CIInventoryRowData::FormatWeaponDamage(*Stat.Value);
+            Display = CIInventoryRowData::FormatCompactNumber(*Stat.Value);
         }
         else if (Stat.Value && Stat.Id == TEXT("magazineCapacity"))
         {

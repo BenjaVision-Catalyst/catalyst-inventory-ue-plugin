@@ -3338,9 +3338,49 @@ private:
             }
             Points.Emplace(double(*Metres), double(*Percent));
         }
+        return BuildFalloffPlot(MoveTemp(Points));
+    }
+
+    TSharedPtr<SWidget> BuildFalloffPlot(const magritte::Description& Field)
+    {
+        const auto Curve = Field.property("metadata:ciFalloff");
+        const auto* Series = std::get_if<std::string>(&Curve.data);
+        if (!Series)
+        {
+            return nullptr;
+        }
+        TArray<FString> Encoded;
+        FString(UTF8_TO_TCHAR(Series->c_str())).ParseIntoArray(Encoded, TEXT(","));
+        TArray<FVector2D> Points;
+        for (const auto& Point : Encoded)
+        {
+            FString Distance, Damage;
+            int64 Metres, Percent;
+            if (!Point.Split(TEXT(":"), &Distance, &Damage)
+                || !LexTryParseString(Metres, *Distance) || !LexTryParseString(Percent, *Damage))
+            {
+                return nullptr;
+            }
+            Points.Emplace(double(Metres), double(Percent));
+        }
+        return BuildFalloffPlot(MoveTemp(Points));
+    }
+
+    TSharedPtr<SWidget> BuildFalloffPlot(TArray<FVector2D> Points)
+    {
         if (Points.Num() < 2 || Points[0].X != 0.0)
         {
             return nullptr;
+        }
+
+        for (int32 Index = 0; Index < Points.Num(); ++Index)
+        {
+            const auto& Point = Points[Index];
+            if (Point.Y < 0.0 || Point.Y > 100.0
+                || (Index > 0 && (Point.X <= Points[Index - 1].X || Point.Y > Points[Index - 1].Y)))
+            {
+                return nullptr;
+            }
         }
 
         const auto* Theme = InventoryTheme.Get();
@@ -3410,9 +3450,6 @@ private:
             ++Index;
         };
 
-        TOptional<double> Damage;
-        TOptional<double> RoundsPerMinute;
-        bool bHasDps = false;
         for (const auto& Field : Section.Describe().orderedChildren())
         {
             if (!IsInspectorFieldVisible(*Field))
@@ -3421,6 +3458,11 @@ private:
             }
             const auto Label = InspectorValue(Field->property("label"));
             const FString Name = Label.ToString();
+            if (Name.Equals(TEXT("DPS"), ESearchCase::IgnoreCase)
+                || Name.Equals(TEXT("Damage per second"), ESearchCase::IgnoreCase))
+            {
+                continue;
+            }
             auto Data = Section.Read(*Field);
             const bool bRange = Name.Equals(TEXT("Optimal Range"), ESearchCase::IgnoreCase);
             const bool bReload = Name.Equals(TEXT("Reload Time"), ESearchCase::IgnoreCase);
@@ -3448,28 +3490,14 @@ private:
             }
             const bool bDamage = Name.Equals(TEXT("Damage"), ESearchCase::IgnoreCase)
                 || Name.Equals(TEXT("DMG"), ESearchCase::IgnoreCase);
-            const bool bDps = Name.Equals(TEXT("DPS"), ESearchCase::IgnoreCase)
-                || Name.Equals(TEXT("Damage per second"), ESearchCase::IgnoreCase);
-            if (bDamage || bDps)
+            if (bDamage)
             {
-                const auto Number = CIInventoryRowData::Number(Data);
-                if (Number)
+                if (const auto Number = CIInventoryRowData::Number(Data))
                 {
-                    Value = CIInventoryRowData::FormatWeaponDamage(*Number);
+                    Value = CIInventoryRowData::FormatCompactNumber(*Number);
                 }
-                if (bDamage) { Damage = Number; }
-                bHasDps |= bDps;
-            }
-            else if (Name.Equals(TEXT("Fire rate"), ESearchCase::IgnoreCase))
-            {
-                RoundsPerMinute = CIInventoryRowData::Number(Data);
             }
             AddStat(Label, Value, Unit);
-        }
-        if (!bHasDps && Damage && RoundsPerMinute)
-        {
-            AddStat(NSLOCTEXT("Inventory", "InspectorDps", "DPS"),
-                CIInventoryRowData::FormatWeaponDamage(CIInventoryRowData::DamagePerSecond(*Damage, *RoundsPerMinute)));
         }
         return Grid;
     }
@@ -3544,7 +3572,9 @@ private:
             }
 
             const auto Data = Section.Read(*Row);
-            const auto Value = InspectorValue(Data);
+            const auto Value = Label.ToString().Equals(TEXT("Armour"), ESearchCase::IgnoreCase)
+                || Label.ToString().Equals(TEXT("Armor"), ESearchCase::IgnoreCase)
+                ? CIInventoryRowData::FormatArmour(Data) : InspectorValue(Data);
             const auto LabelWidget = BuildInspectorAttributeLabel(*Row, Label);
             const auto Meter = Row->property("metadata:ciMeterMillionths");
             const auto* Millionths = std::get_if<std::int64_t>(&Meter.data);
@@ -3643,6 +3673,22 @@ private:
         return SNew(SBorder).BorderImage(&InspectorBrush).Padding(8.f)[Content];
     }
 
+    void AddInspectorHeading(SVerticalBox& Content, const FText& Heading) const
+    {
+        if (Heading.IsEmpty())
+        {
+            return;
+        }
+        const auto* Theme = InventoryTheme.Get();
+        FMargin Padding = Theme->GroupLabelPadding;
+        Padding.Top += 6.f;
+        Content.AddSlot().AutoHeight().Padding(Padding)
+        [
+            SNew(STextBlock).Text(Heading).Font(Theme->GroupLabelFont)
+            .ColorAndOpacity(FSlateColor(Theme->GroupLabelTint)).AutoWrapText(true)
+        ];
+    }
+
     void RenderInspector(const FInventoryShellLayout& Layout, float DeltaTime)
     {
         const auto* Tile = GetInspectedTile();
@@ -3691,21 +3737,15 @@ private:
                         }
                         if (const auto Section = Inspector->Follow(*Field))
                         {
-                            const auto Heading = CIInventoryRowData::NormalizeLabel(InspectorValue(Field->property("label")));
-                            if (!Heading.IsEmpty())
-                            {
-                                FMargin HeadingPadding = Theme->GroupLabelPadding;
-                                HeadingPadding.Top += 6.f;
-                                Content->AddSlot().AutoHeight().Padding(HeadingPadding)
-                                [
-                                    SNew(STextBlock)
-                                    .Text(Heading)
-                                    .Font(Theme->GroupLabelFont)
-                                    .ColorAndOpacity(FSlateColor(Theme->GroupLabelTint))
-                                    .AutoWrapText(true)
-                                ];
-                            }
+                            AddInspectorHeading(*Content,
+                                CIInventoryRowData::NormalizeLabel(InspectorValue(Field->property("label"))));
                             Content->AddSlot().AutoHeight()[BuildInspectorCard(*Field, *Section, bWeapon)];
+                            if (const auto Plot = BuildFalloffPlot(*Field))
+                            {
+                                AddInspectorHeading(*Content, NSLOCTEXT("Inventory", "FalloffHeading", "Damage Falloff"));
+                                Content->AddSlot().AutoHeight()
+                                [SNew(SBorder).BorderImage(&InspectorBrush).Padding(8.f)[Plot.ToSharedRef()]];
+                            }
                         }
                         else if (const auto Text = InspectorValue(Inspector->Read(*Field)); !Text.IsEmpty())
                         {

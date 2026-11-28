@@ -42,7 +42,7 @@ void UCIGearRow::BindItem(const FCFMagritteBinding& Item)
     const bool bGear = PresentationKind == TEXT("gear");
     SetVisibility(bGear ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
     Manufacturer = CIInventoryRowData::Manufacturer(Item);
-    BaseArmour = CIInventoryRowData::Read(Item, "inspectorArmour");
+    BaseArmour = CIInventoryRowData::FormatArmour(CIInventoryRowData::ReadValue(Item, "inspectorArmour"));
     GearSlot = FName(*CIInventoryRowData::Read(Item, "gearSlotIdentifier").ToString());
     Attribute.Reset();
     bJunk = false;

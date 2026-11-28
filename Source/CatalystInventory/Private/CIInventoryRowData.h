@@ -42,7 +42,7 @@ inline TOptional<double> Number(const magritte::Value& Value)
     return {};
 }
 
-inline FText FormatWeaponDamage(double Value)
+inline FText FormatCompactNumber(double Value)
 {
     FNumberFormattingOptions Formatting;
     Formatting.SetMaximumFractionalDigits(0);
@@ -50,6 +50,20 @@ inline FText FormatWeaponDamage(double Value)
         ? FText::Format(NSLOCTEXT("CatalystInventory", "ThousandsAbbreviation", "{0}K"),
             FText::AsNumber(Value / 1000.0, &Formatting))
         : FText::AsNumber(Value, &Formatting);
+}
+
+inline FText FormatArmour(const magritte::Value& Data)
+{
+    const auto Value = Number(Data);
+    if (!Value || *Value <= 1000.0)
+    {
+        return DisplayValue(Data);
+    }
+    const auto Formatted = FormatCompactNumber(*Value);
+    const auto* Text = std::get_if<std::string>(&Data.data);
+    return Text && Text->starts_with('+')
+        ? FText::Format(NSLOCTEXT("CatalystInventory", "PositiveArmour", "+{0}"), Formatted)
+        : Formatted;
 }
 
 inline double DamagePerSecond(double Damage, double RoundsPerMinute)
@@ -68,16 +82,21 @@ inline FText NormalizeLabel(const FText& Label)
     return Label;
 }
 
-inline FText Read(const FCFMagritteBinding& Item, std::string_view Id)
+inline magritte::Value ReadValue(const FCFMagritteBinding& Item, std::string_view Id)
 {
     for (const auto& Field : Item.Describe().orderedChildren())
     {
         if (Field->id == Id)
         {
-            return DisplayValue(Item.Read(*Field));
+            return Item.Read(*Field);
         }
     }
-    return FText::GetEmpty();
+    return {};
+}
+
+inline FText Read(const FCFMagritteBinding& Item, std::string_view Id)
+{
+    return DisplayValue(ReadValue(Item, Id));
 }
 
 inline FText Manufacturer(const FCFMagritteBinding& Item)

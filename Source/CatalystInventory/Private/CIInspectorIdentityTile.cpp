@@ -1,4 +1,5 @@
 #include "CIInspectorIdentityTile.h"
+#include "CIInventoryRowData.h"
 #include "CIResourceTile.h"
 
 #include "SCIInspectorConsumableIcon.h"
@@ -67,7 +68,7 @@ TSharedRef<SWidget> UCIInspectorIdentityTile::BuildInventoryContent()
             }
             else if (Field->id == "inspectorArmour")
             {
-                Armour = IdentityValue(Item->Read(*Field));
+                Armour = CIInventoryRowData::FormatArmour(Item->Read(*Field));
             }
             else if (Field->id == "inspectorConsumableIcon")
             {

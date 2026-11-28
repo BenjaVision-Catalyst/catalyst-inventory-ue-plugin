@@ -617,9 +617,12 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
             return Widget->OnKeyDown(Geometry, FKeyEvent(Key, FModifierKeysState(), 0, false, 0, 0)).IsEventHandled();
         };
         TestEqual(TEXT("Weapon damage rounds to compact thousands"),
-            CIInventoryRowData::FormatWeaponDamage(12179.0).ToString(), FString(TEXT("12K")));
+            CIInventoryRowData::FormatCompactNumber(12179.0).ToString(), FString(TEXT("12K")));
+        TestEqual(TEXT("Armour uses compact thousands and preserves the plus sign"),
+            CIInventoryRowData::FormatArmour(magritte::Value(std::string("+257800"))).ToString(),
+            FString(TEXT("+258K")));
         TestEqual(TEXT("Weapon DPS rounds to the nearest thousand"),
-            CIInventoryRowData::FormatWeaponDamage(257800.0).ToString(), FString(TEXT("258K")));
+            CIInventoryRowData::FormatCompactNumber(257800.0).ToString(), FString(TEXT("258K")));
         TestTrue(TEXT("Confirm opens a slot picker for the focused tile"), Press(EKeys::Enter));
         Widget->Tick(Geometry, .4, .2f);
         TestTrue(TEXT("Back cancels item picking"), Press(EKeys::BackSpace));
