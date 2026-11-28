@@ -117,6 +117,7 @@ struct FInventoryTileLift
     FVector2D Extent;
     double Depth;
     FIntPoint Cell;
+    bool bClipToGrid = false;
 };
 
 struct FInspectorStroke
@@ -670,6 +671,11 @@ public:
                 + (InspectorHeader ? InspectorHeader->GetPaintSpaceGeometry().GetAbsolutePosition().Y
                     / ProjectionRasterScale : 0.0),
             Layout.InspectorExtent.Y - Layout.MainExtent.Y };
+    }
+
+    int32 GetResourceReflowTileCount() const
+    {
+        return LiftedTiles.FilterByPredicate([](const auto& Tile) { return Tile.bClipToGrid; }).Num();
     }
 
     double GetGridTileLift(FIntPoint Cell) const
@@ -2081,6 +2087,44 @@ private:
             FMath::Min(Center.Y + Extent.Y + Gap, Layout.MainOrigin.Y + Layout.MainExtent.Y - Extent.Y * .5));
     }
 
+    void AppendResourceGapReflow(const SWidget& GridWidget, const FInventoryShellLayout& Layout, double Progress)
+    {
+        if (Progress <= 0.0 || !NavigationRows.IsValidIndex(GridFocus.Y))
+        {
+            return;
+        }
+        const auto* NextCategory = ResourceCategoryRows.FindByPredicate(
+            [this](int32 Row) { return Row > GridFocus.Y; });
+        const int32 EndRow = NextCategory ? *NextCategory : NavigationRows.Num();
+        FVector2D Vacancy = ResourceSourceBounds.Min - Layout.MainOrigin;
+        for (int32 Y = GridFocus.Y; Y < EndRow; ++Y)
+        {
+            const auto& Cells = NavigationRows[Y].Cells;
+            const int32 First = Y == GridFocus.Y ? GridFocus.X + 1 : 0;
+            for (int32 X = First; X < Cells.Num(); ++X)
+            {
+                const auto* Tile = Cells[X].Tile.Get();
+                const auto Widget = Tile ? Tile->GetCachedWidget() : nullptr;
+                if (!Widget)
+                {
+                    return;
+                }
+
+                const auto Bounds = TileBounds(*Widget, GridWidget, Layout.Scale);
+                const auto Source = FBox2D(Bounds.Min.ComponentMax(FVector2D::ZeroVector),
+                    Bounds.Max.ComponentMin(Layout.MainExtent));
+                if (Source.GetSize().GetMin() > 0.0)
+                {
+                    const FIntPoint Cell(X, Y);
+                    const FVector2D Offset = (Vacancy - Bounds.Min) * Progress;
+                    LiftedTiles.RemoveAll([Cell](const auto& Entry) { return Entry.Cell == Cell; });
+                    LiftedTiles.Add({Source, Layout.MainOrigin + Source.Min + Offset, Source.GetSize(), 0.0, Cell, true});
+                }
+                Vacancy = Bounds.Min;
+            }
+        }
+    }
+
     void TickResourcePreview(const FInventoryShellLayout& Layout, float DeltaTime)
     {
         if (!HasResourceInteraction())
@@ -2191,8 +2235,6 @@ private:
             const double Time = ResourceAnimationTime - TransferIndex * MotionSeconds;
             const double Travel = FMath::SmoothStep(0.0, 1.0, FMath::Clamp(Time / MotionSeconds, 0.0, 1.0));
             const FString& Target = Transfers.IsEmpty() ? ResourceResult->Destination : Transfers[TransferIndex].Destination;
-            Center = FMath::Lerp(Expanded, ResourceLandingCenter(Target, Layout), Travel);
-            AnimatedExtent = FMath::Lerp(ExpandedExtent, Extent, Travel);
             int32 Moved = 0;
             for (int32 Index = 0; Index < Transfers.Num(); ++Index)
             {
@@ -2211,7 +2253,15 @@ private:
                 Shown = Transfers[TransferIndex].Moved;
                 ResourceMovingAlpha = Time < MotionSeconds ? 1.0 : 0.0;
                 Remainder = ResourceState.Count - Moved;
+                if (Remainder == 0)
+                {
+                    const double Reflow = FMath::SmoothStep(0.0, 1.0, FMath::Clamp(
+                        (ResourceAnimationTime - Transfers.Num() * MotionSeconds) / MotionSeconds, 0.0, 1.0));
+                    AppendResourceGapReflow(*GridWidget, Layout, Reflow);
+                }
             }
+            Center = FMath::Lerp(Expanded, ResourceLandingCenter(Target, Layout), Travel);
+            AnimatedExtent = FMath::Lerp(ExpandedExtent, Extent, Travel);
             const double Finish = Transfers.IsEmpty() ? MotionSeconds :
                 (Transfers.Num() - 1) * MotionSeconds + CountStart + CountSeconds;
             if (ResourceAnimationTime >= Finish)
@@ -2434,7 +2484,20 @@ private:
         }
         for (const auto& Tile : LiftedTiles)
         {
+            if (Tile.bClipToGrid)
+            {
+                const auto Point = [&](FVector2D Offset)
+                {
+                    return Geometry.LocalToAbsolute(Layout.Left.Project(Layout.MainOrigin + Offset));
+                };
+                Elements.PushClip(FSlateClippingZone(Point({0.0, 0.0}), Point({Layout.MainExtent.X, 0.0}),
+                    Point({0.0, Layout.MainExtent.Y}), Point(Layout.MainExtent)));
+            }
             DrawRegion(Tile.Source, Tile.Origin, Tile.Extent, Tile.Depth, Tile.Cell == GridFocus ? Layer + 2 : Layer + 1);
+            if (Tile.bClipToGrid)
+            {
+                Elements.PopClip();
+            }
         }
     }
 
@@ -3731,6 +3794,11 @@ TPair<bool, int32> UCIInventoryShell::GetInspectorScrollbarStateForTest() const
 FVector UCIInventoryShell::GetInspectorScrollStateForTest(FVector2D ViewSize) const
 {
     return Shell ? Shell->GetInspectorScrollState(ViewSize) : FVector::ZeroVector;
+}
+
+int32 UCIInventoryShell::GetResourceReflowTileCountForTest() const
+{
+    return Shell ? Shell->GetResourceReflowTileCount() : 0;
 }
 
 double UCIInventoryShell::GetGridTileLiftForTest(FIntPoint Cell) const

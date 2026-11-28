@@ -44,6 +44,7 @@ public:
     FIntPoint GetFocusedGridCellForTest() const;
     FText GetInspectorLabelForTest() const;
     double GetGridTileLiftForTest(FIntPoint Cell) const;
+    int32 GetResourceReflowTileCountForTest() const;
     FVector GetInspectorScrollStateForTest(FVector2D ViewSize) const;
     int32 GetInspectorStrokeCountForTest() const;
     TPair<bool, int32> GetInspectorScrollbarStateForTest() const;

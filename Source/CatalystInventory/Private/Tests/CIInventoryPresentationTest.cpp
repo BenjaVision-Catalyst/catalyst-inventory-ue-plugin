@@ -697,6 +697,38 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
             Widget->Tick(Geometry, 2.17 + Frame * .03, .08f);
         }
         TestFalse(TEXT("The split completes its projected landing"), Shell->HasResourceInteraction());
+
+        FGuid JoinRequest;
+        int32 JoinCount = 0;
+        FCIInventoryResourceActions JoinActions;
+        JoinActions.Read = [](const FString&) -> TOptional<FCIInventoryStackState> {
+            return FCIInventoryStackState{240, false, true};
+        };
+        JoinActions.Commit = [&](const FGuid& Request, const FString&, int32 Expected, int32 Count, bool bJoin) {
+            JoinRequest = Request;
+            JoinCount = Count;
+            return Expected == 240 && bJoin;
+        };
+        JoinActions.Poll = [&](const FGuid& Request) -> TOptional<FCIInventoryStackResult> {
+            if (Request != JoinRequest) { return {}; }
+            const FString Receiver = TEXT("inventory-fixture:inventory:resources:currencies:Tokens");
+            return FCIInventoryStackResult{Receiver, {{Receiver, 34, JoinCount}}};
+        };
+        Shell->SetResourceActions(MoveTemp(JoinActions));
+        Press(EKeys::Enter);
+        Press(EKeys::Down);
+        Press(EKeys::F2);
+        Widget->Tick(Geometry, 2.20, .30f);
+        TestEqual(TEXT("A partial join leaves the remaining source in place"), Shell->GetResourceReflowTileCountForTest(), 0);
+        Widget->Tick(Geometry, 2.21, .45f);
+
+        Press(EKeys::Enter);
+        Press(EKeys::F2);
+        Widget->Tick(Geometry, 2.22, .30f);
+        TestEqual(TEXT("A full join animates only the following tiles in its category"),
+            Shell->GetResourceReflowTileCountForTest(), 2);
+        Widget->Tick(Geometry, 2.23, .45f);
+        TestFalse(TEXT("The full join completes its projected landing"), Shell->HasResourceInteraction());
         Shell->SetResourceActions({});
 
         TestTrue(TEXT("L2 opens resource categories"), Press(EKeys::Gamepad_LeftTrigger));
