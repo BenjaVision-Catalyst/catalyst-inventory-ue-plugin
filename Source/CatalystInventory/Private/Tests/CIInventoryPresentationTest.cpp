@@ -689,6 +689,9 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         TestTrue(TEXT("Select opens the projected quantity tile"), Press(EKeys::Enter));
         Widget->Tick(Geometry, 2.16, .12f);
         TestTrue(TEXT("A stack preview captures input"), Shell->HasResourceInteraction());
+        Press(EKeys::S);
+        Press(EKeys::F2);
+        TestEqual(TEXT("A full stack cannot split and an incompatible stack cannot join"), SplitCount, 0);
         Press(EKeys::Down);
         Press(EKeys::S);
         TestEqual(TEXT("Split receives the adjusted quantity"), SplitCount, 239);

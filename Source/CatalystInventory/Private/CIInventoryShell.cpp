@@ -408,23 +408,12 @@ public:
             ConfirmBounds = FSlateRect(Right + ActionPromptGap, 0.0, ConfirmRight, 25.0);
             return Layer + 2;
         }
-        if (bResources && ResourceOpen.Get())
-        {
-            const double SplitRight = Right;
-            DrawPrompt(NSLOCTEXT("Inventory", "SplitResource", "Split"), EKeys::S, EKeys::Gamepad_FaceButton_Top,
-                ResourceCanSplit.Get());
-            OptionsBounds = FSlateRect(Right + ActionPromptGap, 0.0, SplitRight, 25.0);
-            const double JoinRight = Right;
-            DrawPrompt(NSLOCTEXT("Inventory", "JoinResource", "Join"), EKeys::F2, EKeys::Gamepad_FaceButton_Left,
-                ResourceCanJoin.Get());
-            ConfirmBounds = FSlateRect(Right + ActionPromptGap, 0.0, JoinRight, 25.0);
-            return Layer + 2;
-        }
         const FText SectionAction = bResources
             ? NSLOCTEXT("Inventory", "ResourceCategories", "Categories") : SavedSetsLabel(CurrentSection);
         const double ActionRight = Right;
-        DrawPrompt(SectionAction, bResources ? EKeys::C : EKeys::G, EKeys::Gamepad_LeftTrigger);
-        if (HasNavigableGrid(CurrentSection))
+        const bool bResourceSelected = bResources && ResourceOpen.Get();
+        DrawPrompt(SectionAction, bResources ? EKeys::C : EKeys::G, EKeys::Gamepad_LeftTrigger, !bResourceSelected);
+        if (HasNavigableGrid(CurrentSection) && !bResourceSelected)
         {
             SavedSetsBounds = FSlateRect(Right + ActionPromptGap, 0.0, ActionRight, 25.0);
         }
@@ -435,10 +424,30 @@ public:
             Y += 28.0;
             const double SelectRight = Right;
             DrawPrompt(NSLOCTEXT("Inventory", "SelectResourceStack", "Select"), EKeys::Enter,
-                EKeys::Gamepad_FaceButton_Bottom, ResourceAvailable.Get() && !SavedSetsOpen.Get());
-            ConfirmBounds = FSlateRect(Right + ActionPromptGap, 25.0, SelectRight, FooterHeight);
+                EKeys::Gamepad_FaceButton_Bottom, ResourceAvailable.Get() && !SavedSetsOpen.Get() && !bResourceSelected);
+            if (!bResourceSelected)
+            {
+                ConfirmBounds = FSlateRect(Right + ActionPromptGap, 25.0, SelectRight, FooterHeight);
+            }
             DrawPrompt(NSLOCTEXT("Inventory", "ResourceDrop", "Drop"), EKeys::Delete, EKeys::Gamepad_RightThumbstick,
                 false, !bKeyboard);
+            if (bResourceSelected)
+            {
+                double Left = 0.0;
+                const auto DrawStackAction = [&](const FText& Label, const FKey& Key, bool bAvailable)
+                {
+                    const auto Size = SCFControllerButton::Measure(Label, Key, Platform, ButtonStyle);
+                    SCFControllerButton::Draw(Geometry, Elements, Layer, {Left, Y}, Label, Key, Platform,
+                        ButtonStyle, bAvailable);
+                    const FSlateRect Bounds(Left, 25.0, Left + Size.X, FooterHeight);
+                    Left += Size.X + ActionPromptGap;
+                    return Bounds;
+                };
+                ConfirmBounds = DrawStackAction(NSLOCTEXT("Inventory", "JoinResource", "Join"),
+                    bKeyboard ? EKeys::F2 : EKeys::Gamepad_FaceButton_Left, ResourceCanJoin.Get());
+                OptionsBounds = DrawStackAction(NSLOCTEXT("Inventory", "SplitResource", "Split"),
+                    bKeyboard ? EKeys::S : EKeys::Gamepad_FaceButton_Top, ResourceCanSplit.Get());
+            }
         }
         else if (HasSavedSets(CurrentSection) && SavedSetsOpen.Get())
         {
@@ -2038,8 +2047,8 @@ private:
 
     bool CanCommitResource(bool bJoin) const
     {
-        return HasResourceInteraction() && !bResourceClosing && !ResourceRequest.IsValid() && !ResourceResult
-            && ResourceQuantity > 0 && (bJoin ? ResourceState.bCanJoin
+        return HasResourceInteraction() && ResourceActions.Commit && !bResourceClosing && !ResourceRequest.IsValid()
+            && !ResourceResult && ResourceQuantity > 0 && (bJoin ? ResourceState.bCanJoin
                 : ResourceState.bCanSplit && ResourceQuantity < ResourceState.Count);
     }
 
@@ -2062,7 +2071,7 @@ private:
 
     void CommitResource(bool bJoin)
     {
-        if (!CanCommitResource(bJoin) || !ResourceActions.Commit)
+        if (!CanCommitResource(bJoin))
         {
             return;
         }
