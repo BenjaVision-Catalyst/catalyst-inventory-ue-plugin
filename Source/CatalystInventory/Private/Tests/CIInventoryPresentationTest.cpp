@@ -692,6 +692,9 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         Press(EKeys::Down);
         Press(EKeys::S);
         TestEqual(TEXT("Split receives the adjusted quantity"), SplitCount, 239);
+        Widget->Tick(Geometry, 2.16, .08f);
+        TestEqual(TEXT("Following stacks make room while the split tile travels"),
+            Shell->GetResourceReflowTileCountForTest(), 2);
         for (int32 Frame = 0; Frame < 4; ++Frame)
         {
             Widget->Tick(Geometry, 2.17 + Frame * .03, .08f);
