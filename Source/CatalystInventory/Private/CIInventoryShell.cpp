@@ -1414,15 +1414,17 @@ public:
                     const double EndX = FMath::Lerp(ProjectedEdges[EndIndex], ProjectedEdges[EndIndex + 1],
                         ContentEndStrip - EndIndex);
                     const double StartX = ProjectedEdges[0];
-                    Grid->ApplyHorizontalProjection((EndX - StartX) * PixelScale, [&](double OutputX) {
+                    ProjectedGridWidth = (EndX - StartX) * PixelScale;
+                    ProjectedGridX = [ProjectedEdges, StartX, PixelScale, StripWidth, Scale = Layout.Scale](double OutputX) {
                         const double ScreenX = StartX + OutputX / PixelScale;
                         // Invert the same piecewise-linear mapping used by the surface mesh.
                         const int32 Strip = FMath::Clamp(Algo::UpperBound(ProjectedEdges, ScreenX) - 1,
                             0, ProjectionStrips - 1);
                         const double Alpha = (ScreenX - ProjectedEdges[Strip])
                             / (ProjectedEdges[Strip + 1] - ProjectedEdges[Strip]);
-                        return (Strip + Alpha) * StripWidth / Layout.Scale;
-                    });
+                        return (Strip + Alpha) * StripWidth / Scale;
+                    };
+                    Grid->ApplyHorizontalProjection(ProjectedGridWidth, ProjectedGridX);
                 }
                 LastGridViewport = Size;
                 LastGridPixelScale = PixelScale;
@@ -2139,22 +2141,22 @@ private:
             const FBox2D Bounds = TileBounds(*Widget, GridWidget, Layout.Scale);
             const auto* Reflow = LiftedTiles.FindByPredicate(
                 [Cell](const auto& Entry) { return Entry.Cell == Cell && Entry.bClipToGrid; });
-            const FVector2D Offset = Reflow ? Reflow->Origin - Layout.MainOrigin - Reflow->Source.Min
-                : FVector2D::ZeroVector;
             const FBox2D Source(Bounds.Min.ComponentMax(FVector2D::ZeroVector),
                 Bounds.Max.ComponentMin(Layout.MainExtent));
             if (Source.GetSize().GetMin() <= 0.0)
             {
                 return {};
             }
-            const FBox2D MovedBounds(Source.Min + Offset, Source.Max + Offset);
+            const FVector2D MovedMin = Reflow ? Reflow->Origin - Layout.MainOrigin : Source.Min;
+            const FBox2D MovedBounds(MovedMin, MovedMin + (Reflow ? Reflow->Extent : Source.GetSize()));
+            const double OffsetY = MovedMin.Y - Source.Min.Y;
             auto Placement = FocusedTilePlacement(Layout, MovedBounds, Cell, bSelected ? 1.0 : 0.0);
-            if (bSelected && Y == 1 && Offset.Y < 0.0)
+            if (bSelected && Y == 1 && OffsetY < 0.0)
             {
                 const auto FirstRow = FocusedTilePlacement(Layout, MovedBounds, {X, 0}, 1.0);
                 const double Pitch = Bounds.GetSize().Y + InventoryTheme.Get()->RowGap * Layout.Scale;
                 Placement.Origin = FMath::Lerp(Placement.Origin, FirstRow.Origin,
-                    FMath::Clamp(-Offset.Y / Pitch, 0.0, 1.0));
+                    FMath::Clamp(-OffsetY / Pitch, 0.0, 1.0));
             }
             Placement.Source = Source;
             Placement.Cell = Cell;
@@ -2187,14 +2189,18 @@ private:
     }
 
     void AppendResourceTileShift(const FInventoryShellLayout& Layout, FIntPoint Cell,
-        const FBox2D& Bounds, FVector2D Offset)
+        const FBox2D& Bounds, const FBox2D& Destination, double Progress)
     {
         const FBox2D Source(Bounds.Min.ComponentMax(FVector2D::ZeroVector),
             Bounds.Max.ComponentMin(Layout.MainExtent));
-        if (Source.GetSize().GetMin() > 0.0 && !Offset.IsNearlyZero())
+        if (Source.GetSize().GetMin() > 0.0
+            && (!Bounds.Min.Equals(Destination.Min) || !Bounds.Max.Equals(Destination.Max)))
         {
+            const FVector2D Scale = Destination.GetSize() / Bounds.GetSize();
+            const FVector2D TargetMin = Destination.Min + (Source.Min - Bounds.Min) * Scale;
             LiftedTiles.RemoveAll([Cell](const auto& Entry) { return Entry.Cell == Cell; });
-            LiftedTiles.Add({Source, Layout.MainOrigin + Source.Min + Offset, Source.GetSize(), 0.0, Cell, true});
+            LiftedTiles.Add({Source, Layout.MainOrigin + FMath::Lerp(Source.Min, TargetMin, Progress),
+                FMath::Lerp(Source.GetSize(), Source.GetSize() * Scale, Progress), 0.0, Cell, true});
         }
     }
 
@@ -2242,7 +2248,7 @@ private:
                     if (Widget)
                     {
                         const auto Bounds = TileBounds(*Widget, GridWidget, Layout.Scale);
-                        AppendResourceTileShift(Layout, {X, Y}, Bounds, (Destination - Bounds.Min) * Progress);
+                        AppendResourceTileShift(Layout, {X, Y}, Bounds, FBox2D(Destination, Destination + Bounds.GetSize()), Progress);
                     }
                 }
             }
@@ -2255,76 +2261,104 @@ private:
 
     void AppendResourceGapReflow(const SWidget& GridWidget, const FInventoryShellLayout& Layout, double Progress)
     {
-        if (!NavigationRows.IsValidIndex(GridFocus.Y))
+        auto* Grid = NavigationGrid.Get();
+        if (Progress <= 0.0 || !Grid || !ProjectedGridX || !NavigationRows.IsValidIndex(GridFocus.Y))
         {
             return;
         }
         const auto* NextCategory = ResourceCategoryRows.FindByPredicate(
             [this](int32 Row) { return Row > GridFocus.Y; });
         const int32 EndRow = NextCategory ? *NextCategory : NavigationRows.Num();
-        const int32 PreviousCategory = ResourceCategoryRows.FindLastByPredicate(
+        const int32 CategoryIndex = ResourceCategoryRows.FindLastByPredicate(
             [this](int32 Row) { return Row <= GridFocus.Y; });
-        const int32 FirstRow = PreviousCategory != INDEX_NONE ? ResourceCategoryRows[PreviousCategory] : 0;
+        const int32 FirstRow = CategoryIndex != INDEX_NONE ? ResourceCategoryRows[CategoryIndex] : 0;
+        const int32 Columns = Grid->GetColumnCount();
+        const auto* Theme = InventoryTheme.Get();
+        const double Height = ResourceSourceBounds.GetSize().Y;
+        const double Pitch = Height + Theme->RowGap * Layout.Scale;
+
+        struct FResourceRow
+        {
+            TArray<FIntPoint> Cells;
+            int32 UsedColumns = 0;
+        };
+        TArray<FResourceRow> Rows;
+        Rows.AddDefaulted();
+        for (int32 Y = FirstRow; Y < EndRow; ++Y)
+        {
+            for (int32 X = 0; X < NavigationRows[Y].Cells.Num(); ++X)
+            {
+                const FIntPoint Cell(X, Y);
+                if (Cell == GridFocus)
+                {
+                    continue;
+                }
+                const int32 Span = NavigationRows[Y].Cells[X].Span;
+                if (Rows.Last().UsedColumns + Span > Columns)
+                {
+                    Rows.AddDefaulted();
+                }
+                Rows.Last().Cells.Add(Cell);
+                Rows.Last().UsedColumns += Span;
+            }
+        }
+
+        const double CollapsedHeight = (EndRow - FirstRow - Rows.Num()) * Pitch;
+        if (CollapsedHeight > 0.0)
+        {
+            if (!ResourceCollapseScrollStart)
+            {
+                ResourceCollapseScrollStart = Grid->GetScrollOffset();
+            }
+            const float EndOffset = FMath::Max(0.f, Grid->GetScrollOffsetOfEnd()
+                - static_cast<float>(CollapsedHeight / Layout.Scale));
+            const float Offset = FMath::Lerp(*ResourceCollapseScrollStart,
+                FMath::Min(*ResourceCollapseScrollStart, EndOffset), Progress);
+            if (Grid->GetScrollOffset() != Offset)
+            {
+                Grid->SetScrollOffset(Offset);
+                // Sample and place the moving tiles from the same scroll position.
+                RedrawResourceGrid(Layout);
+            }
+            AppendResourceCategoryShift(Layout, GridWidget, EndRow, -CollapsedHeight * Progress);
+        }
+
         const auto* SourceTile = ResourceSourceTile.Get();
         const auto SourceWidget = SourceTile ? SourceTile->GetCachedWidget() : nullptr;
         if (!SourceWidget)
         {
             return;
         }
-
-        FVector2D Vacancy = TileBounds(*SourceWidget, GridWidget, Layout.Scale).Min;
-        TOptional<double> CollapsedRowHeight;
-        if (EndRow - FirstRow > 1 && NavigationRows[EndRow - 1].Cells.Num() == 1)
+        double Top = TileBounds(*SourceWidget, GridWidget, Layout.Scale).Min.Y - (GridFocus.Y - FirstRow) * Pitch;
+        for (const auto& Row : Rows)
         {
-            const auto* Last = NavigationRows[EndRow - 1].Cells[0].Tile.Get();
-            const auto* Prior = NavigationRows[EndRow - 2].Cells[0].Tile.Get();
-            const auto LastWidget = Last ? Last->GetCachedWidget() : nullptr;
-            const auto PriorWidget = Prior ? Prior->GetCachedWidget() : nullptr;
-            if (LastWidget && PriorWidget)
+            // The span grid reserves a gap before its trailing spacer in a partial row.
+            // Removing a tile can therefore change both the position and width of surviving tiles.
+            const int32 Gaps = Row.Cells.Num() - (Row.UsedColumns == Columns ? 1 : 0);
+            const double ColumnWidth = (ProjectedGridWidth - Gaps * Theme->TileGap) / Columns;
+            double Left = 0.0;
+            for (const FIntPoint Cell : Row.Cells)
             {
-                const double Pitch = TileBounds(*LastWidget, GridWidget, Layout.Scale).Min.Y
-                    - TileBounds(*PriorWidget, GridWidget, Layout.Scale).Min.Y;
-                if (Pitch > 0.0) { CollapsedRowHeight = Pitch; }
-            }
-        }
-
-        if (CollapsedRowHeight)
-        {
-            if (auto* Grid = NavigationGrid.Get())
-            {
-                if (!ResourceCollapseScrollStart)
-                {
-                    ResourceCollapseScrollStart = Grid->GetScrollOffset();
-                }
-                const float EndOffset = FMath::Max(0.f, Grid->GetScrollOffsetOfEnd()
-                    - static_cast<float>(*CollapsedRowHeight / Layout.Scale));
-                Grid->SetScrollOffset(FMath::Lerp(*ResourceCollapseScrollStart,
-                    FMath::Min(*ResourceCollapseScrollStart, EndOffset), Progress));
-            }
-            AppendResourceCategoryShift(Layout, GridWidget, EndRow, -*CollapsedRowHeight * Progress);
-        }
-        if (Progress <= 0.0)
-        {
-            return;
-        }
-        for (int32 Y = GridFocus.Y; Y < EndRow; ++Y)
-        {
-            const auto& Cells = NavigationRows[Y].Cells;
-            const int32 First = Y == GridFocus.Y ? GridFocus.X + 1 : 0;
-            for (int32 X = First; X < Cells.Num(); ++X)
-            {
-                const auto* Tile = Cells[X].Tile.Get();
+                const auto& Entry = NavigationRows[Cell.Y].Cells[Cell.X];
+                const double Right = Left + Entry.Span * ColumnWidth;
+                const auto* Tile = Entry.Tile.Get();
                 const auto Widget = Tile ? Tile->GetCachedWidget() : nullptr;
-                if (!Widget)
+                if (Widget)
                 {
-                    return;
+                    const FBox2D Destination({ProjectedGridX(Left) * Layout.Scale, Top},
+                        {ProjectedGridX(Right) * Layout.Scale, Top + Height});
+                    AppendResourceTileShift(Layout, Cell, TileBounds(*Widget, GridWidget, Layout.Scale), Destination, Progress);
                 }
-
-                const auto Bounds = TileBounds(*Widget, GridWidget, Layout.Scale);
-                AppendResourceTileShift(Layout, {X, Y}, Bounds, (Vacancy - Bounds.Min) * Progress);
-                Vacancy = Bounds.Min;
+                Left = Right + Theme->TileGap;
             }
+            Top += Pitch;
         }
+    }
+
+    void RedrawResourceGrid(const FInventoryShellLayout& Layout)
+    {
+        const FVector2D Raster(MainTexture->SizeX, MainTexture->SizeY);
+        DrawToTexture(MainTexture, MainRenderRoot.ToSharedRef(), Raster, 0.f, Layout.Scale * ProjectionRasterScale);
     }
 
     void TickResourcePreview(const FInventoryShellLayout& Layout, float DeltaTime)
@@ -2561,9 +2595,7 @@ private:
         }
         if ((bRedrawGrid || (bLanded && bKeepFrame)) && MainRenderRoot)
         {
-            const FVector2D MainRaster(MainTexture->SizeX, MainTexture->SizeY);
-            DrawToTexture(MainTexture, MainRenderRoot.ToSharedRef(), MainRaster, 0.f,
-                Layout.Scale * ProjectionRasterScale);
+            RedrawResourceGrid(Layout);
         }
         if (bLanded)
         {
@@ -3934,6 +3966,8 @@ private:
     TSharedPtr<SCIProjectedBlur> ProjectedBlur;
     FVector2D LastGridViewport = FVector2D::ZeroVector;
     double LastGridPixelScale = 0.0;
+    double ProjectedGridWidth = 0.0;
+    TFunction<double(double)> ProjectedGridX;
     double FirstMenuItemX = 0.0;
     int32 RenderedSelection = INDEX_NONE;
 };

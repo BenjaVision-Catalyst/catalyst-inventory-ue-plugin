@@ -735,6 +735,18 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
             Shell->GetGridTileLiftForTest({1, 0}) > 10.0);
         Widget->Tick(Geometry, 2.24, .32f);
         TestFalse(TEXT("The full join completes its projected landing"), Shell->HasResourceInteraction());
+        Press(EKeys::Right);
+        Press(EKeys::Right);
+        TestEqual(TEXT("Focus the last stack in the partial row"),
+            Shell->GetInspectorLabelForTest().ToString(), FString(TEXT("Marks")));
+        Press(EKeys::Enter);
+        Press(EKeys::F2);
+        Widget->Tick(Geometry, 2.25, .12f);
+        TestEqual(TEXT("Removing the last stack animates the surviving tiles to their new widths"),
+            Shell->GetResourceReflowTileCountForTest(), 2);
+        Widget->Tick(Geometry, 2.26, .45f);
+        Press(EKeys::Left);
+        Press(EKeys::Left);
         Shell->SetResourceActions({});
 
         TestTrue(TEXT("L2 opens resource categories"), Press(EKeys::Gamepad_LeftTrigger));
