@@ -1782,13 +1782,13 @@ private:
         const auto Previous = GridFocus;
         GridFocus = StepInventoryGrid(NavigationRows, GridFocus, Direction);
         if (ActionSection.Get() == ResourcesSection
-            && (Previous != GridFocus || (Direction.Y < 0 && GridFocus.Y == 0)))
+            && (Previous != GridFocus || (Direction.Y < 0 && ResourceCategoryRows.Contains(GridFocus.Y))))
         {
-            RevealResourceSelection();
+            RevealResourceSelection(Direction.Y < 0);
         }
     }
 
-    void RevealResourceSelection()
+    void RevealResourceSelection(bool bIncludeCategoryHeading = false)
     {
         if (auto* Grid = NavigationGrid.Get())
         {
@@ -1796,12 +1796,20 @@ private:
             {
                 Grid->ScrollWidgetIntoView(nullptr);
                 Grid->SetScrollOffset(0.f);
+                return;
             }
-            else
+            if (bIncludeCategoryHeading)
             {
-                Grid->ScrollWidgetIntoView(const_cast<UCIInventoryTile*>(GetSelectedTile()), false,
-                    EDescendantScrollDestination::IntoView, 8.f);
+                const int32 CategoryIndex = ResourceCategoryRows.IndexOfByKey(GridFocus.Y);
+                if (ResourceCategoryHeadings.IsValidIndex(CategoryIndex))
+                {
+                    Grid->ScrollWidgetIntoView(ResourceCategoryHeadings[CategoryIndex].Get(), false,
+                        EDescendantScrollDestination::TopOrLeft);
+                    return;
+                }
             }
+            Grid->ScrollWidgetIntoView(const_cast<UCIInventoryTile*>(GetSelectedTile()), false,
+                EDescendantScrollDestination::IntoView, 8.f);
         }
     }
 

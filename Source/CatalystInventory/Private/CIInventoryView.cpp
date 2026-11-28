@@ -1,4 +1,5 @@
 #include "CIInventoryView.h"
+#include "Styling/CoreStyle.h"
 
 #include "Engine/LocalPlayer.h"
 #include "Blueprint/WidgetTree.h"
@@ -76,6 +77,13 @@ private:
         auto* SurfaceTheme = bProjected ? GridTheme->CreateProjectedSurfaceTheme(Grid) : Theme;
         const float TileHeight = bResources ? GridTheme->ResourceTileHeight : GridTheme->EquipmentTileHeight;
         Grid->SetScrollBarVisibility(ESlateVisibility::Collapsed);
+        if (bResources)
+        {
+            auto ScrollStyle = Grid->GetWidgetStyle();
+            const auto& NoBrush = *FCoreStyle::Get().GetBrush("NoBrush");
+            ScrollStyle.SetTopShadowBrush(NoBrush).SetBottomShadowBrush(NoBrush);
+            Grid->SetWidgetStyle(ScrollStyle);
+        }
         Grid->SetFillPanelHeight(!bResources);
         Grid->Configure(Columns, TileHeight * (bHalfSize ? .5f : 1.f), GridTheme->TileGap,
             GridTheme->RowGap, GridTheme->GroupGap,
