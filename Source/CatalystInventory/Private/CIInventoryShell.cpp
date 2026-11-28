@@ -3448,6 +3448,21 @@ private:
         const bool bMeters = Kind && *Kind == "meters";
         const bool bControls = Kind && *Kind == "controls";
         auto Content = SNew(SVerticalBox);
+        if (Kind && *Kind == "talent")
+        {
+            for (const auto& Row : Section.Describe().orderedChildren())
+            {
+                const auto Label = InspectorValue(Row->property("label")).ToString();
+                const bool bName = Label == TEXT("Name");
+                if (bName || Label == TEXT("Comment"))
+                {
+                    Content->AddSlot().AutoHeight().Padding(0.f, 2.f)
+                    [InspectorText(InspectorValue(Section.Read(*Row)),
+                        bName ? Theme->GroupLabelFont : Theme->LabelFont, true)];
+                }
+            }
+            return SNew(SBorder).BorderImage(&InspectorBrush).Padding(8.f)[Content];
+        }
         if (bWeapon && Kind && *Kind == "stats")
         {
             Content->AddSlot().AutoHeight()[BuildInspectorStatsGrid(Section)];
