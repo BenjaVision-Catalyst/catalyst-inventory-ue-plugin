@@ -8,7 +8,7 @@ namespace
 constexpr uint16 ProfileOperation = 103;
 constexpr int32 MaximumReplyBytes = 4080;
 constexpr int32 MaximumGraphBytes = 65536;
-constexpr int32 MaximumPreviewGraphBytes = 128 * 1024;
+constexpr int32 MaximumPreviewGraphBytes = 512 * 1024;
 constexpr int32 ZlibHeaderBytes = 8;
 
 TOptional<FCFMagritteBinding> DecodeUserUtf8(const std::string& Json, const FString& UserId, int32 Limit = MaximumGraphBytes,
