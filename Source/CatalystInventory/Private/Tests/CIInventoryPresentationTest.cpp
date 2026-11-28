@@ -9,6 +9,7 @@
 #include "CIInventoryTile.h"
 #include "CIInventoryView.h"
 #include "Components/NamedSlot.h"
+#include "Components/ScrollBox.h"
 #include "Components/TextBlock.h"
 #include "Components/WidgetSwitcher.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -650,6 +651,25 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         {
             Widget->OnKeyUp(Geometry, FKeyEvent(Key, FModifierKeysState(), 0, false, 0, 0));
         };
+        auto* ResourcesPanel = Shell->GetMainPanel()->GetActiveWidget();
+        auto* ResourcesSlot = Cast<UNamedSlot>(ResourcesPanel);
+        auto* ResourceGrid = Cast<UScrollBox>(ResourcesSlot ? ResourcesSlot->GetContent() : ResourcesPanel);
+        if (TestNotNull(TEXT("Resources uses the shared scrolling grid"), ResourceGrid))
+        {
+            const auto RightStick = [&](float Axis)
+            {
+                return Widget->OnAnalogValueChanged(Geometry,
+                    FAnalogInputEvent(EKeys::Gamepad_RightY, FModifierKeysState(), 0, false, 0, 0, Axis)).IsEventHandled();
+            };
+            TestTrue(TEXT("Resources handles right-stick scrolling"), RightStick(-1.f));
+            Widget->Tick(Geometry, 2.12, .2f);
+            RightStick(0.f);
+            TestTrue(TEXT("The right stick scrolls Resources down"), ResourceGrid->GetScrollOffset() > 0.f);
+            Press(EKeys::Gamepad_DPad_Up);
+            Release(EKeys::Gamepad_DPad_Up);
+            Widget->Tick(Geometry, 2.15, .2f);
+            TestEqual(TEXT("Up at the first resource row reveals the top heading"), ResourceGrid->GetScrollOffset(), 0.f);
+        }
         TestTrue(TEXT("L2 opens resource categories"), Press(EKeys::Gamepad_LeftTrigger));
         Release(EKeys::Gamepad_LeftTrigger);
         Widget->Tick(Geometry, 2.2, .2f);

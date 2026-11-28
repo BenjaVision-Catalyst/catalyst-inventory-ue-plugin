@@ -898,7 +898,7 @@ public:
         {
             const float Axis = Event.GetAnalogValue();
             const float Strength = FMath::Clamp((FMath::Abs(Axis) - .2f) / .8f, 0.f, 1.f);
-            InspectorScrollRate = -FMath::Sign(Axis) * Strength * 640.f;
+            RightStickScrollRate = -FMath::Sign(Axis) * Strength * 640.f;
             return HasNavigableGrid(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
         }
         if (Key == EKeys::Gamepad_LeftTriggerAxis)
@@ -917,7 +917,7 @@ public:
 
     void OnFocusLost(const FFocusEvent&) override
     {
-        InspectorScrollRate = 0.f;
+        RightStickScrollRate = 0.f;
         NavigationInput = {};
         for (const auto Action : SavedSetHoldActions)
         {
@@ -950,9 +950,7 @@ public:
             const FBox2D Bounds(Layout.MainOrigin, Layout.MainOrigin + Layout.MainExtent);
             if (Bounds.IsInside(Point))
             {
-                auto* Grid = NavigationGrid.Get();
-                Grid->SetScrollOffset(FMath::Clamp(Grid->GetScrollOffset() - Event.GetWheelDelta() * 64.f,
-                    0.f, FMath::Max(0.f, Grid->GetScrollOffsetOfEnd())));
+                ScrollResources(-Event.GetWheelDelta() * 64.f);
                 return FReply::Handled();
             }
         }
@@ -1187,6 +1185,10 @@ public:
         UWidget* ActivePanel = MainPanel.IsValid() ? MainPanel->GetActiveWidget() : nullptr;
         UWidget* Content = GetPanelContent(ActivePanel);
         SetNavigationGrid(HasNavigableGrid(ActionSection.Get()) ? Cast<UCFSpanGrid>(Content) : nullptr);
+        if (ActionSection.Get() == ResourcesSection && RightStickScrollRate != 0.f && !OptionsWindow.IsValid())
+        {
+            ScrollResources(RightStickScrollRate * DeltaTime);
+        }
         UpdateGridFocus(DeltaTime);
         LiftedTiles.Reset();
         if (MainContent.Get() != Content)
@@ -1779,7 +1781,8 @@ private:
             ? Cast<UCFSpanGrid>(GetPanelContent(MainPanel->GetActiveWidget())) : nullptr);
         const auto Previous = GridFocus;
         GridFocus = StepInventoryGrid(NavigationRows, GridFocus, Direction);
-        if (ActionSection.Get() == ResourcesSection && Previous != GridFocus)
+        if (ActionSection.Get() == ResourcesSection
+            && (Previous != GridFocus || (Direction.Y < 0 && GridFocus.Y == 0)))
         {
             RevealResourceSelection();
         }
@@ -1789,8 +1792,26 @@ private:
     {
         if (auto* Grid = NavigationGrid.Get())
         {
-            Grid->ScrollWidgetIntoView(const_cast<UCIInventoryTile*>(GetSelectedTile()), false,
-                EDescendantScrollDestination::IntoView, 8.f);
+            if (GridFocus.Y == 0)
+            {
+                Grid->ScrollWidgetIntoView(nullptr);
+                Grid->SetScrollOffset(0.f);
+            }
+            else
+            {
+                Grid->ScrollWidgetIntoView(const_cast<UCIInventoryTile*>(GetSelectedTile()), false,
+                    EDescendantScrollDestination::IntoView, 8.f);
+            }
+        }
+    }
+
+    void ScrollResources(float Amount)
+    {
+        if (auto* Grid = NavigationGrid.Get())
+        {
+            Grid->ScrollWidgetIntoView(nullptr);
+            Grid->SetScrollOffset(FMath::Clamp(Grid->GetScrollOffset() + Amount,
+                0.f, FMath::Max(0.f, Grid->GetScrollOffsetOfEnd())));
         }
     }
 
@@ -2456,9 +2477,10 @@ private:
         {
             bInspectorScrollDirty = true;
         }
-        if (InspectorScrollRate != 0.f && !bSavedSetsOpen && !OptionsWindow.IsValid())
+        if (ActionSection.Get() != ResourcesSection && RightStickScrollRate != 0.f
+            && !bSavedSetsOpen && !OptionsWindow.IsValid())
         {
-            ScrollInspector(InspectorScrollRate * DeltaTime);
+            ScrollInspector(RightStickScrollRate * DeltaTime);
         }
         if (bInspectorScrollDirty || !InspectorTexture.IsValid() || InspectorScale != Scale)
         {
@@ -2801,6 +2823,7 @@ private:
             {
                 auto* IconTile = NewObject<UCIInventoryTile>(Body);
                 IconTile->Icon = CategoryIcon;
+                IconTile->bShowTier = false;
                 Tile = IconTile;
             }
             else
@@ -3060,7 +3083,7 @@ private:
     TSharedPtr<SScrollBox> InspectorScroll;
     TStrongObjectPtr<UCIInspectorIdentityTile> InspectorIdentityTile;
     TSharedPtr<SWidget> InspectorHeader;
-    float InspectorScrollRate = 0.f;
+    float RightStickScrollRate = 0.f;
     bool bInspectorScrollDirty = false;
     TStrongObjectPtr<UTextureRenderTarget2D> InspectorTexture;
     TArray<FInspectorStroke> InspectorStrokes;
