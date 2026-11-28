@@ -122,7 +122,9 @@ including a render target for a model preview. Empty slots use the theme's
 Use `CIResourceTile` for a stack. Bind the resource definition identifier,
 optional display name and stack count. The same icon slot accepts a model
 preview or resource icon. The resource theme can hide the label and supply a
-fallback icon when the presenter has no definition-specific art.
+fallback icon when the presenter has no definition-specific art. The Resources tab uses the shared
+Inventory slide-out for Categories. Press R2 or C to open or close it, and move
+through the categories to focus the first stack in each group.
 
 Use `CIApparelRow` for an individual apparel item in a list. Bind the item
 summary's definition identifier, display name, tier and optional manufacturer.

@@ -646,9 +646,20 @@ bool FCIInventoryCatalogWeaponsTest::RunTest(const FString&)
         Widget->Tick(Geometry, 2.1, .2f);
         TestEqual(TEXT("Resources opens the focused stack inspector"), Shell->GetInspectorLabelForTest().ToString(),
             FString(TEXT("Credits")));
-        TestTrue(TEXT("Resources handles category jumps"), Press(EKeys::C));
+        const auto Release = [&](const FKey& Key)
+        {
+            Widget->OnKeyUp(Geometry, FKeyEvent(Key, FModifierKeysState(), 0, false, 0, 0));
+        };
+        TestTrue(TEXT("R2 opens resource categories"), Press(EKeys::Gamepad_RightTrigger));
+        Release(EKeys::Gamepad_RightTrigger);
+        Widget->Tick(Geometry, 2.2, .2f);
+        TestEqual(TEXT("Opening categories keeps the focused stack"), Shell->GetInspectorLabelForTest().ToString(),
+            FString(TEXT("Credits")));
+        Press(EKeys::Down);
         Widget->Tick(Geometry, 2.3, .2f);
-        TestEqual(TEXT("Category jump focuses the first key"), Shell->GetInspectorLabelForTest().ToString(),
+        TestTrue(TEXT("R2 closes resource categories"), Press(EKeys::Gamepad_RightTrigger));
+        Release(EKeys::Gamepad_RightTrigger);
+        TestEqual(TEXT("Selecting Keys focuses the first key"), Shell->GetInspectorLabelForTest().ToString(),
             FString(TEXT("Depot Key")));
         Press(EKeys::Q);
         Widget->Tick(Geometry, 2.5, .2f);

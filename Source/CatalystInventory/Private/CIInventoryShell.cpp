@@ -399,9 +399,10 @@ public:
             return Layer + 2;
         }
         const FText SectionAction = bResources
-            ? NSLOCTEXT("Inventory", "NextResourceCategory", "Next category") : SavedSetsLabel(CurrentSection);
+            ? NSLOCTEXT("Inventory", "ResourceCategories", "Categories") : SavedSetsLabel(CurrentSection);
         const double ActionRight = Right;
-        DrawPrompt(SectionAction, bResources ? EKeys::C : EKeys::G, EKeys::Gamepad_LeftTrigger);
+        DrawPrompt(SectionAction, bResources ? EKeys::C : EKeys::G,
+            bResources ? EKeys::Gamepad_RightTrigger : EKeys::Gamepad_LeftTrigger);
         if (HasNavigableGrid(CurrentSection))
         {
             SavedSetsBounds = FSlateRect(Right + ActionPromptGap, 0.0, ActionRight, 25.0);
@@ -797,6 +798,20 @@ public:
                 return FReply::Handled();
             }
         }
+        if (ActionSection.Get() == ResourcesSection && Key == EKeys::Gamepad_RightTrigger)
+        {
+            ResourceTriggerInput.bTriggerButton = true;
+            UpdateResourceTrigger();
+            return FReply::Handled();
+        }
+        if (ActionSection.Get() == ResourcesSection && bSavedSetsOpen && bConfirmSlot)
+        {
+            if (!Event.IsRepeat())
+            {
+                SetSavedSetsState(false, SavedSetIndex);
+            }
+            return FReply::Handled();
+        }
         if (Key == EKeys::Gamepad_LeftTrigger)
         {
             NavigationInput.bTriggerButton = true;
@@ -808,7 +823,7 @@ public:
             {
                 if (!Event.IsRepeat())
                 {
-                    JumpResourceCategory();
+                    ToggleResourceCategories();
                 }
                 return FReply::Handled();
             }
@@ -865,6 +880,12 @@ public:
     FReply OnKeyUp(const FGeometry&, const FKeyEvent& Event) override
     {
         const FKey Key = Event.GetKey();
+        if (Key == EKeys::Gamepad_RightTrigger)
+        {
+            ResourceTriggerInput.bTriggerButton = false;
+            ResourceTriggerInput.UpdateTrigger();
+            return ActionSection.Get() == ResourcesSection ? FReply::Handled() : FReply::Unhandled();
+        }
         if (Key == EKeys::Gamepad_LeftTrigger)
         {
             NavigationInput.bTriggerButton = false;
@@ -892,6 +913,12 @@ public:
             InspectorScrollRate = -FMath::Sign(Axis) * Strength * 640.f;
             return HasNavigableGrid(ActionSection.Get()) ? FReply::Handled() : FReply::Unhandled();
         }
+        if (Key == EKeys::Gamepad_RightTriggerAxis)
+        {
+            ResourceTriggerInput.TriggerAxis = Event.GetAnalogValue();
+            UpdateResourceTrigger();
+            return ActionSection.Get() == ResourcesSection ? FReply::Handled() : FReply::Unhandled();
+        }
         if (Key == EKeys::Gamepad_LeftTriggerAxis)
         {
             if (SlotPicker) { return FReply::Handled(); }
@@ -910,6 +937,7 @@ public:
     {
         InspectorScrollRate = 0.f;
         NavigationInput = {};
+        ResourceTriggerInput = {};
         for (const auto Action : SavedSetHoldActions)
         {
             Hold(Action).Inputs.Reset();
@@ -1017,17 +1045,50 @@ public:
             {
                 return FReply::Handled();
             }
+            if (bSavedSetsOpen && SavedSetsTexture.IsValid() && SavedSetsPresentation.Reveal.GetProgress() == 1.0)
+            {
+                const auto Sidebar = GetSidebarGeometry(Layout, Geometry.GetLocalSize().X);
+                const auto Point = (PlanePoint - Layout.MainOrigin + FVector2D(Sidebar.GetTravel(), 0))
+                    / Layout.Scale;
+                const auto& Theme = *InventoryTheme.Get();
+                const double Heading = Theme.GroupLabelHeight + Theme.GroupLabelPadding.GetTotalSpaceAlong<Orient_Vertical>();
+                if (Point.X >= 0 && Point.X < Sidebar.Width / Layout.Scale && Point.Y >= Heading && Point.Y < SavedSetsHeight)
+                {
+                    const double RowPitch = SavedSetsRowHeight + Theme.RowGap;
+                    for (const auto& Row : SavedSetsPresentation.Rows.GetRows())
+                    {
+                        const auto Frame = SavedSetsPresentation.Rows.Sample(Row, SavedSetsPaintedAt);
+                        const double Y = Point.Y - Heading - Frame.Position * RowPitch;
+                        if (Row.Index == INDEX_NONE || Frame.Opacity <= 0.0 || Y < 0.0 || Y >= SavedSetsRowHeight)
+                        {
+                            continue;
+                        }
+                        if (ActionSection.Get() == ResourcesSection)
+                        {
+                            SelectResourceCategory(Row.Index);
+                            return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
+                        }
+                        const int32 Index = Row.bCreate ? SavedSets.Num() : SavedSets.IndexOfByPredicate(
+                            [&](const FCIInventorySavedSet& Set) { return Set.Identifier == Row.Set.Identifier; });
+                        if (Index != INDEX_NONE)
+                        {
+                            SelectSavedSet(Index);
+                            return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
+                        }
+                    }
+                }
+            }
             if (ActionSection.Get() == ResourcesSection)
             {
                 if (FooterWidget->IsOverSavedSets(FooterPoint))
                 {
-                    JumpResourceCategory();
+                    ToggleResourceCategories();
                     return FReply::Handled();
                 }
                 const auto* Grid = NavigationGrid.Get();
                 const auto GridWidget = Grid ? Grid->GetCachedWidget() : nullptr;
                 const FBox2D Bounds(Layout.MainOrigin, Layout.MainOrigin + Layout.MainExtent);
-                if (GridWidget && Bounds.IsInside(PlanePoint))
+                if (!bSavedSetsOpen && GridWidget && Bounds.IsInside(PlanePoint))
                 {
                     for (int32 Y = 0; Y < NavigationRows.Num(); ++Y)
                     {
@@ -1079,34 +1140,7 @@ public:
                 ToggleSavedSets();
                 return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
             }
-            if (bSavedSetsOpen && SavedSetsTexture.IsValid() && SavedSetsPresentation.Reveal.GetProgress() == 1.0)
-            {
-                const auto Sidebar = GetSidebarGeometry(Layout, Geometry.GetLocalSize().X);
-                const auto Point = (PlanePoint - Layout.MainOrigin + FVector2D(Sidebar.GetTravel(), 0))
-                    / Layout.Scale;
-                const auto& Theme = *InventoryTheme.Get();
-                const double Heading = Theme.GroupLabelHeight + Theme.GroupLabelPadding.GetTotalSpaceAlong<Orient_Vertical>();
-                if (Point.X >= 0 && Point.X < Sidebar.Width / Layout.Scale && Point.Y >= Heading && Point.Y < SavedSetsHeight)
-                {
-                    const double RowPitch = SavedSetsRowHeight + Theme.RowGap;
-                    for (const auto& Row : SavedSetsPresentation.Rows.GetRows())
-                    {
-                        const auto Frame = SavedSetsPresentation.Rows.Sample(Row, SavedSetsPaintedAt);
-                        const double Y = Point.Y - Heading - Frame.Position * RowPitch;
-                        if (Row.Index == INDEX_NONE || Frame.Opacity <= 0.0 || Y < 0.0 || Y >= SavedSetsRowHeight)
-                        {
-                            continue;
-                        }
-                        const int32 Index = Row.bCreate ? SavedSets.Num() : SavedSets.IndexOfByPredicate(
-                            [&](const FCIInventorySavedSet& Set) { return Set.Identifier == Row.Set.Identifier; });
-                        if (Index != INDEX_NONE)
-                        {
-                            SelectSavedSet(Index);
-                            return FReply::Handled().SetUserFocus(SharedThis(this), EFocusCause::Mouse);
-                        }
-                    }
-                }
-            }
+
         }
         return FReply::Unhandled();
     }
@@ -1182,7 +1216,7 @@ public:
         }
         const auto Size = Geometry.GetLocalSize();
         const FName Section = ActionSection.Get();
-        if (HasSavedSets(Section))
+        if (HasNavigableGrid(Section))
         {
             SavedSetsPresentation.Reveal.Update(bSavedSetsOpen, Now);
         }
@@ -1298,7 +1332,10 @@ public:
                 const auto Sidebar = GetSidebarGeometry(Layout, Size.X);
                 const double Height = Extent.Y / Layout.Scale;
                 auto* Theme = InventoryTheme.Get();
-                const bool bRowsChanged = SavedSetsPresentation.Rows.Update(SavedSets, SavedSetIndex, Now);
+                const bool bCategories = Section == ResourcesSection;
+                const bool bRowsChanged = bCategories
+                    ? SavedSetsPresentation.Rows.Update(ResourceCategoryEntries, ResourceCategoryIndex, Now, false)
+                    : SavedSetsPresentation.Rows.Update(SavedSets, SavedSetIndex, Now);
                 if (bRowsChanged || !SavedSetsCanvas.IsValid() || SavedSetsTheme.Get() != Theme || SavedSetsHeight != Height)
                 {
                     BuildSavedSetsCanvas(Section, *Theme, Height);
@@ -1385,20 +1422,20 @@ private:
     bool UpdateNavigationTrigger()
     {
         const bool bToggle = NavigationInput.UpdateTrigger();
-        const bool bResources = ActionSection.Get() == ResourcesSection;
-        const bool bHandled = HasNavigableGrid(ActionSection.Get());
+        const bool bHandled = HasSavedSets(ActionSection.Get());
         if (bToggle && bHandled && !OptionsWindow.IsValid())
         {
-            if (bResources)
-            {
-                JumpResourceCategory();
-            }
-            else
-            {
-                ToggleSavedSets();
-            }
+            ToggleSavedSets();
         }
         return bHandled;
+    }
+
+    void UpdateResourceTrigger()
+    {
+        if (ResourceTriggerInput.UpdateTrigger() && ActionSection.Get() == ResourcesSection && !OptionsWindow.IsValid())
+        {
+            ToggleResourceCategories();
+        }
     }
 
     void SetNavigationGrid(UCFSpanGrid* Grid)
@@ -1419,6 +1456,8 @@ private:
         }
         NavigationRows.Reset();
         ResourceCategoryRows.Reset();
+        ResourceCategoryEntries.Reset();
+        ResourceCategoryHeadings.Reset();
         NavigationGrid = Grid;
         if (!Grid)
         {
@@ -1429,15 +1468,17 @@ private:
         const auto IsVisible = [](const UWidget& Widget) {
             return UWidget::ConvertSerializedVisibilityToRuntime(Widget.GetVisibility()).IsVisible();
         };
-        for (const auto* Child : Grid->GetAllChildren())
+        UTextBlock* PendingCategory = nullptr;
+        for (auto* Child : Grid->GetAllChildren())
         {
-            const auto* Box = Cast<USizeBox>(Child);
+            auto* Box = Cast<USizeBox>(Child);
             const auto* Cells = Box ? Cast<UHorizontalBox>(Box->GetContent()) : nullptr;
             if (!Cells || !IsVisible(*Cells))
             {
-                if (ActionSection.Get() == ResourcesSection && Box && Cast<UTextBlock>(Box->GetContent()))
+                auto* Heading = Box ? Cast<UTextBlock>(Box->GetContent()) : nullptr;
+                if (ActionSection.Get() == ResourcesSection && Heading)
                 {
-                    ResourceCategoryRows.AddUnique(NavigationRows.Num());
+                    PendingCategory = Heading;
                 }
                 continue;
             }
@@ -1459,7 +1500,22 @@ private:
             }
             if (!Row.Cells.IsEmpty())
             {
+                if (PendingCategory)
+                {
+                    ResourceCategoryEntries.Add({PendingCategory->GetText().ToString(), FString::FromInt(NavigationRows.Num())});
+                    ResourceCategoryRows.Add(NavigationRows.Num());
+                    ResourceCategoryHeadings.Add(PendingCategory);
+                    PendingCategory = nullptr;
+                }
                 NavigationRows.Add(MoveTemp(Row));
+            }
+        }
+        if (ActionSection.Get() == ResourcesSection)
+        {
+            ResourceCategoryIndex = FMath::Clamp(ResourceCategoryIndex, 0, FMath::Max(0, ResourceCategoryRows.Num() - 1));
+            if (ResourceCategoryRows.IsEmpty() && bSavedSetsOpen)
+            {
+                SetSavedSetsState(false, SavedSetIndex);
             }
         }
         if (!PendingSelectionId.IsEmpty())
@@ -1726,7 +1782,14 @@ private:
         {
             if (Direction.Y != 0)
             {
-                SelectSavedSet(SavedSetIndex + Direction.Y);
+                if (ActionSection.Get() == ResourcesSection)
+                {
+                    SelectResourceCategory(ResourceCategoryIndex + Direction.Y);
+                }
+                else
+                {
+                    SelectSavedSet(SavedSetIndex + Direction.Y);
+                }
             }
             return;
         }
@@ -1749,17 +1812,43 @@ private:
         }
     }
 
-    void JumpResourceCategory()
+    void ToggleResourceCategories()
+    {
+        if (bSavedSetsOpen)
+        {
+            SetSavedSetsState(false, SavedSetIndex);
+            return;
+        }
+        if (ResourceCategoryRows.IsEmpty())
+        {
+            return;
+        }
+        ResourceCategoryIndex = 0;
+        while (ResourceCategoryRows.IsValidIndex(ResourceCategoryIndex + 1)
+            && ResourceCategoryRows[ResourceCategoryIndex + 1] <= GridFocus.Y)
+        {
+            ++ResourceCategoryIndex;
+        }
+        SetSavedSetsState(true, SavedSetIndex);
+    }
+
+    void SelectResourceCategory(int32 Index)
     {
         if (ResourceCategoryRows.IsEmpty())
         {
             return;
         }
-        const int32* Next = ResourceCategoryRows.FindByPredicate([this](int32 Row) {
-            return Row > GridFocus.Y && NavigationRows.IsValidIndex(Row);
-        });
-        GridFocus = {0, Next ? *Next : ResourceCategoryRows[0]};
-        RevealResourceSelection();
+        const int32 Selection = FMath::Clamp(Index, 0, ResourceCategoryRows.Num() - 1);
+        if (Selection != ResourceCategoryIndex)
+        {
+            ResourceCategoryIndex = Selection;
+            GridFocus = {0, ResourceCategoryRows[Selection]};
+            if (auto* Grid = NavigationGrid.Get())
+            {
+                Grid->ScrollWidgetIntoView(ResourceCategoryHeadings[Selection].Get(), false,
+                    EDescendantScrollDestination::TopOrLeft);
+            }
+        }
     }
 
     void UpdateGridFocus(float DeltaTime)
@@ -2678,7 +2767,8 @@ private:
             - (FCIInventorySavedSetRows::VisibleCount - 1) * Theme.RowGap) / FCIInventorySavedSetRows::VisibleCount);
         SavedSetsCanvas.Reset(NewObject<UCanvasPanel>());
         auto* Heading = NewObject<UTextBlock>(SavedSetsCanvas.Get());
-        Heading->SetText(SavedSetsLabel(Section));
+        Heading->SetText(Section == ResourcesSection ? NSLOCTEXT("Inventory", "ResourceCategories", "Categories")
+            : SavedSetsLabel(Section));
         Heading->SetFont(Theme.GroupLabelFont);
         Heading->SetColorAndOpacity(FSlateColor(Theme.GroupLabelTint));
         SavedSetsHeadingSlot = SavedSetsCanvas->AddChildToCanvas(Heading);
@@ -2893,11 +2983,15 @@ private:
     TWeakObjectPtr<UWidget> MainContent;
     TWeakObjectPtr<UCFSpanGrid> NavigationGrid;
     TArray<int32> ResourceCategoryRows;
+    TArray<FCIInventorySavedSet> ResourceCategoryEntries;
+    TArray<TWeakObjectPtr<UTextBlock>> ResourceCategoryHeadings;
+    int32 ResourceCategoryIndex = 0;
     TArray<FCIInventoryNavigationRow> NavigationRows;
     FIntPoint GridFocus = FIntPoint::ZeroValue;
     TMap<FName, TPair<FIntPoint, FString>> TabSelections;
     FString PendingSelectionId;
     FCIInventoryNavigationInput NavigationInput;
+    FCIInventoryNavigationInput ResourceTriggerInput;
     TSharedPtr<SWidget> MenuWidget;
     TSharedPtr<SBox> MainRenderRoot;
     TSharedPtr<SCIInventoryActionFooter> FooterWidget;

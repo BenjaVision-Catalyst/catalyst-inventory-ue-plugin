@@ -29,12 +29,13 @@ struct FCIInventorySavedSetRows
     };
 
     // True when the canvas needs new widgets or labels. Animation otherwise only changes layout and opacity.
-    bool Update(TConstArrayView<FCIInventorySavedSet> Sets, int32 Selection, double Now)
+    bool Update(TConstArrayView<FCIInventorySavedSet> Sets, int32 Selection, double Now, bool bShowCreate = true)
     {
+        const int32 Count = Sets.Num() + int32(bShowCreate);
         if (Rows.IsEmpty())
         {
             FirstIndex = FirstVisible(0, Selection);
-            for (int32 Index = 0; Index <= Sets.Num(); ++Index)
+            for (int32 Index = 0; Index < Count; ++Index)
             {
                 auto& Row = Rows.AddDefaulted_GetRef();
                 Row.Index = Index;
@@ -46,17 +47,17 @@ struct FCIInventorySavedSetRows
                 Row.Destination = Index - FirstIndex;
                 Row.From = {Row.Destination, 1.0, Index == Selection ? 1.0 : 0.0};
             }
-            LiveCount = Sets.Num() + 1;
+            LiveCount = Count;
             SelectedIndex = Selection;
             return true;
         }
 
-        const bool bSameList = LiveCount == Sets.Num() + 1 && Algo::AllOf(Rows, [&](const FRow& Row) {
+        const bool bSameList = LiveCount == Count && Algo::AllOf(Rows, [&](const FRow& Row) {
             return Row.Index == INDEX_NONE || Row.bCreate || Row.Set.Identifier == Sets[Row.Index].Identifier;
         });
         int32 NewFirst = FirstVisible(FirstIndex, Selection);
         // When Create moves past the bottom, make room for it and the new row together.
-        if (Sets.Num() == LiveCount && SelectedIndex == LiveCount - 1 && Selection == SelectedIndex)
+        if (bShowCreate && Sets.Num() == LiveCount && SelectedIndex == LiveCount - 1 && Selection == SelectedIndex)
         {
             NewFirst = FirstVisible(NewFirst, Sets.Num());
         }
@@ -84,9 +85,9 @@ struct FCIInventorySavedSetRows
         }
 
         TArray<FRow> Next;
-        Next.Reserve(Sets.Num() + 1);
+        Next.Reserve(Count);
         bool bRemoved = false;
-        for (int32 Index = 0; Index <= Sets.Num(); ++Index)
+        for (int32 Index = 0; Index < Count; ++Index)
         {
             auto& Row = Next.AddDefaulted_GetRef();
             Row.Index = Index;
@@ -117,7 +118,7 @@ struct FCIInventorySavedSetRows
             }
         }
         Rows = MoveTemp(Next);
-        LiveCount = Sets.Num() + 1;
+        LiveCount = Count;
         FirstIndex = NewFirst;
         SelectedIndex = Selection;
         Started = Now;
